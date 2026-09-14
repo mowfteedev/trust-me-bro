@@ -35,23 +35,23 @@ Hệ thống chốt cứng công nghệ: **Frontend (Next.js/React + Tailwind)**
 flowchart TD
     %% TẦNG 1: FRONTEND
     subgraph ClientLayer ["1. TẦNG TRÌNH DUYỆT (FRONTEND WEB CONSOLE)"]
-        UI_Dash["Dashboard 1 Màn Hình Duy Nhất\n- Thẻ trạng thái Node Alpha & Beta (Online/Offline)\n- Biểu đồ sóng CPU & RAM (Rolling Window 20 điểm/node)\n- Nút bấm mở Web Terminal (Modal xterm.js)\n- Bảng tra cứu Lịch sử truy cập (Access Log)"]
+        UI_Dash["Dashboard 1 Màn Hình Duy Nhất<br/>- Thẻ trạng thái Node Alpha & Beta (Online/Offline)<br/>- Biểu đồ sóng CPU & RAM (Rolling Window 20 điểm/node)<br/>- Nút bấm mở Web Terminal (Modal xterm.js)<br/>- Bảng tra cứu Lịch sử truy cập (Access Log)"]
     end
 
     %% TẦNG 2: CONTROL PLANE
     subgraph ControlPlane ["2. CỤM ĐIỀU KHIỂN TRUNG TÂM (GATEWAY BASTION)"]
         direction TB
         subgraph BackendCore ["Backend Core (Node.js + TypeScript + Fastify - RAM ~40MB, CPU < 1-2%)"]
-            AuthModule["Auth & RBAC Middleware\n(Giải mã JWT Claims: role ADMIN / DEVELOPER)"]
-            BastionProxy["Web SSH Bastion Proxy\n(App-layer Handshake WSS <---> Internal SSH ssh2)"]
-            TelemetryIngest["Telemetry Ingestion & Defense-in-Depth\n(Whitelist IP nội bộ 10.8.0.x + Token + Deadman Switch)"]
-            AlertService["Telegram Alert Dispatcher\n(Bắn tin khi CPU > 90% hoặc Timeout 15s)"]
+            AuthModule["Auth & RBAC Middleware<br/>(Giải mã JWT Claims: role ADMIN / DEVELOPER)"]
+            BastionProxy["Web SSH Bastion Proxy<br/>(App-layer Handshake WSS <---> Internal SSH ssh2)"]
+            TelemetryIngest["Telemetry Ingestion & Defense-in-Depth<br/>(Whitelist IP nội bộ 10.8.0.x + Token + Deadman Switch)"]
+            AlertService["Telegram Alert Dispatcher<br/>(Bắn tin khi CPU > 90% hoặc Timeout 15s)"]
         end
 
-        DB[(PostgreSQL 16\n- 4 bảng chuẩn 3NF\n- Dung lượng duy trì < 5MB)]
-        
+        DB[("PostgreSQL 16<br/>- 4 bảng chuẩn 3NF<br/>- Dung lượng duy trì dưới 5MB")]
+
         subgraph WireGuardHub ["Lớp Mạng WireGuard (Single Ingress Point)"]
-            WG0["Interface wg0: 10.8.0.1/24\n(Cổng UDP 51820 - Silent Drop tự nhiên)"]
+            WG0["Interface wg0: 10.8.0.1/24<br/>(Cổng UDP 51820 - Silent Drop tự nhiên)"]
         end
     end
 
@@ -59,12 +59,12 @@ flowchart TD
     subgraph FleetLayer ["3. CỤM MÁY CHỦ CON ĐƯỢC QUẢN LÝ (ZERO INBOUND PORTS)"]
         subgraph NodeAlpha ["Server Alpha (Web App Node - 10.8.0.2)"]
             SSH_A["sshd (Chỉ lắng nghe 10.8.0.2:22)"]
-            Agent_A["Mini Telemetry Agent (~30 dòng Python)\n- Token bảo vệ tại agent.env (chmod 600)\n- Tiêu thụ ~5MB RAM, gửi POST mỗi 5s"]
+            Agent_A["Mini Telemetry Agent (~30 dòng Python)<br/>- Token bảo vệ tại agent.env (chmod 600)<br/>- Tiêu thụ ~5MB RAM, gửi POST mỗi 5s"]
         end
 
         subgraph NodeBeta ["Server Beta (Database Node - 10.8.0.3)"]
             SSH_B["sshd (Chỉ lắng nghe 10.8.0.3:22)"]
-            Agent_B["Mini Telemetry Agent (~30 dòng Python)\n- Token bảo vệ tại agent.env (chmod 600)\n- Tiêu thụ ~5MB RAM, gửi POST mỗi 5s"]
+            Agent_B["Mini Telemetry Agent (~30 dòng Python)<br/>- Token bảo vệ tại agent.env (chmod 600)<br/>- Tiêu thụ ~5MB RAM, gửi POST mỗi 5s"]
         end
     end
 
@@ -74,19 +74,19 @@ flowchart TD
     end
 
     %% LUỒNG TƯƠNG TÁC
-    UI_Dash <==>|HTTP REST API (JWT)| AuthModule
-    UI_Dash <==>|WSS sạch (App-layer Handshake)| BastionProxy
+    UI_Dash <==>|"HTTP REST API (JWT)"| AuthModule
+    UI_Dash <==>|"WSS sạch (App-layer Handshake)"| BastionProxy
 
     AuthModule <--> DB
     TelemetryIngest <--> DB
-    TelemetryIngest -->|Kích hoạt cảnh báo| AlertService
-    AlertService -.->|HTTPS POST API| TelegramApp
+    TelemetryIngest -->|"Kích hoạt cảnh báo"| AlertService
+    AlertService -.->|"HTTPS POST API"| TelegramApp
 
-    BastionProxy ==>|SSH nội bộ (Pin Host Key)| WG0
-    WG0 <===>|Đường hầm mã hóa UDP 51820| FleetLayer
+    BastionProxy ==>|"SSH nội bộ (Pin Host Key)"| WG0
+    WG0 <===>|"Đường hầm mã hóa UDP 51820"| FleetLayer
 
-    Agent_A -.->|POST /api/telemetry (chỉ qua VPN 10.8.0.x)| TelemetryIngest
-    Agent_B -.->|POST /api/telemetry (chỉ qua VPN 10.8.0.x)| TelemetryIngest
+    Agent_A -.->|"POST /api/telemetry (chỉ qua VPN 10.8.0.x)"| TelemetryIngest
+    Agent_B -.->|"POST /api/telemetry (chỉ qua VPN 10.8.0.x)"| TelemetryIngest
 ```
 
 ---
@@ -115,7 +115,7 @@ sequenceDiagram
     Engineer->>UI: Bấm nút "Mở Terminal" (Target: Server Beta)
     UI->>Bastion: Kết nối WebSocket sạch (ws://gateway:8080/ws/terminal)
     Bastion-->>UI: WebSocket Connected (Chưa mở luồng SSH)
-    
+
     rect rgb(240, 248, 255)
     Note over UI,Bastion: LỚP 1: APPLICATION-LAYER HANDSHAKE & RBAC
     UI->>Bastion: Gửi Auth Frame: {"type": "AUTH", "token": "Bearer JWT", "node_id": 2}
