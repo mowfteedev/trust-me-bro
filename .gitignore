@@ -1,0 +1,32 @@
+# Môi trường và Khóa bảo mật
+.env
+*.key
+keys/
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+env/
+venv/
+
+# Node.js / TypeScript
+node_modules/
+dist/
+.npm
+*.tsbuildinfo
+
+# Nhật ký hệ thống và kiểm thử
+*.log
+logs/
+.coverage
+coverage/
+
+# Hệ điều hành & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
