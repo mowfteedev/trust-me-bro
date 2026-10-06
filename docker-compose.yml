@@ -1,0 +1,114 @@
+# ==============================================================================
+# HỆ THỐNG ĐIỀU PHỐI CONTAINER HẠ TẦNG ZT-SERVEROPS (docker-compose.yml)
+# Dự án: ZT-ServerOps (do-an-co-so-nganh)
+# Phụ trách: devops (chủ trì), security, tester
+# ==============================================================================
+
+version: "3.8"
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. CƠ SỞ DỮ LIỆU POSTGRESQL v3.1 (TÍCH HỢP RANGE PARTITIONING)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: zt_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zt_admin
+      POSTGRES_PASSWORD: SecurePassword123!
+      POSTGRES_DB: zt_serverops
+    volumes:
+      - zt_postgres_data:/var/lib/postgresql/data
+      - ./gateway/migrations:/docker-entrypoint-initdb.d:ro
+    networks:
+      - zt_underlay
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zt_admin -d zt_serverops"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 2. TRẠM ĐIỀU HÀNH TRUNG TÂM (CONTROL PLANE GATEWAY)
+  # ----------------------------------------------------------------------------
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: zt_gateway
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://zt_admin:SecurePassword123!@postgres:5432/zt_serverops
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./keys:/app/keys:ro
+      - zt_audit_logs:/app/logs/audit
+    networks:
+      - zt_underlay
+    expose:
+      - "3000"
+
+  # ----------------------------------------------------------------------------
+  # 3. CỔNG BIÊN REVERSE PROXY & TỰ ĐỘNG HÓA TLS (CADDY)
+  # ----------------------------------------------------------------------------
+  proxy:
+    image: caddy:2-alpine
+    container_name: zt_proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "3000:3000"
+    volumes:
+      - ./deploy/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - gateway
+    networks:
+      - zt_underlay
+
+  # ----------------------------------------------------------------------------
+  # 4. MÁY CHỦ CON MÔ PHỎNG (ENDPOINT WORKER NODE ALPHA)
+  # ----------------------------------------------------------------------------
+  node_worker_01:
+    image: python:3.12-alpine
+    container_name: zt_worker_node_01
+    restart: unless-stopped
+    environment:
+      NODE_ID: node-worker-01
+      GATEWAY_URL: http://gateway:3000
+    networks:
+      - zt_underlay
+    command: ["sh", "-c", "echo 'Node worker ready.' && tail -f /dev/null"]
+
+# ------------------------------------------------------------------------------
+# 5. MẠNG NỘI BỘ VÀ KHỐI LƯU TRỮ VĨNH CỬU (NETWORKS & VOLUMES)
+# ------------------------------------------------------------------------------
+networks:
+  zt_underlay:
+    name: zt_underlay_network
+    driver: bridge
+    # LÝ DO PHI TRỰC GIÁC (RATIONALE):
+    # Cấu hình com.docker.network.bridge.enable_icc: "false" vô hiệu hóa hoàn toàn
+    # khả năng giao tiếp ngang hàng giữa các container. Các Worker Node không thể quét
+    # hoặc tấn công trực tiếp sang nhau, triệt tiêu nguy cơ Lateral Movement (BUG-006).
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
+
+volumes:
+  zt_postgres_data:
+    name: zt_postgres_data
+  zt_audit_logs:
+    name: zt_audit_logs
+  caddy_data:
+    name: zt_caddy_data
+  caddy_config:
+    name: zt_caddy_config

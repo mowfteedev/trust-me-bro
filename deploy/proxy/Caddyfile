@@ -1,0 +1,41 @@
+# ==============================================================================
+# CẤU HÌNH REVERSE PROXY & TỰ ĐỘNG QUẢN LÝ TLS CADDY (Caddyfile)
+# Dự án: ZT-ServerOps (do-an-co-so-nganh)
+# Phụ trách: devops (chủ trì), security
+# ==============================================================================
+
+{
+    # Tắt tính năng telemetry của Caddy để bảo mật hạ tầng
+    admin off
+}
+
+# 1. CỔNG TRUY CẬP ĐIỀU HÀNH NỘI BỘ (HTTP PORT 3000)
+:3000 {
+    # Chuyển tiếp toàn bộ yêu cầu REST API và Web Console vào Gateway
+    reverse_proxy gateway:3000 {
+        # Đảm bảo giữ nguyên các HTTP Headers thực tế từ Client
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
+
+# 2. CỔNG BIÊN CÔNG CỘNG BẢO VỆ BẰNG TLS / HTTPS (PORT 80 & 443)
+# CHÚ THÍCH THIẾT LẬP: Thay thế bằng tên miền thực tế khi triển khai có Public IP (ví dụ: gateway.mydomain.com)
+:80, :443 {
+    # Tự động chuyển đổi giao thức WebSocket cho phiên Web SSH PTY Bastion
+    @websockets {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    reverse_proxy @websockets gateway:3000
+
+    # Chuyển tiếp lưu lượng thông thường
+    reverse_proxy gateway:3000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
