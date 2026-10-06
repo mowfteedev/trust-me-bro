@@ -1,0 +1,409 @@
+openapi: 3.0.3
+info:
+  title: ZT-ServerOps Control Plane API
+  description: |
+    Đặc tả giao thức RESTful API chính thức cho Mặt phẳng Điều khiển ZT-ServerOps.
+    Hệ thống vận hành theo nguyên tắc Zero-Trust, phân tầng quyền hạn RBAC nghiêm ngặt giữa ADMIN và VIEWER.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+    description: Môi trường thử nghiệm cục bộ (Local / Development)
+  - url: https://gateway.zt-serverops.local
+    description: Môi trường cổng biên Reverse Proxy TLS (Production)
+
+paths:
+  /api/auth/login:
+    post:
+      summary: Xác thực người dùng và cấp phát JWT Token
+      description: Kiểm tra danh tính người dùng và trả về JWT ký số HMAC-SHA256 chứa vai trò (ADMIN / VIEWER).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Đăng nhập thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Sai thông tin định danh
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/nodes:
+    get:
+      summary: Lấy danh mục toàn bộ Endpoint Hosts
+      description: Trả về danh sách máy chủ kèm trạng thái hoạt động (Healthy, Warning, Offline) và chỉ số tài nguyên mới nhất.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Danh sách máy chủ
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NodeItem'
+        '401':
+          description: Chưa xác thực danh tính
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Đăng ký Endpoint Host mới
+      description: Chỉ dành cho vai trò ADMIN. Cấp phát IP mạng ngầm và chuỗi Token băm định danh.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NodeRegisterRequest'
+      responses:
+        '201':
+          description: Đăng ký thành công, trả về token nhạy cảm (chỉ hiển thị 1 lần duy nhất)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeRegisterResponse'
+        '403':
+          description: Bị từ chối do không đủ quyền hạn ADMIN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/nodes/{id}:
+    get:
+      summary: Lấy thông tin chi tiết của một Endpoint Host
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeDetail'
+        '404':
+          description: Không tìm thấy máy chủ mục tiêu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Thu hồi và gỡ bỏ Endpoint Host
+      description: Chỉ dành cho vai trò ADMIN. Xóa định danh và vô hiệu hóa khóa truy cập.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Gỡ bỏ thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: "Endpoint Host đã được gỡ bỏ khỏi cụm." }
+        '403':
+          description: Không đủ quyền hạn ADMIN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/telemetry:
+    post:
+      summary: Cổng tiếp nhận Telemetry Beacon từ Endpoint Worker Daemon
+      description: |
+        Worker Daemon gửi tín hiệu định kỳ mỗi 3 giây qua mạng ngầm WireGuard.
+        Xác thực bắt buộc qua HTTP Header `X-Node-Token`.
+      security:
+        - NodeTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelemetryBeacon'
+      responses:
+        '200':
+          description: Tải trọng hợp lệ và đã lưu trữ thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "acknowledged" }
+                  timestamp: { type: integer, example: 1712450000000 }
+        '401':
+          description: Token không hợp lệ hoặc sai lệch chữ ký
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Tải trọng sai lệch Schema giao thức (Unprocessable Entity)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/telemetry/history:
+    get:
+      summary: Truy vấn dữ liệu lịch sử đo đạc tài nguyên
+      description: Dành cho giao diện vẽ biểu đồ biến thiên tài nguyên. Hỗ trợ bộ lọc thời gian.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: node_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: duration_minutes
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 60
+            minimum: 5
+            maximum: 1440
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryHistoryResponse'
+
+  /api/alerts:
+    get:
+      summary: Lấy danh sách lịch sử cảnh báo sự cố
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AlertItem'
+
+  /ws/terminal/{node_id}:
+    get:
+      summary: Nâng cấp kết nối WebSocket mở phiên Web SSH PTY Bastion Bridge
+      description: |
+        Chỉ dành riêng cho tài khoản vai trò ADMIN.
+        Yêu cầu truyền Token qua query param: `?token=<JWT_TOKEN>`.
+        Dữ liệu truyền tải là luồng nhị phân hai chiều giữa thư viện xterm.js và SSH daemon máy con.
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            description: JWT Token mang quyền ADMIN
+      responses:
+        '101':
+          description: Chuyển đổi giao thức WebSocket thành công (Switching Protocols)
+        '403':
+          description: Bị chặn kết nối do không có vai trò ADMIN
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Chuỗi JSON Web Token nhận từ endpoint /api/auth/login
+    NodeTokenAuth:
+      type: apiKey
+      in: header
+      name: X-Node-Token
+      description: Khóa bí mật Pre-shared Token của từng Worker Node
+
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          format: password
+          example: SecretPassword123!
+
+    LoginResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: JWT mang chữ ký số HMAC-SHA256
+        user:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            username: { type: string, example: admin }
+            role: { type: string, enum: [ADMIN, VIEWER], example: ADMIN }
+
+    NodeItem:
+      type: object
+      required: [id, name, ip_address, node_type, status, last_seen]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: "node-production-01" }
+        ip_address: { type: string, format: ipv4, example: "10.100.0.2" }
+        node_type: { type: string, enum: [DOCKER, VM, BARE_METAL], example: "VM" }
+        status: { type: string, enum: [HEALTHY, WARNING, OFFLINE], example: "HEALTHY" }
+        last_seen: { type: string, format: date-time }
+        current_metrics:
+          type: object
+          properties:
+            cpu_percent: { type: number, example: 14.5 }
+            ram_percent: { type: number, example: 42.0 }
+            disk_percent: { type: number, example: 68.2 }
+
+    NodeRegisterRequest:
+      type: object
+      required: [name, node_type]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 3, maxLength: 64, example: "node-worker-02" }
+        node_type: { type: string, enum: [DOCKER, VM, BARE_METAL], example: "DOCKER" }
+
+    NodeRegisterResponse:
+      type: object
+      required: [node_id, name, ip_address, plain_token]
+      properties:
+        node_id: { type: string, format: uuid }
+        name: { type: string }
+        ip_address: { type: string }
+        plain_token:
+          type: string
+          description: Khóa bí mật chỉ hiển thị 1 lần để cấu hình vào Agent
+
+    NodeDetail:
+      allOf:
+        - $ref: '#/components/schemas/NodeItem'
+        - type: object
+          properties:
+            uptime_seconds: { type: integer, example: 345600 }
+            network_rx_bytes: { type: integer, example: 104857600 }
+            network_tx_bytes: { type: integer, example: 52428800 }
+
+    TelemetryBeacon:
+      type: object
+      required: [node_id, timestamp, metrics]
+      additionalProperties: false
+      properties:
+        node_id: { type: string }
+        timestamp: { type: integer }
+        metrics:
+          type: object
+          required: [cpu, memory, disk, network, uptime_seconds]
+          properties:
+            cpu:
+              type: object
+              required: [percent]
+              properties:
+                percent: { type: number, minimum: 0.0, maximum: 100.0 }
+                load_avg:
+                  type: array
+                  items: { type: number }
+            memory:
+              type: object
+              required: [total_bytes, used_bytes, percent]
+              properties:
+                total_bytes: { type: integer }
+                used_bytes: { type: integer }
+                percent: { type: number }
+            disk:
+              type: object
+              required: [total_bytes, used_bytes, percent]
+              properties:
+                total_bytes: { type: integer }
+                used_bytes: { type: integer }
+                percent: { type: number }
+            network:
+              type: object
+              required: [rx_bytes_total, tx_bytes_total]
+              properties:
+                rx_bytes_total: { type: integer }
+                tx_bytes_total: { type: integer }
+            uptime_seconds: { type: integer }
+
+    TelemetryHistoryResponse:
+      type: object
+      required: [node_id, points]
+      properties:
+        node_id: { type: string, format: uuid }
+        points:
+          type: array
+          items:
+            type: object
+            properties:
+              recorded_at: { type: string, format: date-time }
+              cpu_percent: { type: number }
+              ram_percent: { type: number }
+              disk_percent: { type: number }
+
+    AlertItem:
+      type: object
+      required: [id, node_id, node_name, severity, message, triggered_at]
+      properties:
+        id: { type: string, format: uuid }
+        node_id: { type: string, format: uuid }
+        node_name: { type: string, example: "node-production-01" }
+        severity: { type: string, enum: [INFO, WARNING, CRITICAL], example: "CRITICAL" }
+        message: { type: string, example: "Mất kết nối Liveness Beacon quá 30 giây" }
+        triggered_at: { type: string, format: date-time }
+
+    ErrorResponse:
+      type: object
+      required: [error, message, statusCode]
+      properties:
+        error: { type: string, example: "Unauthorized" }
+        message: { type: string, example: "Token không hợp lệ hoặc đã hết hạn" }
+        statusCode: { type: integer, example: 401 }

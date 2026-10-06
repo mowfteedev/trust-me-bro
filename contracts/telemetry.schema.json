@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TelemetryBeaconPayload",
+  "description": "Hợp đồng giao thức chuẩn hóa tải trọng Telemetry Beacon gửi từ Endpoint Worker Daemon về Control Plane",
+  "type": "object",
+  "required": [
+    "node_id",
+    "timestamp",
+    "metrics"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "node_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]{3,64}$",
+      "description": "Mã định danh duy nhất của Endpoint Host"
+    },
+    "timestamp": {
+      "type": "integer",
+      "minimum": 1700000000000,
+      "description": "Thời gian phát tín hiệu tính bằng Epoch Milliseconds"
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "cpu",
+        "memory",
+        "disk",
+        "network",
+        "uptime_seconds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "type": "object",
+          "required": ["percent"],
+          "additionalProperties": false,
+          "properties": {
+            "percent": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 100.0,
+              "description": "Tổng tải vi xử lý đo lường vi sai từ /proc/stat"
+            },
+            "load_avg": {
+              "type": "array",
+              "items": { "type": "number", "minimum": 0.0 },
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "Chỉ số tải trung bình hệ thống [1m, 5m, 15m]"
+            }
+          }
+        },
+        "memory": {
+          "type": "object",
+          "required": [
+            "total_bytes",
+            "used_bytes",
+            "percent"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "total_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "used_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "percent": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 100.0
+            }
+          }
+        },
+        "disk": {
+          "type": "object",
+          "required": [
+            "total_bytes",
+            "used_bytes",
+            "percent"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "total_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "used_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "percent": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 100.0
+            }
+          }
+        },
+        "network": {
+          "type": "object",
+          "required": [
+            "rx_bytes_total",
+            "tx_bytes_total"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "rx_bytes_total": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Tổng số bytes nhận qua giao diện mạng"
+            },
+            "tx_bytes_total": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Tổng số bytes truyền qua giao diện mạng"
+            }
+          }
+        },
+        "uptime_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Thời gian hoạt động liên tục của máy chủ"
+        }
+      }
+    }
+  }
+}
