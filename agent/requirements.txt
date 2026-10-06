@@ -1,0 +1,5 @@
+# Thư mục phụ thuộc của Endpoint Worker Daemon
+# LÝ DO PHI TRỰC GIÁC (RATIONALE):
+# Daemon được thiết kế theo tiêu chuẩn Zero-Dependency (chỉ sử dụng thư viện chuẩn của Python:
+# urllib.request, json, os, time) để đảm bảo có thể chạy ngay trên bất kỳ máy chủ Linux nào
+# mà không cần cài đặt pip hay biên dịch thư viện C ngoại vi, duy trì footprint RAM < 15MB.
