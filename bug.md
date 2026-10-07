@@ -26,6 +26,12 @@
 | **BUG-004** | CĐ-15 | Frame PTY `RESIZE` không kẹp biên gây crash tiến trình shell | 🔴 P0 | `code-reviewer`| 🛡️ Đã có giải pháp | `TEST-PTY-CLAMP` |
 | **BUG-005** | CĐ-16 | Tự động gán `chatId` người lạ nhận cảnh báo sự cố On-Call | 🔴 P0 | `security` | 🛡️ Đã có giải pháp | `TEST-TELEGRAM-OTP` |
 | **BUG-006** | CĐ-07 | Container Node giao tiếp ngang hàng trực tiếp qua Docker Bridge | 🟠 P1 | `devops` | 🛡️ Đã có giải pháp | `TEST-ICC-DISABLED` |
+| **BUG-007** | CĐ-07 | Cổng HTTP 3000 mở ra Host vi phạm Zero Trust và thiếu mã hóa TLS | 🔴 P0 | `user` | 🟡 Chờ biểu quyết | `TEST-NO-CLEAR-HTTP` |
+| **BUG-008** | CĐ-07 | Mật khẩu PostgreSQL bị ghi cứng và ghi đè DATABASE_URL trong compose | 🔴 P0 | `code-reviewer`| 🟡 Chờ biểu quyết | `TEST-NO-HARDCODED-PW` |
+| **BUG-009** | CĐ-11 | Kịch bản install.sh chạy Worker Daemon dưới quyền root (UID 0) | 🔴 P0 | `security` | 🟡 Chờ biểu quyết | `TEST-AGENT-NONROOT` |
+| **BUG-010** | CĐ-07 | WireGuard bật MASQUERADE và FORWARD cho phép tấn công Lan ngang | 🔴 P0 | `devops` | 🟡 Chờ biểu quyết | `TEST-WG-NO-MASQ` |
+| **BUG-011** | CĐ-10 | Khóa bí mật NODE_TOKEN fallback chuỗi tĩnh "default-pre-shared-token" | 🟠 P1 | `code-reviewer`| 🟡 Chờ biểu quyết | `TEST-TOKEN-NO-FALLBACK` |
+| **BUG-012** | CĐ-09 | Bộ trích xuất disk.py nuốt lỗi âm thầm và bịa số liệu 100GB / 10% | 🟡 P2 | `tester` | 🟡 Chờ biểu quyết | `TEST-DISK-HONEST-ERR` |
 
 ---
 
@@ -85,6 +91,42 @@ Dưới đây là 6 bẫy mã nguồn đã được bóc tách từ các đợt 
       driver_opts:
         com.docker.network.bridge.enable_icc: "false"
   ```
+
+---
+
+### 7. BUG-007: Cổng HTTP 3000 mở ra Host vi phạm Zero Trust và thiếu mã hóa TLS
+* **Cơ chế lỗi:** `docker-compose.yml` mở cổng `3000:3000` trên toàn bộ interface `0.0.0.0` qua Caddy, cho phép gửi token xác thực qua HTTP dạng bản rõ (Cleartext Sniffing).
+* **Quy chuẩn giải pháp đề xuất:** Đóng hoàn toàn cổng 3000 trên Host, chỉ mở 80 (ACME + redirect) và 443 (TLS 1.3). Xem chi tiết tại [GitHub Issue #2](https://github.com/mowfteedev/trust-me-bro/issues/2).
+
+---
+
+### 8. BUG-008: Mật khẩu PostgreSQL bị ghi cứng và ghi đè DATABASE_URL trong compose
+* **Cơ chế lỗi:** `POSTGRES_PASSWORD: SecurePassword123!` và `DATABASE_URL` bị gán cứng tĩnh trong `docker-compose.yml`, commit lên git (CWE-798) và ghi đè giá trị an toàn trong `.env`.
+* **Quy chuẩn giải pháp đề xuất:** Loại bỏ mật khẩu tĩnh, sinh ngẫu nhiên chuỗi bảo mật qua `init-secrets.sh` và truyền qua biến môi trường.
+
+---
+
+### 9. BUG-009: Kịch bản install.sh chạy Worker Daemon dưới quyền root (UID 0)
+* **Cơ chế lỗi:** Service Systemd trong `agent/install.sh` không cấu hình `User=`, khiến daemon chạy bằng root dù chỉ cần đọc `/proc` (quyền 444), tạo rủi ro chiếm quyền điều khiển host (CWE-250).
+* **Quy chuẩn giải pháp đề xuất:** Tạo user hệ thống không đặc quyền `zt-agent` và khai báo `User=zt-agent` trong file unit.
+
+---
+
+### 10. BUG-010: WireGuard bật MASQUERADE và FORWARD cho phép tấn công Lan ngang
+* **Cơ chế lỗi:** `PostUp` trong `wg0-gateway.conf` sử dụng `iptables -A FORWARD -i %i -j ACCEPT` và `MASQUERADE`, cho phép lưu lượng giữa các worker node đi qua nhau và biến Gateway thành NAT proxy.
+* **Quy chuẩn giải pháp đề xuất:** Xóa bỏ `MASQUERADE`, chặn forward giữa các peer WireGuard, tuân thủ nghiêm ngặt mô hình Hub-and-Spoke.
+
+---
+
+### 11. BUG-011: Khóa bí mật NODE_TOKEN fallback chuỗi tĩnh "default-pre-shared-token"
+* **Cơ chế lỗi:** `config.py` và `install.sh` dùng giá trị mặc định tĩnh, khiến hàm kiểm tra rỗng bị vô hiệu hóa khi người dùng quên truyền token (CWE-1188).
+* **Quy chuẩn giải pháp đề xuất:** Xóa bỏ fallback, kích hoạt Fail-Fast nếu biến `NODE_TOKEN` bị thiếu.
+
+---
+
+### 12. BUG-012: Bộ trích xuất disk.py nuốt lỗi âm thầm và bịa số liệu 100GB / 10%
+* **Cơ chế lỗi:** Khối `except Exception:` trong `collectors/disk.py` tự động trả về `100GB / 10%` khi syscall `statvfs` thất bại, che giấu sự cố hỏng đĩa thực tế khỏi Gateway.
+* **Quy chuẩn giải pháp đề xuất:** Ghi nhận lỗi trung thực và gắn cờ cảnh báo lỗi phần cứng để Gateway kích hoạt cảnh báo CRITICAL.
 
 ---
 
