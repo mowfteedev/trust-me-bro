@@ -19,8 +19,9 @@ export interface AuthUserPayload {
   role: 'ADMIN' | 'VIEWER';
 }
 
-declare module 'fastify' {
-  interface FastifyRequest {
+declare module '@fastify/jwt' {
+  interface FastifyJWT {
+    payload: AuthUserPayload;
     user: AuthUserPayload;
   }
 }

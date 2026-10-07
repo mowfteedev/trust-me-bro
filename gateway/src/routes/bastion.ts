@@ -36,7 +36,8 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       }
 
       const { node_id } = parseResult.data;
-      const ticket = createBastionTicket(node_id, req.user.id);
+      const user = req.user as any;
+      const ticket = createBastionTicket(node_id, user.id);
 
       return reply.status(200).send({
         success: true,
