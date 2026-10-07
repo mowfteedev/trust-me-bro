@@ -167,13 +167,13 @@ export async function attachBastionSession(
 
         // Đẩy luồng dữ liệu từ OpenSSH về trình duyệt qua WebSocket
         stream.on('data', (chunk: Buffer) => {
-          if (socket.readyState === socket.OPEN) {
+          if (socket.readyState === 1) {
             socket.send(JSON.stringify({ type: 'DATA', data: chunk.toString('utf-8') }));
           }
         });
 
         stream.on('close', () => {
-          if (socket.readyState === socket.OPEN) {
+          if (socket.readyState === 1) {
             socket.close(1000, 'Session Closed');
           }
           sshClient.end();
@@ -184,7 +184,7 @@ export async function attachBastionSession(
 
   sshClient.on('error', (err) => {
     console.error(`⚠️ [BASTION WARNING] Sự cố kết nối SSH tới ${targetIp}:`, err.message);
-    if (socket.readyState === socket.OPEN) {
+    if (socket.readyState === 1) {
       socket.send(JSON.stringify({ type: 'ERROR', message: 'Mất kết nối SSH với máy chủ đích' }));
       // Đóng WebSocket an toàn với mã 4502, che giấu chi tiết nhạy cảm
       socket.close(4502, 'SSH Connection Interrupted');

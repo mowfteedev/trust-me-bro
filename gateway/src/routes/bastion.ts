@@ -62,7 +62,7 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
     // Lắng nghe gói tin đầu tiên để xác thực vé One-Time Ticket
     const authTimeout = setTimeout(() => {
       try {
-        if (socket.readyState === (socket.OPEN ?? 1)) {
+        if (socket.readyState === 1) {
           socket.send(JSON.stringify({ type: 'ERROR', message: 'Hết thời gian chờ gửi vé xác thực Handshake' }));
           socket.close(4408, 'Handshake Timeout');
         }
