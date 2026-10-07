@@ -1,4 +1,5 @@
 import os
+import sys
 
 class DiskCollector:
     """
@@ -29,8 +30,9 @@ class DiskCollector:
                 "used_bytes": used_bytes,
                 "percent": max(0.0, min(100.0, percent)),
             }
-        except Exception:
-            # Báo cáo trung thực khi mount point gặp sự cố I/O, không bịa số liệu
+        except Exception as e:
+            # Ghi nhận log cảnh báo trung thực ra stderr thay vì nuốt lỗi âm thầm (BUG-012)
+            sys.stderr.write(f"[WARN DiskCollector] Không thể đọc statvfs trên mount '{self.mount_point}': {str(e)}\n")
             return {
                 "total_bytes": 1,
                 "used_bytes": 0,

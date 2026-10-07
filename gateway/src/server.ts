@@ -5,7 +5,7 @@ import jwt from '@fastify/jwt';
 import websocket from '@fastify/websocket';
 
 import { config } from './config/env.js';
-import { checkDatabaseHealth, closeDatabasePool } from './services/db.js';
+import { checkDatabaseHealth, closeDatabasePool, ensureSeedData } from './services/db.js';
 import { authRoutes } from './routes/auth.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { bastionRoutes } from './routes/bastion.js';
@@ -34,7 +34,6 @@ export async function buildServer(): Promise<FastifyInstance> {
   const fastify = Fastify({
     logger: process.env.NODE_ENV === 'test' ? false : {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-      transport: process.env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
     },
     // Bắt buộc bật trustProxy khi chạy sau Caddy Reverse Proxy
     trustProxy: true,
@@ -101,7 +100,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 6. Đăng ký các nhóm Route chức năng
   await fastify.register(authRoutes, { prefix: '/api/auth' });
   await fastify.register(telemetryRoutes, { prefix: '/api/telemetry' });
+  await fastify.register(telemetryRoutes, { prefix: '/api' }); // Hỗ trợ /api/nodes và /api/nodes/:node_id/history theo openapi.yaml
   await fastify.register(bastionRoutes, { prefix: '/api/bastion' });
+  await fastify.register(bastionRoutes); // Hỗ trợ cả đường dẫn trực tiếp /ws/terminal/:node_id
 
   // 7. Bắt lỗi toàn cục định dạng theo chuẩn RFC-7807 Problem Details
   fastify.setErrorHandler((error, req, reply) => {
@@ -128,6 +129,9 @@ export async function buildServer(): Promise<FastifyInstance> {
 async function start() {
   try {
     const server = await buildServer();
+
+    // Đảm bảo dữ liệu khởi tạo ban đầu (admin, viewer, node-worker-01) đã sẵn sàng
+    await ensureSeedData();
 
     // Khởi động dịch vụ Sweeper chạy nền
     startSweeper();

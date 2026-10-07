@@ -1,10 +1,11 @@
 import React from 'react';
-import { NodeItem, MetricSnapshot } from '../types/index.js';
-import { Server, Terminal, Activity, HardDrive, Cpu, Radio } from 'lucide-react';
+import { NodeItem, MetricSnapshot, UserSession } from '../types/index.js';
+import { Server, Terminal, Activity, HardDrive, Cpu, Radio, ShieldAlert } from 'lucide-react';
 
 interface NodeCardProps {
   node: NodeItem;
   latestMetric?: MetricSnapshot;
+  currentUser?: UserSession | null;
   onOpenTerminal: (node: NodeItem) => void;
   onSelectNode: (node: NodeItem) => void;
   isSelected?: boolean;
@@ -21,6 +22,7 @@ interface NodeCardProps {
 export const NodeCard: React.FC<NodeCardProps> = ({
   node,
   latestMetric,
+  currentUser,
   onOpenTerminal,
   onSelectNode,
   isSelected = false,
@@ -148,17 +150,24 @@ export const NodeCard: React.FC<NodeCardProps> = ({
           Loại: {node.node_type}
         </span>
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenTerminal(node);
-          }}
-          disabled={isOffline}
-          className="min-h-[44px] px-3.5 inline-flex items-center justify-center space-x-1.5 rounded-xl border border-neutral-700 bg-neutral-800/80 text-xs font-medium text-neutral-200 hover:border-cyan-500 hover:bg-cyan-500/10 hover:text-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-        >
-          <Terminal className="h-4 w-4" />
-          <span>Web SSH</span>
-        </button>
+        {currentUser?.role === 'ADMIN' ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenTerminal(node);
+            }}
+            disabled={isOffline}
+            className="min-h-[44px] px-3.5 inline-flex items-center justify-center space-x-1.5 rounded-xl border border-neutral-700 bg-neutral-800/80 text-xs font-medium text-neutral-200 hover:border-cyan-500 hover:bg-cyan-500/10 hover:text-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            title={isOffline ? 'Máy chủ đang Offline' : 'Mở phiên dòng lệnh an toàn Web SSH'}
+          >
+            <Terminal className="h-4 w-4" />
+            <span>Web SSH</span>
+          </button>
+        ) : (
+          <span className="text-[11px] font-mono text-neutral-500 py-2">
+            Chỉ đọc (Viewer)
+          </span>
+        )}
       </div>
     </div>
   );

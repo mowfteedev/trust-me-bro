@@ -64,7 +64,7 @@ class WorkerDaemon:
 
     def dispatch_beacon(self, payload: dict) -> bool:
         """Gửi gói tin HTTP POST tới cổng Ingestion của Gateway."""
-        url = f"{self.config.gateway_url}/api/telemetry"
+        url = f"{self.config.gateway_url}/api/telemetry/beacon"
         data = json.dumps(payload).encode("utf-8")
 
         req = urllib.request.Request(

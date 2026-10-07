@@ -174,7 +174,7 @@ export const App: React.FC = () => {
 
       {/* 2. Nội dung chính (Cluster Overview) */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <ClusterOverview onOpenTerminal={(node) => setSelectedTerminalNode(node)} />
+        <ClusterOverview currentUser={currentUser} onOpenTerminal={(node) => setSelectedTerminalNode(node)} />
       </main>
 
       {/* 3. Footer */}

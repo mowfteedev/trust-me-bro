@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NodeItem, MetricSnapshot, ClusterSummary } from '../types/index.js';
+import { NodeItem, MetricSnapshot, ClusterSummary, UserSession } from '../types/index.js';
 import { NodeCard } from './NodeCard.js';
 import { MetricsChart } from './MetricsChart.js';
 import { api } from '../services/api.js';
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 interface ClusterOverviewProps {
+  currentUser?: UserSession | null;
   onOpenTerminal: (node: NodeItem) => void;
 }
 
@@ -35,7 +36,7 @@ interface ClusterOverviewProps {
  * 4. Success State: Lưới thẻ NodeCard + Biểu đồ MetricsChart phản hồi < 150ms.
  */
 
-export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ onOpenTerminal }) => {
+export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, onOpenTerminal }) => {
   const [nodes, setNodes] = useState<NodeItem[]>([]);
   const [selectedNode, setSelectedNode] = useState<NodeItem | null>(null);
   const [metricsHistory, setMetricsHistory] = useState<MetricSnapshot[]>([]);
@@ -70,17 +71,23 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ onOpenTerminal
     if (!selectedNode) return;
 
     let isCurrent = true;
-    api
-      .getNodeHistory(selectedNode.id)
-      .then((data) => {
-        if (isCurrent) setMetricsHistory(data);
-      })
-      .catch(() => {
-        if (isCurrent) setMetricsHistory([]);
-      });
+    const fetchHistory = () => {
+      api
+        .getNodeHistory(selectedNode.id)
+        .then((data) => {
+          if (isCurrent) setMetricsHistory(data);
+        })
+        .catch(() => {
+          if (isCurrent) setMetricsHistory([]);
+        });
+    };
+
+    fetchHistory();
+    const historyTimer = setInterval(fetchHistory, 3000);
 
     return () => {
       isCurrent = false;
+      clearInterval(historyTimer);
     };
   }, [selectedNode]);
 
@@ -94,13 +101,25 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ onOpenTerminal
   }, []);
 
   // Tính toán tóm tắt số liệu cụm
+  const nodesWithMetrics = nodes.filter((n) => n.latest_metric);
+  const avgCpu = nodesWithMetrics.length > 0
+    ? nodesWithMetrics.reduce((acc, n) => acc + (n.latest_metric?.cpu_percent || 0), 0) / nodesWithMetrics.length
+    : 0;
+  const avgMemory = nodesWithMetrics.length > 0
+    ? nodesWithMetrics.reduce((acc, n) => {
+        const m = n.latest_metric;
+        const pct = (m && m.memory_total_bytes > 0) ? (m.memory_used_bytes / m.memory_total_bytes) * 100 : 0;
+        return acc + pct;
+      }, 0) / nodesWithMetrics.length
+    : 0;
+
   const summary: ClusterSummary = {
     total: nodes.length,
     healthy: nodes.filter((n) => n.status === 'HEALTHY').length,
     warning: nodes.filter((n) => n.status === 'WARNING').length,
     offline: nodes.filter((n) => n.status === 'OFFLINE').length,
-    avgCpu: 0,
-    avgMemory: 0,
+    avgCpu,
+    avgMemory,
   };
 
   const filteredNodes = nodes.filter(
@@ -275,16 +294,20 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ onOpenTerminal
 
       {/* 4.3 Lưới thẻ máy chủ con */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredNodes.map((node) => (
-          <NodeCard
-            key={node.id}
-            node={node}
-            latestMetric={selectedNode?.id === node.id ? metricsHistory[0] : undefined}
-            isSelected={selectedNode?.id === node.id}
-            onSelectNode={(n) => setSelectedNode(n)}
-            onOpenTerminal={onOpenTerminal}
-          />
-        ))}
+        {filteredNodes.map((node) => {
+          const metric = node.latest_metric || (selectedNode?.id === node.id ? metricsHistory[0] : undefined);
+          return (
+            <NodeCard
+              key={node.id}
+              node={node}
+              latestMetric={metric}
+              currentUser={currentUser}
+              isSelected={selectedNode?.id === node.id}
+              onSelectNode={(n) => setSelectedNode(n)}
+              onOpenTerminal={onOpenTerminal}
+            />
+          );
+        })}
       </div>
 
       {/* 4.4 Biểu đồ tài nguyên thời gian thực của máy chủ đang được chọn */}
@@ -295,12 +318,14 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ onOpenTerminal
               <Activity className="h-4 w-4 mr-2 text-cyan-400" />
               Chuỗi thời gian tài nguyên máy chủ: <span className="text-cyan-400 ml-1.5 font-mono">{selectedNode.name}</span>
             </h3>
-            <button
-              onClick={() => onOpenTerminal(selectedNode)}
-              className="text-xs font-mono text-cyan-400 hover:underline flex items-center"
-            >
-              <Terminal className="h-3.5 w-3.5 mr-1" /> Mở Web SSH
-            </button>
+            {currentUser?.role === 'ADMIN' && (
+              <button
+                onClick={() => onOpenTerminal(selectedNode)}
+                className="text-xs font-mono text-cyan-400 hover:underline flex items-center"
+              >
+                <Terminal className="h-3.5 w-3.5 mr-1" /> Mở Web SSH
+              </button>
+            )}
           </div>
           <MetricsChart metrics={metricsHistory} />
         </div>

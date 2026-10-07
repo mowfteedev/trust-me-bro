@@ -48,18 +48,26 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   );
 
   /**
-   * WebSocket /ws/terminal/:node_id
-   * Điểm cuối tương tác luồng nhị phân dòng lệnh hai chiều PTY
+   * WebSocket handler dùng chung cho cả /ws/terminal/:node_id và /api/bastion/ws/terminal/:node_id
    */
-  fastify.get('/ws/terminal/:node_id', { websocket: true }, (connection, req) => {
+  const handleWsTerminal = (connection: any, req: any) => {
     const { node_id } = req.params as { node_id: string };
-    const socket = connection.socket;
+    const socket = connection?.socket || connection;
+
+    if (!socket || typeof socket.on !== 'function') {
+      req.log.error('WebSocket connection không hợp lệ hoặc thiếu đối tượng socket');
+      return;
+    }
 
     // Lắng nghe gói tin đầu tiên để xác thực vé One-Time Ticket
     const authTimeout = setTimeout(() => {
-      if (socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify({ type: 'ERROR', message: 'Hết thời gian chờ gửi vé xác thực Handshake' }));
-        socket.close(4408, 'Handshake Timeout');
+      try {
+        if (socket.readyState === (socket.OPEN ?? 1)) {
+          socket.send(JSON.stringify({ type: 'ERROR', message: 'Hết thời gian chờ gửi vé xác thực Handshake' }));
+          socket.close(4408, 'Handshake Timeout');
+        }
+      } catch {
+        // Ngăn chặn crash tiến trình nếu socket đột ngột bị hủy
       }
     }, 5000);
 
@@ -79,5 +87,9 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         socket.close(4400, 'Bad Request');
       }
     });
-  });
+  };
+
+  // Đăng ký cả hai tuyến đường để nhận diện từ cả Gateway lẫn Dashboard
+  fastify.get('/ws/terminal/:node_id', { websocket: true }, handleWsTerminal);
+  fastify.get('/terminal/:node_id', { websocket: true }, handleWsTerminal);
 };

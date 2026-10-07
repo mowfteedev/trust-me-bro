@@ -71,6 +71,59 @@ export async function checkDatabaseHealth(): Promise<{ healthy: boolean; latency
 }
 
 /**
+ * Tự động đảm bảo dữ liệu định danh mẫu (admin, viewer, node-worker-01) đã sẵn sàng
+ * giúp hệ thống có thể đăng nhập ngay cả khi dùng volume cơ sở dữ liệu cũ
+ */
+export async function ensureSeedData(): Promise<void> {
+  try {
+    // 1. Tạo tài khoản Quản trị viên (ADMIN) mặc định nếu chưa có
+    // Mật khẩu: SecureAdmin2026!
+    await query(`
+      INSERT INTO users (username, password_hash, role, is_active)
+      VALUES (
+        'admin',
+        '7b8761930e6e9030a1678561f5a87cea:9e660af5f8655bc58af3b5b8cbfa5a4a933d63640cdf8413a2d79ba8566f535179a18ec548bf86064645f579b2ac0883dd119d9ef4cd40e27c24acf038829234',
+        'ADMIN',
+        TRUE
+      )
+      ON CONFLICT (username) DO NOTHING;
+    `);
+
+    // 2. Tạo tài khoản Giám sát viên (VIEWER) mặc định nếu chưa có
+    // Mật khẩu: SecureViewer2026!
+    await query(`
+      INSERT INTO users (username, password_hash, role, is_active)
+      VALUES (
+        'viewer',
+        '99b3aba269d84d5f21bf59f235b7bd03:3978dc1577b5881b395900fcbfd080bc2c4978883b60eac17b2934a3a3147a006f3187c7485b63d30c7092faddf7de157bfff7b4ca4a763debff1b7d7218ecfd',
+        'VIEWER',
+        TRUE
+      )
+      ON CONFLICT (username) DO NOTHING;
+    `);
+
+    // 3. Tạo máy chủ con mặc định (node-worker-01) nếu chưa có
+    // Token pre-shared trong docker-compose: secret-token-worker-01
+    await query(`
+      INSERT INTO nodes (name, ip_address, node_type, token_hash, token_prefix, status)
+      VALUES (
+        'node-worker-01',
+        '10.100.0.2',
+        'DOCKER',
+        '10a3ce77a769aabf8361db2ba4aab0af15bdb1352c84f66dea2280049de5cecc',
+        'secret-t',
+        'HEALTHY'
+      )
+      ON CONFLICT (name) DO NOTHING;
+    `);
+
+    console.log('✅ [DATABASE SEED] Dữ liệu mẫu ban đầu (admin, viewer, node-worker-01) đã sẵn sàng.');
+  } catch (err: any) {
+    console.warn('⚠️ [DATABASE SEED] Không thể tự động chèn dữ liệu mẫu (bảng chưa tạo hoặc lỗi khởi tạo):', err.message);
+  }
+}
+
+/**
  * Đóng kết nối an toàn trong quy trình Graceful Shutdown
  */
 export async function closeDatabasePool(): Promise<void> {
