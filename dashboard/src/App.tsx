@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { api } from './services/api.js';
 import { UserSession, NodeItem } from './types/index.js';
 import { ClusterOverview } from './components/ClusterOverview.js';
 import { TerminalModal } from './components/TerminalModal.js';
-import { Shield, ShieldAlert, LogOut, Terminal, Lock, User, Radio, Cpu, ArrowRight } from 'lucide-react';
+import { Shield, ShieldAlert, LogOut, Lock, User, ArrowRight } from 'lucide-react';
 
 /**
  * ==============================================================================

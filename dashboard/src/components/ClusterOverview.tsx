@@ -12,8 +12,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  Radio,
-  Cpu,
   Layers,
   Terminal,
 } from 'lucide-react';

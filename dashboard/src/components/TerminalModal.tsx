@@ -3,8 +3,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { NodeItem } from '../types/index.js';
-import { api } from '../services/api.js';
-import { X, Maximize2, Minimize2, RefreshCw, ShieldCheck, Terminal as TerminalIcon } from 'lucide-react';
+import { X, Maximize2, Minimize2, ShieldCheck, Terminal as TerminalIcon } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 
 interface TerminalModalProps {
@@ -257,6 +256,13 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
             </button>
           </div>
         </div>
+
+        {/* Banner cảnh báo lỗi nếu có */}
+        {errorMessage && (
+          <div className="bg-red-950/40 border-b border-red-500/30 px-4 py-1.5 text-xs font-mono text-red-400">
+            {errorMessage}
+          </div>
+        )}
 
         {/* Khung Terminal Canvas */}
         <div className="relative flex-1 p-3 bg-[#090d16] overflow-hidden">
