@@ -20,11 +20,11 @@
 
 | Mã Bug | Công đoạn | Mô tả tóm tắt sự cố | Mức độ | Phát hiện bởi | Trạng thái | Mã kiểm chứng |
 | :---: | :---: | :--- | :---: | :---: | :---: | :---: |
-| **BUG-001** | CĐ-14 | Truy vấn Telemetry quét toàn bảng $O(N)$ gây nghẽn CPU | 🟠 P1 | `database` | 🛡️ Đã có giải pháp | `TEST-TELEMETRY-O1` |
-| **BUG-002** | CĐ-14 | Fallback chuỗi trần `===` làm vô hiệu hóa chống Timing-Attack | 🟠 P1 | `security` | 🛡️ Đã có giải pháp | `TEST-TIMING-SAFE` |
-| **BUG-003** | CĐ-05 | Lệnh `DELETE` định kỳ gây phình bộ nhớ Dead Tuples (MVCC) | 🟠 P1 | `database` | 🛡️ Đã có giải pháp | `TEST-PARTITION-DROP` |
-| **BUG-004** | CĐ-15 | Frame PTY `RESIZE` không kẹp biên gây crash tiến trình shell | 🔴 P0 | `code-reviewer`| 🛡️ Đã có giải pháp | `TEST-PTY-CLAMP` |
-| **BUG-005** | CĐ-16 | Tự động gán `chatId` người lạ nhận cảnh báo sự cố On-Call | 🔴 P0 | `security` | 🛡️ Đã có giải pháp | `TEST-TELEGRAM-OTP` |
+| **BUG-001** | CĐ-14 | Truy vấn Telemetry quét toàn bảng $O(N)$ gây nghẽn CPU | 🟠 P1 | `database` | 🛡️ Đã vá trên minh-thanh | `TEST-TELEMETRY-O1` |
+| **BUG-002** | CĐ-14 | Fallback chuỗi trần `===` làm vô hiệu hóa chống Timing-Attack | 🟠 P1 | `security` | 🛡️ Đã vá trên minh-thanh | `TEST-TIMING-SAFE` |
+| **BUG-003** | CĐ-05 | Lệnh `DELETE` định kỳ gây phình bộ nhớ Dead Tuples (MVCC) | 🟠 P1 | `database` | 🛡️ Đã vá trên minh-thanh | `TEST-PARTITION-DROP` |
+| **BUG-004** | CĐ-15 | Frame PTY `RESIZE` không kẹp biên gây crash tiến trình shell | 🔴 P0 | `code-reviewer`| 🛡️ Đã vá trên minh-thanh | `TEST-PTY-CLAMP` |
+| **BUG-005** | CĐ-16 | Tự động gán `chatId` người lạ nhận cảnh báo sự cố On-Call | 🔴 P0 | `security` | 🛡️ Đã vá trên minh-thanh | `TEST-TELEGRAM-OTP` |
 | **BUG-006** | CĐ-07 | Tách mạng Zero Trust zt_ingress_net & zt_internal_net thay vì icc | 🟠 P1 | `devops` | 🛡️ Đã vá trên minh-thanh | `TEST-NET-SEGREGATE` |
 | **BUG-007** | CĐ-07 | Cổng HTTP 3000 mở ra Host vi phạm Zero Trust và thiếu mã hóa TLS | 🔴 P0 | `user` | 🛡️ Đã vá trên minh-thanh | `TEST-NO-CLEAR-HTTP` |
 | **BUG-008** | CĐ-07 | Mật khẩu PostgreSQL bị ghi cứng và ghi đè DATABASE_URL trong compose | 🔴 P0 | `code-reviewer`| 🛡️ Đã vá trên minh-thanh | `TEST-NO-HARDCODED-PW` |
