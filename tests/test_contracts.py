@@ -168,15 +168,7 @@ class VisualTestRunner:
         total = 21
         spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         sys.stdout.write("\n")
-        for i in range(1, total + 1):
-            spin = spinners[i % len(spinners)]
-            progress = int((i / total) * 32)
-            bar = f"{GREEN}{'━' * progress}{DIM}{'┄' * (32 - progress)}{RESET}"
-            pct = int((i / total) * 100)
-            sys.stdout.write(f"\r  {CYAN}{spin}{RESET}  Đang kiểm thử hệ thống: [{bar}] {BOLD}{pct}%{RESET} ({i:02d}/{total} TC)")
-            sys.stdout.flush()
-            time.sleep(0.01)
-        sys.stdout.write(f"\r  {GREEN}✔{RESET}  Hoàn tất kiểm thử tự động: [{GREEN}{'━' * 32}{RESET}] {BOLD}100%{RESET} (21/21 TC)\n\n")
+        sys.stdout.write(f"  {GREEN}✔{RESET}  Hoàn tất kiểm thử tự động: [{GREEN}{'━' * 32}{RESET}] {BOLD}100%{RESET} (21/21 TC)\n\n")
         sys.stdout.flush()
 
     def render_table(self):

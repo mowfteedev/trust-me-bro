@@ -64,16 +64,8 @@ class VisualInfraTestRunner:
         pct_passed = int((passed_count / total) * 100) if total > 0 else 0
         spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         sys.stdout.write("\n")
-        for i in range(1, total + 1):
-            spin = spinners[i % len(spinners)]
-            progress = int((i / total) * 32)
-            bar = f"{GREEN}{'━' * progress}{DIM}{'┄' * (32 - progress)}{RESET}"
-            pct = int((i / total) * 100)
-            sys.stdout.write(f"\r  {CYAN}{spin}{RESET}  Đang kiểm thử hạ tầng & CSDL: [{bar}] {BOLD}{pct}%{RESET} ({i:02d}/{total} TC)")
-            sys.stdout.flush()
-            time.sleep(0.01)
         tag = f"{GREEN}✔{RESET}" if passed_count == total else f"{RED}✖{RESET}"
-        sys.stdout.write(f"\r  {tag}  Hoàn tất kiểm thử hạ tầng & CSDL: [{GREEN}{'━' * 32}{RESET}] {BOLD}{pct_passed}%{RESET} ({passed_count:02d}/{total:02d} TC)\n\n")
+        sys.stdout.write(f"  {tag}  Hoàn tất kiểm thử hạ tầng & CSDL: [{GREEN}{'━' * 32}{RESET}] {BOLD}{pct_passed}%{RESET} ({passed_count:02d}/{total:02d} TC)\n\n")
         sys.stdout.flush()
 
     def render_table(self):
