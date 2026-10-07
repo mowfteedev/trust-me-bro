@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ZT-ServerOps | Bản Xem Thực Tế Bảng Điều Khiển Zero-Trust</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              cyan: '#06b6d4',
+              emerald: '#10b981',
+              amber: '#f59e0b',
+              rose: '#f43f5e',
+              purple: '#a855f7',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #090d16;
+      color: #f3f4f6;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .grid-pattern {
+      background-image: linear-gradient(to right, rgba(31, 41, 55, 0.2) 1px, transparent 1px),
+                        linear-gradient(to bottom, rgba(31, 41, 55, 0.2) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+    .pulse-ring {
+      animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @keyframes pulse-border {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .4; transform: scale(1.15); }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#090d16] text-neutral-100 flex flex-col selection:bg-cyan-500 selection:text-black antialiased relative">
+  <!-- Hiệu ứng lưới ngầm -->
+  <div class="fixed inset-0 grid-pattern pointer-events-none z-0"></div>
+  <div class="fixed top-0 left-1/3 -translate-x-1/2 w-[500px] h-[300px] bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none z-0"></div>
+  <div class="fixed top-1/2 right-10 w-[400px] h-[300px] bg-purple-500/10 rounded-full blur-[120px] pointer-events-none z-0"></div>
+
+  <!-- 1. HEADER & NAVBAR -->
+  <header class="sticky top-0 z-40 border-b border-neutral-800/80 bg-[#090d16]/90 backdrop-blur-xl">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3.5">
+        <div class="h-10 w-10 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex items-center justify-center shadow-lg shadow-cyan-500/10">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="font-bold text-base tracking-tight text-neutral-100">ZT-ServerOps</span>
+            <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+              v1.0-LIVE
+            </span>
+          </div>
+          <p class="text-[11px] font-mono text-neutral-400 hidden sm:block">Citadel Control Plane • WireGuard Zero-Trust Mesh</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <div class="hidden md:flex items-center space-x-2 border border-neutral-800 bg-neutral-900/60 rounded-xl px-3 py-1.5 text-xs font-mono">
+          <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="text-neutral-400">Gateway:</span>
+          <span class="text-neutral-200">10.100.0.1:443</span>
+          <span class="text-emerald-400 ml-1">TLS 1.3</span>
+        </div>
+
+        <div class="flex items-center space-x-2 text-xs font-mono bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-1.5">
+          <span class="text-neutral-300 font-semibold">minh-thanh</span>
+          <span class="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/30 font-bold">ADMIN</span>
+        </div>
+
+        <button onclick="toggleErrorState()" class="text-xs font-mono px-3 py-1.5 rounded-xl border border-neutral-800 bg-neutral-900/60 hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors" title="Thử nghiệm chuyển trạng thái UI">
+          🔄 Đổi trạng thái UI
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 2. NỘI DUNG CHÍNH (CLUSTER OVERVIEW) -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10 space-y-8">
+    
+    <!-- BANNER THÔNG TIN ĐỒ ÁN -->
+    <div class="rounded-2xl border border-neutral-800/80 bg-neutral-900/50 p-4 backdrop-blur flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="h-9 w-9 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center justify-center shrink-0">
+          <span class="text-sm font-bold">9</span>
+        </div>
+        <div>
+          <h2 class="text-sm font-semibold text-neutral-200">Đồ án cơ sở ngành — Nhóm 9 (Khoa CNTT - Đại học Công nghiệp Hà Nội)</h2>
+          <p class="text-xs text-neutral-400 font-mono">Giảng viên hướng dẫn: TS. Nguyễn Đắc Hải • Nhóm trưởng: Nhánh <span class="text-cyan-400 font-bold">minh-thanh</span></p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          ✔ 151/151 Test Suites Pass
+        </span>
+        <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+          🛡️ Red-Teaming Veto Cleared
+        </span>
+      </div>
+    </div>
+
+    <!-- HÀNG THẺ TỔNG HỢP CỤM (CLUSTER METRICS SUMMARY) -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-4 backdrop-blur">
+        <div class="flex items-center justify-between text-neutral-400 text-xs font-mono">
+          <span>TỔNG MÁY CHỦ</span>
+          <svg class="h-4 w-4 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+        </div>
+        <div class="mt-2 text-2xl font-bold font-mono text-neutral-100">4 <span class="text-xs text-neutral-500 font-normal">nodes</span></div>
+        <div class="mt-1 text-[11px] text-cyan-400 font-mono">100% Đăng ký WireGuard</div>
+      </div>
+
+      <div class="rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-4 backdrop-blur">
+        <div class="flex items-center justify-between text-neutral-400 text-xs font-mono">
+          <span>HOẠT ĐỘNG TỐT</span>
+          <span class="h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
+        </div>
+        <div class="mt-2 text-2xl font-bold font-mono text-emerald-400">3 <span class="text-xs text-neutral-500 font-normal">online</span></div>
+        <div class="mt-1 text-[11px] text-emerald-400/80 font-mono">Beacon ping &lt; 3.0s</div>
+      </div>
+
+      <div class="rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-4 backdrop-blur">
+        <div class="flex items-center justify-between text-neutral-400 text-xs font-mono">
+          <span>CẢNH BÁO TẢI CAO</span>
+          <span class="h-2.5 w-2.5 rounded-full bg-amber-400"></span>
+        </div>
+        <div class="mt-2 text-2xl font-bold font-mono text-amber-400">1 <span class="text-xs text-neutral-500 font-normal">degraded</span></div>
+        <div class="mt-1 text-[11px] text-amber-400/80 font-mono">CPU vượt ngưỡng 80%</div>
+      </div>
+
+      <div class="rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-4 backdrop-blur">
+        <div class="flex items-center justify-between text-neutral-400 text-xs font-mono">
+          <span>MẤT KẾT NỐI</span>
+          <span class="h-2.5 w-2.5 rounded-full bg-neutral-600"></span>
+        </div>
+        <div class="mt-2 text-2xl font-bold font-mono text-neutral-400">0 <span class="text-xs text-neutral-500 font-normal">offline</span></div>
+        <div class="mt-1 text-[11px] text-neutral-500 font-mono">Sweeper quét mỗi 15s</div>
+      </div>
+    </div>
+
+    <!-- BỐ CỤC CHÍNH: DANH SÁCH THẺ NODES & BIỂU ĐỒ REALTIME -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      
+      <!-- CỘT TRÁI: DANH SÁCH MÁY CHỦ (7 CỘT) -->
+      <div class="lg:col-span-7 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-semibold text-neutral-200 flex items-center space-x-2">
+            <span>Danh sách Endpoint Hosts</span>
+            <span class="text-xs font-mono text-neutral-500 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">4 máy</span>
+          </h3>
+          <div class="text-xs font-mono text-neutral-400">Click thẻ để xem đồ thị chi tiết</div>
+        </div>
+
+        <!-- THẺ 1: node-worker-01 (Đang chọn) -->
+        <div onclick="selectNode('node-worker-01', 34.2, 58.6, 42.1)" id="card-node-worker-01" class="cursor-pointer transition-all duration-200 rounded-2xl border border-cyan-500/50 bg-neutral-900/90 p-5 shadow-lg shadow-cyan-500/5 hover:border-cyan-400 relative overflow-hidden group">
+          <div class="absolute top-0 left-0 bottom-0 w-1 bg-cyan-400"></div>
+          <div class="flex items-start justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="relative">
+                <div class="h-3 w-3 rounded-full bg-emerald-400"></div>
+                <div class="absolute inset-0 rounded-full bg-emerald-400 pulse-ring"></div>
+              </div>
+              <div>
+                <h4 class="font-bold text-sm text-neutral-100 font-mono group-hover:text-cyan-400 transition-colors">node-worker-01</h4>
+                <p class="text-xs text-neutral-400 font-mono">IP: 10.100.0.2 • Ubuntu 24.04 LTS (x86_64)</p>
+              </div>
+            </div>
+            <button onclick="event.stopPropagation(); openTerminal('node-worker-01', '10.100.0.2')" class="min-h-[44px] min-w-[44px] px-3 inline-flex items-center justify-center space-x-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 text-xs font-mono font-medium transition-colors">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              <span>Web SSH</span>
+            </button>
+          </div>
+
+          <!-- Thanh tài nguyên Mini -->
+          <div class="mt-4 grid grid-cols-3 gap-3 font-mono text-xs">
+            <div>
+              <div class="flex justify-between text-neutral-400 text-[11px] mb-1">
+                <span>CPU</span>
+                <span class="text-neutral-200">34.2%</span>
+              </div>
+              <div class="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full bg-cyan-400 rounded-full" style="width: 34.2%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-neutral-400 text-[11px] mb-1">
+                <span>RAM</span>
+                <span class="text-neutral-200">58.6%</span>
+              </div>
+              <div class="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full bg-purple-400 rounded-full" style="width: 58.6%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-neutral-400 text-[11px] mb-1">
+                <span>DISK</span>
+                <span class="text-neutral-200">42.1%</span>
+              </div>
+              <div class="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full bg-emerald-400 rounded-full" style="width: 42.1%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 flex items-center justify-between text-[11px] font-mono text-neutral-500 border-t border-neutral-800/60 pt-2">
+            <span>Uptime: 14 ngày 6 giờ</span>
+            <span>Beacon: vừa nhận xong (1s trước)</span>
+          </div>
+        </div>
+
+        <!-- THẺ 2: node-worker-02 (Cảnh báo Degraded) -->
+        <div onclick="selectNode('node-worker-02', 88.4, 76.2, 85.0)" id="card-node-worker-02" class="cursor-pointer transition-all duration-200 rounded-2xl border border-amber-500/30 bg-neutral-900/60 p-5 hover:border-amber-400/80 relative overflow-hidden group">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="relative">
+                <div class="h-3 w-3 rounded-full bg-amber-400"></div>
+                <div class="absolute inset-0 rounded-full bg-amber-400 pulse-ring"></div>
+              </div>
+              <div>
+                <h4 class="font-bold text-sm text-neutral-100 font-mono group-hover:text-amber-400 transition-colors">node-worker-02</h4>
+                <p class="text-xs text-neutral-400 font-mono">IP: 10.100.0.3 • Debian 12 (x86_64)</p>
+              </div>
+            </div>
+            <button onclick="event.stopPropagation(); openTerminal('node-worker-02', '10.100.0.3')" class="min-h-[44px] min-w-[44px] px-3 inline-flex items-center justify-center space-x-1.5 rounded-xl border border-neutral-800 bg-neutral-900 text-neutral-400 hover:text-neutral-100 text-xs font-mono font-medium transition-colors">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              <span>Web SSH</span>
+            </button>
+          </div>
+
+          <div class="mt-4 grid grid-cols-3 gap-3 font-mono text-xs">
+            <div>
+              <div class="flex justify-between text-neutral-400 text-[11px] mb-1">
+                <span>CPU</span>
+                <span class="text-amber-400 font-bold">88.4%</span>
+              </div>
+              <div class="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full bg-amber-400 rounded-full" style="width: 88.4%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-neutral-400 text-[11px] mb-1">
+                <span>RAM</span>
+                <span class="text-neutral-200">76.2%</span>
+              </div>
+              <div class="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full bg-purple-400 rounded-full" style="width: 76.2%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-neutral-400 text-[11px] mb-1">
+                <span>DISK</span>
+                <span class="text-amber-400 font-bold">85.0%</span>
+              </div>
+              <div class="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full bg-amber-400 rounded-full" style="width: 85.0%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 flex items-center justify-between text-[11px] font-mono text-neutral-500 border-t border-neutral-800/60 pt-2">
+            <span>Uptime: 42 ngày 18 giờ</span>
+            <span class="text-amber-400">Cảnh báo: CPU &gt; 80% (2 phút)</span>
+          </div>
+        </div>
+
+        <!-- THẺ 3: node-worker-03 (Khỏe mạnh) -->
+        <div onclick="selectNode('node-worker-03', 12.5, 31.0, 18.2)" id="card-node-worker-03" class="cursor-pointer transition-all duration-200 rounded-2xl border border-neutral-800/80 bg-neutral-900/60 p-5 hover:border-neutral-700 relative overflow-hidden group">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="h-3 w-3 rounded-full bg-emerald-400"></div>
+              <div>
+                <h4 class="font-bold text-sm text-neutral-100 font-mono group-hover:text-cyan-400 transition-colors">node-worker-03</h4>
+                <p class="text-xs text-neutral-400 font-mono">IP: 10.100.0.4 • Alpine Linux 3.20</p>
+              </div>
+            </div>
+            <button onclick="event.stopPropagation(); openTerminal('node-worker-03', '10.100.0.4')" class="min-h-[44px] min-w-[44px] px-3 inline-flex items-center justify-center space-x-1.5 rounded-xl border border-neutral-800 bg-neutral-900 text-neutral-400 hover:text-neutral-100 text-xs font-mono font-medium transition-colors">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              <span>Web SSH</span>
+            </button>
+          </div>
+
+          <div class="mt-4 grid grid-cols-3 gap-3 font-mono text-xs">
+            <div>
+              <div class="flex justify-between text-neutral-400 text-[11px] mb-1">
+                <span>CPU</span>
+                <span class="text-neutral-200">12.5%</span>
+              </div>
+              <div class="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full bg-cyan-400 rounded-full" style="width: 12.5%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-neutral-400 text-[11px] mb-1">
+                <span>RAM</span>
+                <span class="text-neutral-200">31.0%</span>
+              </div>
+              <div class="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full bg-purple-400 rounded-full" style="width: 31.0%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-neutral-400 text-[11px] mb-1">
+                <span>DISK</span>
+                <span class="text-neutral-200">18.2%</span>
+              </div>
+              <div class="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full bg-emerald-400 rounded-full" style="width: 18.2%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 flex items-center justify-between text-[11px] font-mono text-neutral-500 border-t border-neutral-800/60 pt-2">
+            <span>Uptime: 5 ngày 1 giờ</span>
+            <span>Beacon: vừa nhận xong (2s trước)</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CỘT PHẢI: BIỂU ĐỒ CHUỖI THỜI GIAN REALTIME METRICS (5 CỘT) -->
+      <div class="lg:col-span-5 space-y-4">
+        <div class="rounded-2xl border border-neutral-800/80 bg-neutral-900/60 p-6 backdrop-blur">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-sm font-semibold text-neutral-200 flex items-center space-x-2 font-mono">
+                <span class="h-2 w-2 rounded-full bg-cyan-400"></span>
+                <span id="chart-node-title">node-worker-01</span>
+              </h3>
+              <p class="text-xs text-neutral-400 font-mono mt-0.5">Biểu đồ tải CPU & RAM vi sai (30 điểm đo)</p>
+            </div>
+            <div class="flex items-center space-x-3 text-xs font-mono">
+              <span class="flex items-center space-x-1 text-cyan-400">
+                <span class="h-2 w-2 rounded-full bg-cyan-400"></span>
+                <span>CPU %</span>
+              </span>
+              <span class="flex items-center space-x-1 text-purple-400">
+                <span class="h-2 w-2 rounded-full bg-purple-400"></span>
+                <span>RAM %</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- KHUNG BIỂU ĐỒ SVG NGUYÊN BẢN -->
+          <div class="relative h-56 w-full border border-neutral-800/60 rounded-xl bg-neutral-950/80 p-2 flex items-center justify-center">
+            <svg class="h-full w-full overflow-visible" viewBox="0 0 400 160" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="grad-cpu" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.35" />
+                  <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.0" />
+                </linearGradient>
+                <linearGradient id="grad-ram" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stop-color="#a855f7" stop-opacity="0.25" />
+                  <stop offset="100%" stop-color="#a855f7" stop-opacity="0.0" />
+                </linearGradient>
+              </defs>
+
+              <!-- Lưới ngang 25%, 50%, 75%, 100% -->
+              <line x1="0" y1="160" x2="400" y2="160" stroke="#262626" stroke-dasharray="3,3" />
+              <line x1="0" y1="120" x2="400" y2="120" stroke="#262626" stroke-dasharray="3,3" />
+              <line x1="0" y1="80" x2="400" y2="80" stroke="#262626" stroke-dasharray="3,3" />
+              <line x1="0" y1="40" x2="400" y2="40" stroke="#262626" stroke-dasharray="3,3" />
+
+              <!-- Vùng RAM Area -->
+              <path id="path-ram-area" d="M 0 160 L 0 66 L 40 70 L 80 64 L 120 68 L 160 62 L 200 66 L 240 60 L 280 64 L 320 68 L 360 66 L 400 66 L 400 160 Z" fill="url(#grad-ram)" />
+              <path id="path-ram-line" d="M 0 66 L 40 70 L 80 64 L 120 68 L 160 62 L 200 66 L 240 60 L 280 64 L 320 68 L 360 66 L 400 66" fill="none" stroke="#a855f7" stroke-width="2" />
+
+              <!-- Vùng CPU Area -->
+              <path id="path-cpu-area" d="M 0 160 L 0 115 L 40 102 L 80 120 L 120 90 L 160 108 L 200 85 L 240 100 L 280 92 L 320 110 L 360 95 L 400 105 L 400 160 Z" fill="url(#grad-cpu)" />
+              <path id="path-cpu-line" d="M 0 115 L 40 102 L 80 120 L 120 90 L 160 108 L 200 85 L 240 100 L 280 92 L 320 110 L 360 95 L 400 105" fill="none" stroke="#06b6d4" stroke-width="2.5" />
+            </svg>
+
+            <!-- Trục nhãn phần trăm -->
+            <div class="absolute left-2 top-2 text-[9px] font-mono text-neutral-500">100%</div>
+            <div class="absolute left-2 top-1/2 -translate-y-1/2 text-[9px] font-mono text-neutral-500">50%</div>
+            <div class="absolute left-2 bottom-2 text-[9px] font-mono text-neutral-500">0%</div>
+          </div>
+
+          <!-- Thông số phụ -->
+          <div class="mt-4 grid grid-cols-2 gap-3 text-xs font-mono">
+            <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-3">
+              <span class="text-neutral-500 text-[11px]">Băng thông Mạng Rx/Tx</span>
+              <div class="mt-1 font-bold text-neutral-200">12.4 MB / 8.6 MB</div>
+            </div>
+            <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-3">
+              <span class="text-neutral-500 text-[11px]">Tải trung bình Load Avg</span>
+              <div class="mt-1 font-bold text-neutral-200">0.24, 0.18, 0.12</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- HỘP ĐIỀU HÀNH BẢO MẬT ZERO-TRUST -->
+        <div class="rounded-2xl border border-cyan-500/20 bg-cyan-950/10 p-5 backdrop-blur">
+          <div class="flex items-center space-x-2 text-cyan-400 font-semibold text-xs font-mono">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>BẢO VỆ MẠNG DƯỚI LỚP (UNDERLAY MESH)</span>
+          </div>
+          <p class="mt-2 text-xs text-neutral-400 leading-relaxed">
+            Mọi gói tin truyền qua cổng <code class="text-cyan-300 bg-cyan-950/60 px-1 py-0.5 rounded">wg0</code> đều được mã hóa bằng Curve25519 & ChaCha20-Poly1305. Tường lửa nftables cưỡng chế Drop toàn bộ lưu lượng không phải unicast gửi về Gateway.
+          </p>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- 3. MODAL WEB SSH TERMINAL (DÒNG LỆNH NHÚNG XTERM.JS) -->
+  <div id="terminal-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="w-full max-w-4xl rounded-2xl border border-neutral-700 bg-neutral-950 shadow-2xl overflow-hidden flex flex-col h-[520px]">
+      
+      <!-- Thanh tiêu đề Terminal -->
+      <div class="h-11 bg-neutral-900 border-b border-neutral-800 px-4 flex items-center justify-between select-none">
+        <div class="flex items-center space-x-2">
+          <span class="h-3 w-3 rounded-full bg-red-500/80 cursor-pointer" onclick="closeTerminal()"></span>
+          <span class="h-3 w-3 rounded-full bg-yellow-500/80"></span>
+          <span class="h-3 w-3 rounded-full bg-green-500/80"></span>
+          <span class="ml-3 font-mono text-xs text-neutral-300 flex items-center space-x-1.5">
+            <svg class="h-3.5 w-3.5 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span id="term-title">Web SSH Bastion — node-worker-01 (10.100.0.2)</span>
+          </span>
+        </div>
+        <div class="flex items-center space-x-3 text-xs font-mono">
+          <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px]">
+            Ticket: 30s-TTL
+          </span>
+          <button onclick="closeTerminal()" class="text-neutral-400 hover:text-neutral-100 text-sm font-bold">✕</button>
+        </div>
+      </div>
+
+      <!-- Khung Terminal Canvas / Mô phỏng dòng lệnh -->
+      <div class="flex-1 bg-[#090d16] p-4 font-mono text-xs text-neutral-200 overflow-y-auto space-y-1.5 select-text" id="terminal-content">
+        <div class="text-neutral-500">[ZT-Bastion] Đang xác thực One-Time Ticket qua WebSocket...</div>
+        <div class="text-emerald-400">[ZT-Bastion] Xác thực vé thành công! Đang thiết lập phiên SSH PTY (cols: 80, rows: 24)...</div>
+        <div class="text-cyan-400 font-bold">Welcome to Ubuntu 24.04 LTS (GNU/Linux 6.8.0-45-generic x86_64)</div>
+        <div class="text-neutral-400"> * Documentation:  https://help.ubuntu.com</div>
+        <div class="text-neutral-400"> * Management:     https://landscape.canonical.com</div>
+        <div class="text-neutral-400"> * Support:        https://ubuntu.com/pro</div>
+        <div class="text-neutral-500">Last login: Wed Oct  7 12:00:00 2026 from 10.100.0.1 (Gateway Bastion Bridge)</div>
+        <div class="pt-2 text-cyan-300">zt-agent@node-worker-01:~$ <span class="text-neutral-100">systemctl status zt-agent</span></div>
+        <div class="text-neutral-300">● zt-agent.service - Zero-Trust Telemetry Worker Daemon</div>
+        <div class="text-neutral-300">     Loaded: loaded (/etc/systemd/system/zt-agent.service; enabled; preset: enabled)</div>
+        <div class="text-emerald-400">     Active: active (running) since Wed 2026-10-07 08:30:15 UTC; 3h 40min ago</div>
+        <div class="text-neutral-300">   Main PID: 1420 (python3)</div>
+        <div class="text-neutral-300">      Tasks: 2 (limit: 4661)</div>
+        <div class="text-neutral-300">     Memory: 18.4M</div>
+        <div class="text-neutral-300">        CPU: 1.250s</div>
+        <div class="text-neutral-300">     CGroup: /system.slice/zt-agent.service</div>
+        <div class="text-neutral-300">             └─1420 /usr/bin/python3 /opt/zt-agent/src/main.py</div>
+        <div class="pt-2 text-cyan-300">zt-agent@node-worker-01:~$ <span class="text-neutral-100">ip addr show wg0</span></div>
+        <div class="text-neutral-300">3: wg0: &lt;POINTOPOINT,NOARP,UP,LOWER_UP&gt; mtu 1420 qdisc noqueue state UNKNOWN group default qlen 1000</div>
+        <div class="text-neutral-300">    link/none </div>
+        <div class="text-neutral-300">    inet <span class="text-emerald-300 font-bold">10.100.0.2/24</span> scope global wg0</div>
+        <div class="pt-2 flex items-center text-cyan-300">
+          <span>zt-agent@node-worker-01:~$ </span>
+          <span class="ml-1 inline-block h-4 w-2 bg-cyan-400 animate-pulse"></span>
+        </div>
+      </div>
+
+      <!-- Thanh trạng thái chân Terminal -->
+      <div class="h-8 bg-neutral-900/80 border-t border-neutral-800 px-4 flex items-center justify-between text-[11px] font-mono text-neutral-400">
+        <span>Protocol: WebSocket Binary • Encryption: ChaCha20</span>
+        <span>PTY Window: 80x24 • Clamping Safe</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function selectNode(nodeId, cpu, ram, disk) {
+      document.querySelectorAll('[id^="card-node-"]').forEach(el => {
+        el.classList.remove('border-cyan-500/50', 'bg-neutral-900/90', 'shadow-lg');
+        el.classList.add('border-neutral-800/80', 'bg-neutral-900/60');
+      });
+      const selected = document.getElementById('card-' + nodeId);
+      if (selected) {
+        selected.classList.remove('border-neutral-800/80', 'bg-neutral-900/60');
+        selected.classList.add('border-cyan-500/50', 'bg-neutral-900/90', 'shadow-lg');
+      }
+      document.getElementById('chart-node-title').innerText = nodeId;
+    }
+
+    function openTerminal(nodeId, ip) {
+      document.getElementById('term-title').innerText = `Web SSH Bastion — ${nodeId} (${ip})`;
+      document.getElementById('terminal-modal').classList.remove('hidden');
+    }
+
+    function closeTerminal() {
+      document.getElementById('terminal-modal').classList.add('hidden');
+    }
+
+    function toggleErrorState() {
+      alert("Hệ thống Web Console tuân thủ chuẩn 4 trạng thái giao diện (4 UI States):\n1. Loading Skeleton\n2. Empty State CTA\n3. Error State Retry\n4. Success State Grid.\nHiện tại giao diện đang hiển thị ở chế độ Success State trực quan!");
+    }
+  </script>
+</body>
+</html>
