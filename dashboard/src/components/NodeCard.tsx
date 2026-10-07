@@ -1,6 +1,6 @@
 import React from 'react';
 import { NodeItem, MetricSnapshot, UserSession } from '../types/index.js';
-import { Server, Terminal, Activity, HardDrive, Cpu, Radio, ShieldAlert } from 'lucide-react';
+import { Server, Terminal, Activity, HardDrive, Cpu, Radio } from 'lucide-react';
 
 interface NodeCardProps {
   node: NodeItem;
