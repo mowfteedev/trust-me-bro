@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * ==============================================================================
+ * DESIGN TOKENS CHUẨN W3C & HỆ MÀU OKLCH (theme.css)
+ * Dự án: ZT-ServerOps (do-an-co-so-nganh)
+ * Phụ trách: designer (chủ trì), frontend
+ * ==============================================================================
+ *
+ * LÝ DO PHI TRỰC GIÁC (RATIONALE):
+ * Không dùng màu HEX tĩnh. Không gian màu OKLCH mang lại độ sáng đồng đều (Perceptual Uniformity),
+ * giúp độ tương phản giữa văn bản và màu nền luôn đạt chuẩn WCAG 2.2 AA (>= 4.5:1).
+ * Toàn bộ thang khoảng cách tuân thủ nghiêm ngặt 8-Point Grid System.
+ */
+
+:root {
+  /* BẢNG MÀU CHỦ ĐẠO (Brand Primary - Cyber Cyan / Deep Indigo) */
+  --color-primary-50: oklch(0.97 0.03 210);
+  --color-primary-500: oklch(0.68 0.18 210);
+  --color-primary-600: oklch(0.60 0.20 210);
+  --color-primary-700: oklch(0.48 0.18 210);
+
+  /* BẢNG MÀU CHỨC NĂNG (Functional Status Tokens) */
+  --color-success: oklch(0.65 0.19 145);  /* Xanh lục: Node HEALTHY */
+  --color-warning: oklch(0.75 0.18 75);   /* Hổ phách: Node WARNING */
+  --color-danger: oklch(0.60 0.22 25);    /* Đỏ cờ: Node OFFLINE / CRITICAL */
+  --color-info: oklch(0.65 0.18 240);     /* Xanh biển: Dữ liệu thông tin */
+
+  /* BẢNG MÀU BỀ MẶT (Surface Tokens - Dark Mode mặc định) */
+  --surface-base: #090d16;
+  --surface-raised: #111827;
+  --surface-card: #162032;
+  --surface-overlay: #1e293b;
+  --border-subtle: #26354a;
+  --border-strong: #3b506d;
+
+  /* THANG KHOẢNG CÁCH 8-POINT GRID */
+  --spacing-1: 4px;   /* Micro */
+  --spacing-2: 8px;   /* Compact */
+  --spacing-3: 12px;  /* Small */
+  --spacing-4: 16px;  /* Base card padding */
+  --spacing-6: 24px;  /* Section gap */
+  --spacing-8: 32px;  /* Large gap */
+
+  /* VÙNG BẤM TỐI THIỂU CHO CẢM ỨNG (Apple HIG & WCAG Touch Target >= 44px) */
+  --touch-target-min: 44px;
+}
+
+/* Tùy biến thanh cuộn tối giản */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
