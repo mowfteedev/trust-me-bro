@@ -25,13 +25,13 @@
 | **BUG-003** | CĐ-05 | Lệnh `DELETE` định kỳ gây phình bộ nhớ Dead Tuples (MVCC) | 🟠 P1 | `database` | 🛡️ Đã có giải pháp | `TEST-PARTITION-DROP` |
 | **BUG-004** | CĐ-15 | Frame PTY `RESIZE` không kẹp biên gây crash tiến trình shell | 🔴 P0 | `code-reviewer`| 🛡️ Đã có giải pháp | `TEST-PTY-CLAMP` |
 | **BUG-005** | CĐ-16 | Tự động gán `chatId` người lạ nhận cảnh báo sự cố On-Call | 🔴 P0 | `security` | 🛡️ Đã có giải pháp | `TEST-TELEGRAM-OTP` |
-| **BUG-006** | CĐ-07 | Container Node giao tiếp ngang hàng trực tiếp qua Docker Bridge | 🟠 P1 | `devops` | 🛡️ Đã có giải pháp | `TEST-ICC-DISABLED` |
-| **BUG-007** | CĐ-07 | Cổng HTTP 3000 mở ra Host vi phạm Zero Trust và thiếu mã hóa TLS | 🔴 P0 | `user` | 🟡 Chờ biểu quyết | `TEST-NO-CLEAR-HTTP` |
-| **BUG-008** | CĐ-07 | Mật khẩu PostgreSQL bị ghi cứng và ghi đè DATABASE_URL trong compose | 🔴 P0 | `code-reviewer`| 🟡 Chờ biểu quyết | `TEST-NO-HARDCODED-PW` |
-| **BUG-009** | CĐ-11 | Kịch bản install.sh chạy Worker Daemon dưới quyền root (UID 0) | 🔴 P0 | `security` | 🟡 Chờ biểu quyết | `TEST-AGENT-NONROOT` |
-| **BUG-010** | CĐ-07 | WireGuard bật MASQUERADE và FORWARD cho phép tấn công Lan ngang | 🔴 P0 | `devops` | 🟡 Chờ biểu quyết | `TEST-WG-NO-MASQ` |
-| **BUG-011** | CĐ-10 | Khóa bí mật NODE_TOKEN fallback chuỗi tĩnh "default-pre-shared-token" | 🟠 P1 | `code-reviewer`| 🟡 Chờ biểu quyết | `TEST-TOKEN-NO-FALLBACK` |
-| **BUG-012** | CĐ-09 | Bộ trích xuất disk.py nuốt lỗi âm thầm và bịa số liệu 100GB / 10% | 🟡 P2 | `tester` | 🟡 Chờ biểu quyết | `TEST-DISK-HONEST-ERR` |
+| **BUG-006** | CĐ-07 | Tách mạng Zero Trust zt_ingress_net & zt_internal_net thay vì icc | 🟠 P1 | `devops` | 🛡️ Đã vá trên minh-thanh | `TEST-NET-SEGREGATE` |
+| **BUG-007** | CĐ-07 | Cổng HTTP 3000 mở ra Host vi phạm Zero Trust và thiếu mã hóa TLS | 🔴 P0 | `user` | 🛡️ Đã vá trên minh-thanh | `TEST-NO-CLEAR-HTTP` |
+| **BUG-008** | CĐ-07 | Mật khẩu PostgreSQL bị ghi cứng và ghi đè DATABASE_URL trong compose | 🔴 P0 | `code-reviewer`| 🛡️ Đã vá trên minh-thanh | `TEST-NO-HARDCODED-PW` |
+| **BUG-009** | CĐ-11 | Kịch bản install.sh chạy Worker Daemon dưới quyền root (UID 0) | 🔴 P0 | `security` | 🛡️ Đã vá trên minh-thanh | `TEST-AGENT-NONROOT` |
+| **BUG-010** | CĐ-07 | WireGuard bật MASQUERADE và FORWARD cho phép tấn công Lan ngang | 🔴 P0 | `devops` | 🛡️ Đã vá trên minh-thanh | `TEST-WG-NO-MASQ` |
+| **BUG-011** | CĐ-10 | Khóa bí mật NODE_TOKEN fallback chuỗi tĩnh "default-pre-shared-token" | 🟠 P1 | `code-reviewer`| 🛡️ Đã vá trên minh-thanh | `TEST-TOKEN-NO-FALLBACK` |
+| **BUG-012** | CĐ-09 | Bộ trích xuất disk.py nuốt lỗi âm thầm và bịa số liệu 100GB / 10% | 🟡 P2 | `tester` | 🛡️ Đã vá trên minh-thanh | `TEST-DISK-HONEST-ERR` |
 
 ---
 
