@@ -7,6 +7,8 @@
 {
     # Tắt tính năng telemetry của Caddy để bảo mật hạ tầng
     admin off
+    # Tắt tạo redirect ngầm trên port 80 để tránh xung đột với block :80 thủ công
+    auto_https disable_redirects
 }
 
 # 1. CỔNG TIẾP NHẬN HTTP (PORT 80)
@@ -17,9 +19,9 @@
 }
 
 # 2. CỔNG BIÊN CÔNG CỘNG BẢO VỆ BẰNG TLS / HTTPS (PORT 443)
-# Định danh tường minh localhost và 127.0.0.1 để Caddy phát hành chứng chỉ nội bộ tự động
-localhost:443, 127.0.0.1:443 {
-    # Kích hoạt CA nội bộ cho localhost và IP cục bộ
+# Định danh tường minh localhost, 127.0.0.1 và [::1] để Caddy phát hành chứng chỉ nội bộ tự động
+localhost:443, 127.0.0.1:443, [::1]:443 {
+    # Kích hoạt CA nội bộ cho localhost, IPv4 và IPv6 loopback
     tls internal
 
     # Tự động chuyển đổi giao thức WebSocket cho phiên Web SSH PTY Bastion
