@@ -28,13 +28,20 @@
   --color-danger: oklch(0.60 0.22 25);    /* Đỏ cờ: Node OFFLINE / CRITICAL */
   --color-info: oklch(0.65 0.18 240);     /* Xanh biển: Dữ liệu thông tin */
 
-  /* BẢNG MÀU BỀ MẶT (Surface Tokens - Dark Mode mặc định) */
-  --surface-base: #090d16;
-  --surface-raised: #111827;
-  --surface-card: #162032;
-  --surface-overlay: #1e293b;
-  --border-subtle: #26354a;
-  --border-strong: #3b506d;
+  /* BẢNG MÀU BỀ MẶT (Surface Tokens) */
+  --surface-base: #f8fafc;
+  --surface-raised: #ffffff;
+  --surface-card: #ffffff;
+  --surface-overlay: #f1f5f9;
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  /* DIRECTADMIN EVOLUTION PALETTE (LIGHT THEME) */
+  --da-dock-blue: #0284c7;
+  --da-bg-light: #f8fafc;
+  --da-card-bg: #ffffff;
+  --da-text-main: #0f172a;
+  --da-text-muted: #64748b;
 
   /* THANG KHOẢNG CÁCH 8-POINT GRID */
   --spacing-1: 4px;   /* Micro */
@@ -46,6 +53,16 @@
 
   /* VÙNG BẤM TỐI THIỂU CHO CẢM ỨNG (Apple HIG & WCAG Touch Target >= 44px) */
   --touch-target-min: 44px;
+}
+
+/* Chế độ Dark Mode tùy chọn */
+.dark {
+  --surface-base: #090d16;
+  --surface-raised: #111827;
+  --surface-card: #162032;
+  --surface-overlay: #1e293b;
+  --border-subtle: #26354a;
+  --border-strong: #3b506d;
 }
 
 /* Tùy biến thanh cuộn tối giản */

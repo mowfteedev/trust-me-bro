@@ -42,29 +42,29 @@ export const NodeCard: React.FC<NodeCardProps> = ({
   return (
     <div
       onClick={() => onSelectNode(node)}
-      className={`group relative flex flex-col justify-between rounded-2xl border p-5 transition-all duration-200 cursor-pointer ${
+      className={`group relative flex flex-col justify-between rounded-2xl border p-5 transition-all duration-200 cursor-pointer shadow-xs ${
         isSelected
-          ? 'border-cyan-500 bg-neutral-900 shadow-lg shadow-cyan-500/10'
-          : 'border-neutral-800 bg-neutral-900/60 hover:border-neutral-700 hover:bg-neutral-900'
+          ? 'border-sky-500 bg-sky-50/40 dark:bg-slate-900/90 dark:border-sky-500 ring-2 ring-sky-500/20 shadow-md'
+          : 'border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/70 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md'
       }`}
     >
       {/* 1. Phần tiêu đề và định danh Node */}
       <div>
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-3">
-            <div className={`rounded-xl p-2.5 ${
-              isHealthy ? 'bg-emerald-500/10 text-emerald-400' :
-              isWarning ? 'bg-amber-500/10 text-amber-400' :
-              'bg-red-500/10 text-red-400'
+            <div className={`rounded-xl p-2.5 transition-colors ${
+              isHealthy ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' :
+              isWarning ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400' :
+              'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400'
             }`}>
               <Server className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-neutral-100 group-hover:text-cyan-400 transition-colors">
+              <h3 className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
                 {node.name}
               </h3>
-              <p className="font-mono text-xs text-neutral-400 flex items-center mt-0.5">
-                <Radio className="h-3 w-3 mr-1 text-neutral-500" />
+              <p className="font-mono text-xs text-slate-500 dark:text-slate-400 flex items-center mt-0.5">
+                <Radio className="h-3 w-3 mr-1 text-slate-400 dark:text-slate-500" />
                 {node.ip_address}
               </p>
             </div>
@@ -73,34 +73,34 @@ export const NodeCard: React.FC<NodeCardProps> = ({
           {/* Huy hiệu trạng thái Liveness */}
           <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium font-mono border ${
             isHealthy
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+              ? 'border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'
               : isWarning
-              ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
-              : 'border-red-500/30 bg-red-500/10 text-red-400'
+              ? 'border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
+              : 'border-rose-200 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400'
           }`}>
             <span className={`mr-1.5 h-1.5 w-1.5 rounded-full ${
-              isHealthy ? 'bg-emerald-400 animate-pulse' :
-              isWarning ? 'bg-amber-400' : 'bg-red-400'
+              isHealthy ? 'bg-emerald-500 animate-pulse' :
+              isWarning ? 'bg-amber-500' : 'bg-rose-500'
             }`} />
             {node.status}
           </span>
         </div>
 
-        {/* 2. Chỉ số phần cứng thu nhỏ (Mini Progress Bars) */}
+        {/* 2. Chỉ số phần cứng thu nhỏ (Mini Resource Bars - Phong cách DirectAdmin mỏng & thanh lịch) */}
         <div className="mt-5 space-y-3">
           {/* CPU */}
           <div>
-            <div className="flex justify-between text-xs font-mono text-neutral-400 mb-1">
-              <span className="flex items-center">
-                <Cpu className="h-3.5 w-3.5 mr-1 text-neutral-500" /> CPU
+            <div className="flex justify-between text-xs font-mono text-slate-500 dark:text-slate-400 mb-1">
+              <span className="flex items-center font-medium">
+                <Cpu className="h-3.5 w-3.5 mr-1 text-slate-400 dark:text-slate-500" /> CPU
               </span>
-              <span className="text-neutral-200 font-semibold">{cpuPercent}%</span>
+              <span className="text-slate-700 dark:text-slate-200 font-semibold">{cpuPercent}%</span>
             </div>
-            <div className="h-1.5 w-full rounded-full bg-neutral-800 overflow-hidden">
+            <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 ${
-                  Number(cpuPercent) > 85 ? 'bg-red-500' :
-                  Number(cpuPercent) > 60 ? 'bg-amber-500' : 'bg-cyan-500'
+                  Number(cpuPercent) > 85 ? 'bg-rose-500' :
+                  Number(cpuPercent) > 60 ? 'bg-amber-500' : 'bg-sky-500'
                 }`}
                 style={{ width: `${Math.min(100, Math.max(0, Number(cpuPercent) || 0))}%` }}
               />
@@ -109,16 +109,16 @@ export const NodeCard: React.FC<NodeCardProps> = ({
 
           {/* RAM */}
           <div>
-            <div className="flex justify-between text-xs font-mono text-neutral-400 mb-1">
-              <span className="flex items-center">
-                <Activity className="h-3.5 w-3.5 mr-1 text-neutral-500" /> RAM
+            <div className="flex justify-between text-xs font-mono text-slate-500 dark:text-slate-400 mb-1">
+              <span className="flex items-center font-medium">
+                <Activity className="h-3.5 w-3.5 mr-1 text-slate-400 dark:text-slate-500" /> RAM
               </span>
-              <span className="text-neutral-200 font-semibold">{memPercent}%</span>
+              <span className="text-slate-700 dark:text-slate-200 font-semibold">{memPercent}%</span>
             </div>
-            <div className="h-1.5 w-full rounded-full bg-neutral-800 overflow-hidden">
+            <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 ${
-                  Number(memPercent) > 85 ? 'bg-red-500' :
+                  Number(memPercent) > 85 ? 'bg-rose-500' :
                   Number(memPercent) > 70 ? 'bg-amber-500' : 'bg-emerald-500'
                 }`}
                 style={{ width: `${Math.min(100, Math.max(0, Number(memPercent) || 0))}%` }}
@@ -128,15 +128,15 @@ export const NodeCard: React.FC<NodeCardProps> = ({
 
           {/* Disk */}
           <div>
-            <div className="flex justify-between text-xs font-mono text-neutral-400 mb-1">
-              <span className="flex items-center">
-                <HardDrive className="h-3.5 w-3.5 mr-1 text-neutral-500" /> Disk
+            <div className="flex justify-between text-xs font-mono text-slate-500 dark:text-slate-400 mb-1">
+              <span className="flex items-center font-medium">
+                <HardDrive className="h-3.5 w-3.5 mr-1 text-slate-400 dark:text-slate-500" /> Disk
               </span>
-              <span className="text-neutral-200 font-semibold">{diskPercent}%</span>
+              <span className="text-slate-700 dark:text-slate-200 font-semibold">{diskPercent}%</span>
             </div>
-            <div className="h-1.5 w-full rounded-full bg-neutral-800 overflow-hidden">
+            <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
               <div
-                className="h-full bg-purple-500 transition-all duration-500"
+                className="h-full bg-indigo-500 dark:bg-indigo-400 transition-all duration-500"
                 style={{ width: `${Math.min(100, Math.max(0, Number(diskPercent) || 0))}%` }}
               />
             </div>
@@ -145,8 +145,8 @@ export const NodeCard: React.FC<NodeCardProps> = ({
       </div>
 
       {/* 3. Nút mở Web SSH Terminal (Chuẩn Touch Target >= 44x44px) */}
-      <div className="mt-5 pt-4 border-t border-neutral-800/80 flex items-center justify-between">
-        <span className="text-[11px] font-mono text-neutral-500">
+      <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+        <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">
           Loại: {node.node_type}
         </span>
 
@@ -157,14 +157,14 @@ export const NodeCard: React.FC<NodeCardProps> = ({
               onOpenTerminal(node);
             }}
             disabled={isOffline}
-            className="min-h-[44px] px-3.5 inline-flex items-center justify-center space-x-1.5 rounded-xl border border-neutral-700 bg-neutral-800/80 text-xs font-medium text-neutral-200 hover:border-cyan-500 hover:bg-cyan-500/10 hover:text-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="min-h-[44px] px-4 inline-flex items-center justify-center space-x-1.5 rounded-xl border border-sky-200 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/40 text-xs font-semibold text-sky-700 dark:text-sky-300 hover:bg-sky-600 hover:text-white dark:hover:bg-sky-500 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-xs"
             title={isOffline ? 'Máy chủ đang Offline' : 'Mở phiên dòng lệnh an toàn Web SSH'}
           >
             <Terminal className="h-4 w-4" />
             <span>Web SSH</span>
           </button>
         ) : (
-          <span className="text-[11px] font-mono text-neutral-500 py-2">
+          <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 py-2">
             Chỉ đọc (Viewer)
           </span>
         )}
