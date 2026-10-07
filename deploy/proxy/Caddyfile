@@ -17,9 +17,9 @@
 }
 
 # 2. CỔNG BIÊN CÔNG CỘNG BẢO VỆ BẰNG TLS / HTTPS (PORT 443)
-# Hỗ trợ tự cấp chứng chỉ nội bộ khi chạy localhost/dev, và ACME khi có domain thật
-:443 {
-    # Kích hoạt CA nội bộ cho localhost nếu chưa có Public Domain
+# Định danh tường minh localhost và 127.0.0.1 để Caddy phát hành chứng chỉ nội bộ tự động
+localhost:443, 127.0.0.1:443 {
+    # Kích hoạt CA nội bộ cho localhost và IP cục bộ
     tls internal
 
     # Tự động chuyển đổi giao thức WebSocket cho phiên Web SSH PTY Bastion
