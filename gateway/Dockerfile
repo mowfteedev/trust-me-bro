@@ -27,18 +27,16 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Tạo nhóm và người dùng không đặc quyền (Non-root User) có UID/GID 10001
-RUN addgroup -g 10001 -S appgroup && adduser -u 10001 -S appuser -G appgroup
-
-# Khởi tạo trước thư mục lưu trữ log kiểm toán và cấp quyền sở hữu cho appuser
-RUN mkdir -p /app/logs/audit /app/keys && chown -R appuser:appgroup /app/logs /app/keys
+# Sử dụng người dùng không đặc quyền node (UID/GID 1000) sẵn có trong node:20-alpine
+# để đồng bộ quyền hạn với host filesystem (tránh lỗi EACCES với keys chmod 600/700)
+RUN mkdir -p /app/logs/audit /app/keys && chown -R node:node /app/logs /app/keys
 
 # Sao chép các tệp đã biên dịch và node_modules tối giản từ tầng builder
-COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
-COPY --from=builder --chown=appuser:appgroup /app/dist ./dist
-COPY --from=builder --chown=appuser:appgroup /app/package.json ./package.json
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/package.json ./package.json
 
-USER appuser
+USER node
 
 EXPOSE 3000
 
