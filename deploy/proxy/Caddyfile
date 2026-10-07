@@ -29,8 +29,19 @@
     }
     reverse_proxy @websockets gateway:3000
 
-    # Chuyển tiếp lưu lượng REST API và Web Dashboard vào Gateway
-    reverse_proxy gateway:3000 {
+    # Chuyển tiếp API và Health Probes vào Gateway Control Plane
+    @backend {
+        path /api/* /healthz /readyz
+    }
+    reverse_proxy @backend gateway:3000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Mặc định chuyển tiếp toàn bộ lưu lượng giao diện người dùng vào Web Console SPA
+    reverse_proxy dashboard:80 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}

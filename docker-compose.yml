@@ -1,7 +1,7 @@
 # ==============================================================================
-# HỆ THỐNG ĐIỀU PHỐI CONTAINER HẠ TẦNG ZT-SERVEROPS (docker-compose.yml)
+# HỆ THỐNG ĐIỀU PHỐI TOÀN BỘ CỤM CONTAINER ZT-SERVEROPS (docker-compose.yml)
 # Dự án: ZT-ServerOps (do-an-co-so-nganh)
-# Phụ trách: devops (chủ trì), security, tester
+# Phụ trách: devops (chủ trì), security, tech-lead
 # ==============================================================================
 
 services:
@@ -54,7 +54,21 @@ services:
       - "3000"
 
   # ----------------------------------------------------------------------------
-  # 3. CỔNG BIÊN REVERSE PROXY & TỰ ĐỘNG HÓA TLS (CADDY)
+  # 3. BẢNG ĐIỀU KHIỂN GIAO DIỆN WEB CONSOLE (REACT 19 SPA)
+  # ----------------------------------------------------------------------------
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: zt_dashboard
+    restart: unless-stopped
+    networks:
+      - zt_ingress_net
+    expose:
+      - "80"
+
+  # ----------------------------------------------------------------------------
+  # 4. CỔNG BIÊN REVERSE PROXY & TỰ ĐỘNG HÓA TLS (CADDY)
   # ----------------------------------------------------------------------------
   proxy:
     image: caddy:2-alpine
@@ -69,28 +83,35 @@ services:
       - caddy_config:/config
     depends_on:
       - gateway
+      - dashboard
     networks:
       - zt_ingress_net
 
   # ----------------------------------------------------------------------------
-  # 4. MÁY CHỦ CON MÔ PHỎNG (ENDPOINT WORKER NODE ALPHA)
+  # 5. MÁY CHỦ CON MÔ PHỎNG PHÁT SÓNG THỰC TẾ (WORKER DAEMON AGENT)
   # ----------------------------------------------------------------------------
   node_worker_01:
-    image: python:3.12-alpine
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
     container_name: zt_worker_node_01
     restart: unless-stopped
     environment:
       NODE_ID: node-worker-01
+      NODE_TOKEN: ${NODE_TOKEN_01:-secret-token-worker-01}
       GATEWAY_URL: http://gateway:3000
+      BEACON_INTERVAL_SECONDS: "3.0"
+      JITTER_RATIO: "0.1"
+    depends_on:
+      - gateway
     networks:
-      - zt_worker_net
-    command: ["sh", "-c", "echo 'Node worker ready.' && tail -f /dev/null"]
+      - zt_ingress_net
 
 # ------------------------------------------------------------------------------
-# 5. MẠNG NỘI BỘ VÀ KHỐI LƯU TRỮ VĨNH CỬU (NETWORKS & VOLUMES)
+# 6. MẠNG NỘI BỘ VÀ KHỐI LƯU TRỮ VĨNH CỬU (NETWORKS & VOLUMES)
 # ------------------------------------------------------------------------------
 networks:
-  # Mạng biên tiếp nhận lưu lượng từ Caddy chuyển tiếp vào Gateway
+  # Mạng biên tiếp nhận lưu lượng từ Caddy chuyển tiếp vào Gateway & Dashboard
   zt_ingress_net:
     name: zt_ingress_net
     driver: bridge
@@ -100,11 +121,6 @@ networks:
     name: zt_internal_net
     driver: bridge
     internal: true
-
-  # Mạng cô lập dành riêng cho Worker Nodes mô phỏng
-  zt_worker_net:
-    name: zt_worker_net
-    driver: bridge
 
 volumes:
   zt_postgres_data:
