@@ -9,21 +9,19 @@
     admin off
 }
 
-# 1. CỔNG TRUY CẬP ĐIỀU HÀNH NỘI BỘ (HTTP PORT 3000)
-:3000 {
-    # Chuyển tiếp toàn bộ yêu cầu REST API và Web Console vào Gateway
-    reverse_proxy gateway:3000 {
-        # Đảm bảo giữ nguyên các HTTP Headers thực tế từ Client
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-    }
+# 1. CỔNG TIẾP NHẬN HTTP (PORT 80)
+# Tự động giải quyết ACME HTTP-01 challenge của Let's Encrypt và chuyển hướng 100% sang HTTPS
+:80 {
+    # Tự động redirect toàn bộ yêu cầu sang HTTPS (308 Permanent Redirect)
+    redir https://{host}{uri} permanent
 }
 
-# 2. CỔNG BIÊN CÔNG CỘNG BẢO VỆ BẰNG TLS / HTTPS (PORT 80 & 443)
-# CHÚ THÍCH THIẾT LẬP: Thay thế bằng tên miền thực tế khi triển khai có Public IP (ví dụ: gateway.mydomain.com)
-:80, :443 {
+# 2. CỔNG BIÊN CÔNG CỘNG BẢO VỆ BẰNG TLS / HTTPS (PORT 443)
+# Hỗ trợ tự cấp chứng chỉ nội bộ khi chạy localhost/dev, và ACME khi có domain thật
+:443 {
+    # Kích hoạt CA nội bộ cho localhost nếu chưa có Public Domain
+    tls internal
+
     # Tự động chuyển đổi giao thức WebSocket cho phiên Web SSH PTY Bastion
     @websockets {
         header Connection *Upgrade*
@@ -31,7 +29,7 @@
     }
     reverse_proxy @websockets gateway:3000
 
-    # Chuyển tiếp lưu lượng thông thường
+    # Chuyển tiếp lưu lượng REST API và Web Dashboard vào Gateway
     reverse_proxy gateway:3000 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}

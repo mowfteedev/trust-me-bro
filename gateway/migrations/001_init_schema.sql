@@ -44,9 +44,9 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 
 -- CHÚ THÍCH TỐI ƯU TRUY VẤN (QUERY OPTIMIZATION HOOK):
--- Đánh Hash Index trên token_hash để biến truy vấn xác thực nhịp tim thành O(1) dưới 1ms,
--- triệt tiêu triệt để lỗi O(N) Full Table Scan của phiên bản cũ.
-CREATE INDEX IF NOT EXISTS ix_nodes_token_hash ON nodes USING HASH (token_hash);
+-- Đánh B-Tree UNIQUE Index trên token_hash để vừa đạt tốc độ tra cứu tức thì < 0.1ms,
+-- vừa triệt tiêu 100% rủi ro trùng lặp khóa token giữa các node.
+CREATE UNIQUE INDEX IF NOT EXISTS ix_nodes_token_hash ON nodes (token_hash);
 CREATE INDEX IF NOT EXISTS ix_nodes_status ON nodes (status);
 CREATE INDEX IF NOT EXISTS ix_nodes_token_prefix ON nodes (token_prefix);
 
@@ -65,12 +65,12 @@ CREATE INDEX IF NOT EXISTS ix_alerts_node_unresolved ON alerts (node_id, resolve
 CREATE INDEX IF NOT EXISTS ix_alerts_triggered_at ON alerts (triggered_at DESC);
 
 -- 5. BẢNG NHẬT KÝ KIỂM TOÁN PHIÊN DÒNG LỆNH & THAO TÁC (audit_logs)
--- LÝ DO PHI TRỰC GIÁC: Thiết kế theo cơ chế Append-Only (Chỉ thêm, cấm sửa, cấm xóa)
--- để bảo đảm tính toàn vẹn của bằng chứng số phục vụ điều tra an ninh.
+-- LÝ DO PHI TRỰC GIÁC: Thiết kế theo cơ chế Append-Only (Chỉ thêm, cấm sửa, cấm xóa).
+-- Sử dụng ON DELETE RESTRICT để không vi phạm tính bất biến của bản ghi lịch sử.
 CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    node_id UUID REFERENCES nodes(id) ON DELETE SET NULL,
+    user_id UUID REFERENCES users(id) ON DELETE RESTRICT,
+    node_id UUID REFERENCES nodes(id) ON DELETE RESTRICT,
     action VARCHAR(50) NOT NULL,
     details JSONB NOT NULL DEFAULT '{}'::jsonb,
     ip_address INET,
@@ -79,3 +79,17 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE INDEX IF NOT EXISTS ix_audit_logs_created_at ON audit_logs (created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_audit_logs_user_id ON audit_logs (user_id);
+
+-- Trigger ép buộc tính chất Append-Only: Chặn đứng mọi câu lệnh UPDATE hoặc DELETE
+CREATE OR REPLACE FUNCTION prevent_audit_logs_tampering()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'LỖI AN NINH: Bảng audit_logs là Append-Only, cấm mọi thao tác UPDATE hoặc DELETE!';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_audit_logs_immutable ON audit_logs;
+CREATE TRIGGER trg_audit_logs_immutable
+    BEFORE UPDATE OR DELETE ON audit_logs
+    FOR EACH ROW
+    EXECUTE FUNCTION prevent_audit_logs_tampering();

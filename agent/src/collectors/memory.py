@@ -23,7 +23,7 @@ class MemoryCollector:
             except Exception:
                 pass
 
-        total_bytes = mem_info.get("MemTotal", 1024 * 1024 * 1024)
+        total_bytes = mem_info.get("MemTotal", 1)
         if "MemAvailable" in mem_info:
             available_bytes = mem_info["MemAvailable"]
         else:

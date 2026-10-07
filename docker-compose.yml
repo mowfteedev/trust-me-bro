@@ -4,8 +4,6 @@
 # Phụ trách: devops (chủ trì), security, tester
 # ==============================================================================
 
-version: "3.8"
-
 services:
   # ----------------------------------------------------------------------------
   # 1. CƠ SỞ DỮ LIỆU POSTGRESQL v3.1 (TÍCH HỢP RANGE PARTITIONING)
@@ -15,16 +13,16 @@ services:
     container_name: zt_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: zt_admin
-      POSTGRES_PASSWORD: SecurePassword123!
-      POSTGRES_DB: zt_serverops
+      POSTGRES_USER: ${POSTGRES_USER:-zt_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-SecurePassword123!}
+      POSTGRES_DB: ${POSTGRES_DB:-zt_serverops}
     volumes:
       - zt_postgres_data:/var/lib/postgresql/data
       - ./gateway/migrations:/docker-entrypoint-initdb.d:ro
     networks:
-      - zt_underlay
+      - zt_internal_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U zt_admin -d zt_serverops"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-zt_admin} -d $${POSTGRES_DB:-zt_serverops}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -41,7 +39,6 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://zt_admin:SecurePassword123!@postgres:5432/zt_serverops
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 3000
     depends_on:
@@ -51,7 +48,8 @@ services:
       - ./keys:/app/keys:ro
       - zt_audit_logs:/app/logs/audit
     networks:
-      - zt_underlay
+      - zt_ingress_net
+      - zt_internal_net
     expose:
       - "3000"
 
@@ -65,7 +63,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "3000:3000"
     volumes:
       - ./deploy/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -73,7 +70,7 @@ services:
     depends_on:
       - gateway
     networks:
-      - zt_underlay
+      - zt_ingress_net
 
   # ----------------------------------------------------------------------------
   # 4. MÁY CHỦ CON MÔ PHỎNG (ENDPOINT WORKER NODE ALPHA)
@@ -86,22 +83,28 @@ services:
       NODE_ID: node-worker-01
       GATEWAY_URL: http://gateway:3000
     networks:
-      - zt_underlay
+      - zt_worker_net
     command: ["sh", "-c", "echo 'Node worker ready.' && tail -f /dev/null"]
 
 # ------------------------------------------------------------------------------
 # 5. MẠNG NỘI BỘ VÀ KHỐI LƯU TRỮ VĨNH CỬU (NETWORKS & VOLUMES)
 # ------------------------------------------------------------------------------
 networks:
-  zt_underlay:
-    name: zt_underlay_network
+  # Mạng biên tiếp nhận lưu lượng từ Caddy chuyển tiếp vào Gateway
+  zt_ingress_net:
+    name: zt_ingress_net
     driver: bridge
-    # LÝ DO PHI TRỰC GIÁC (RATIONALE):
-    # Cấu hình com.docker.network.bridge.enable_icc: "false" vô hiệu hóa hoàn toàn
-    # khả năng giao tiếp ngang hàng giữa các container. Các Worker Node không thể quét
-    # hoặc tấn công trực tiếp sang nhau, triệt tiêu nguy cơ Lateral Movement (BUG-006).
-    driver_opts:
-      com.docker.network.bridge.enable_icc: "false"
+
+  # Mạng nội bộ tuyệt mật nối Gateway với CSDL PostgreSQL (Cấm truy cập Internet)
+  zt_internal_net:
+    name: zt_internal_net
+    driver: bridge
+    internal: true
+
+  # Mạng cô lập dành riêng cho Worker Nodes mô phỏng
+  zt_worker_net:
+    name: zt_worker_net
+    driver: bridge
 
 volumes:
   zt_postgres_data:

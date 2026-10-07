@@ -43,9 +43,9 @@ DECLARE
     start_date TEXT;
     end_date TEXT;
 BEGIN
-    partition_name := 'metrics_history_y' || to_char(target_date, 'YYYY_mMM_dDD');
+    partition_name := 'metrics_history_y' || to_char(target_date, 'YYYY_MM_DD');
     start_date := to_char(target_date, 'YYYY-MM-DD 00:00:00+00');
-    end_date := to_char(target_date + INTERVAL '1 day', 'YYYY-MM-DD 00:00:00+00');
+    end_date := to_char(target_date + 1, 'YYYY-MM-DD 00:00:00+00');
 
     -- Kiểm tra xem phân vùng đã tồn tại chưa
     IF NOT EXISTS (
@@ -78,7 +78,7 @@ DECLARE
     part_record RECORD;
     cutoff_date DATE;
 BEGIN
-    cutoff_date := CURRENT_DATE - (retention_days || ' days')::INTERVAL;
+    cutoff_date := (now() AT TIME ZONE 'UTC')::date - retention_days;
     FOR part_record IN
         SELECT c.relname AS table_name
         FROM pg_class c
@@ -88,9 +88,9 @@ BEGIN
           AND c.relname LIKE 'metrics_history_y%'
           AND c.relname != 'metrics_history_default'
     LOOP
-        -- Trích xuất ngày từ tên phân vùng: metrics_history_yYYYY_mMM_dDD
+        -- Trích xuất ngày từ tên phân vùng: metrics_history_yYYYY_MM_DD
         BEGIN
-            IF to_date(substring(part_record.table_name from 'metrics_history_y(.*)'), 'YYYY_mMM_dDD') < cutoff_date THEN
+            IF to_date(substring(part_record.table_name from 'metrics_history_y(.*)'), 'YYYY_MM_DD') < cutoff_date THEN
                 EXECUTE format('DROP TABLE IF EXISTS %I;', part_record.table_name);
                 dropped_partition := part_record.table_name;
                 RETURN NEXT;
@@ -103,7 +103,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 5. KHỞI TẠO NGAY CÁC PHÂN VÙNG BAN ĐẦU (Hôm nay, hôm qua và ngày mai)
-SELECT create_daily_metrics_partition(CURRENT_DATE - INTERVAL '1 day');
-SELECT create_daily_metrics_partition(CURRENT_DATE);
-SELECT create_daily_metrics_partition(CURRENT_DATE + INTERVAL '1 day');
+-- 5. KHỞI TẠO NGAY CÁC PHÂN VÙNG BAN ĐẦU (Hôm nay, hôm qua và ngày mai theo chuẩn UTC Date)
+SELECT create_daily_metrics_partition(((now() AT TIME ZONE 'UTC')::date - 1));
+SELECT create_daily_metrics_partition(((now() AT TIME ZONE 'UTC')::date));
+SELECT create_daily_metrics_partition(((now() AT TIME ZONE 'UTC')::date + 1));

@@ -22,6 +22,13 @@ const envSchema = z.object({
   // CHÚ THÍCH BẢO MẬT: Độ dài tối thiểu 32 ký tự để triệt tiêu nguy cơ brute-force chữ ký JWT
   JWT_SECRET: z.string().min(32, {
     message: 'LỖI BẢO MẬT: JWT_SECRET bắt buộc phải có độ dài tối thiểu 32 ký tự!',
+  }).refine((val) => {
+    if (process.env.NODE_ENV === 'production' && val.includes('ThayDoi')) {
+      return false;
+    }
+    return true;
+  }, {
+    message: 'LỖI BẢO MẬT: Không được sử dụng JWT_SECRET mẫu trên môi trường Production!',
   }),
   JWT_EXPIRES_IN: z.string().default('1d'),
 
@@ -41,9 +48,9 @@ const envSchema = z.object({
   SWEEPER_INTERVAL_MS: z.coerce.number().int().min(1000).default(5000),
   NODE_OFFLINE_THRESHOLD_SECONDS: z.coerce.number().int().min(10).default(30),
 
-  // Dịch vụ thông báo khẩn cấp On-Call qua Telegram
+  // Dịch vụ thông báo khẩn cấp On-Call qua Telegram (OTP sinh động, không dùng mặc định cố định)
   TELEGRAM_BOT_TOKEN: z.string().optional().default(''),
-  TELEGRAM_PAIR_OTP: z.string().min(6).optional().default('889900'),
+  TELEGRAM_PAIR_OTP: z.string().min(6).optional(),
 
   // Mạng ngầm WireGuard
   WG_GATEWAY_IP: z.string().ip({ version: 'v4' }).default('10.100.0.1'),

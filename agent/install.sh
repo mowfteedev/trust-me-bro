@@ -37,13 +37,18 @@ if [[ -d "${SCRIPT_DIR}/src" ]]; then
 fi
 
 # Thiết lập tệp biến môi trường cho Daemon
-ENV_TARGET="${INSTALL_DIR}/.env"
+# Kiểm tra biến NODE_TOKEN bắt buộc khi cài đặt mới
+if [[ -z "${NODE_TOKEN:-}" ]] && [[ ! -f "${ENV_TARGET}" ]]; then
+    echo "❌ [LỖI BẢO MẬT] Biến môi trường NODE_TOKEN bắt buộc phải được truyền vào (ví dụ: NODE_TOKEN=xxx ./install.sh)!"
+    exit 1
+fi
+
 if [[ ! -f "${ENV_TARGET}" ]]; then
     echo "  └─> Khởi tạo tệp cấu hình ${ENV_TARGET}..."
     cat <<EOF > "${ENV_TARGET}"
 GATEWAY_URL=${GATEWAY_URL:-http://10.100.0.1:3000}
 NODE_ID=${NODE_ID:-$(hostname)}
-NODE_TOKEN=${NODE_TOKEN:-default-pre-shared-token}
+NODE_TOKEN=${NODE_TOKEN}
 BEACON_INTERVAL_SECONDS=3.0
 MAX_BACKOFF_SECONDS=30.0
 JITTER_RATIO=0.1
@@ -51,9 +56,16 @@ EOF
     chmod 600 "${ENV_TARGET}"
 fi
 
-# Khởi tạo dịch vụ Linux Systemd Unit
+# Tạo tài khoản hệ thống chuyên trách zt-agent (Non-root Least Privilege)
+if ! id -u zt-agent >/dev/null 2>&1; then
+    echo "  └─> Khởi tạo người dùng hệ thống không đặc quyền zt-agent..."
+    useradd --system --no-create-home --shell /bin/false zt-agent 2>/dev/null || adduser -S -D -H zt-agent 2>/dev/null || true
+fi
+chown -R zt-agent:zt-agent "${INSTALL_DIR}" 2>/dev/null || true
+
+# Khởi tạo dịch vụ Linux Systemd Unit gia cố bảo mật
 SYSTEMD_SERVICE="/etc/systemd/system/zt-agent.service"
-echo "  └─> Cấu hình dịch vụ Systemd tại ${SYSTEMD_SERVICE}..."
+echo "  └─> Cấu hình dịch vụ Systemd gia cố tại ${SYSTEMD_SERVICE}..."
 cat <<EOF > "${SYSTEMD_SERVICE}"
 [Unit]
 Description=ZT-ServerOps Endpoint Worker Daemon
@@ -61,11 +73,16 @@ After=network.target
 
 [Service]
 Type=simple
+User=zt-agent
+Group=zt-agent
 WorkingDirectory=${INSTALL_DIR}
 EnvironmentFile=${ENV_TARGET}
 ExecStart=/usr/bin/python3 ${INSTALL_DIR}/main.py
 Restart=always
 RestartSec=3s
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
 StandardOutput=journal
 StandardError=journal
 

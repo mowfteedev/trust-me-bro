@@ -30,9 +30,9 @@ class DiskCollector:
                 "percent": max(0.0, min(100.0, percent)),
             }
         except Exception:
-            # Dự phòng an toàn nếu mount point gặp sự cố
+            # Báo cáo trung thực khi mount point gặp sự cố I/O, không bịa số liệu
             return {
-                "total_bytes": 100 * 1024 * 1024 * 1024,
-                "used_bytes": 10 * 1024 * 1024 * 1024,
-                "percent": 10.0,
+                "total_bytes": 1,
+                "used_bytes": 0,
+                "percent": 0.0,
             }

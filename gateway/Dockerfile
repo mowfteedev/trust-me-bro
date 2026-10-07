@@ -27,8 +27,11 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Tạo nhóm và người dùng không đặc quyền (Non-root User) để tăng cường bảo mật
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Tạo nhóm và người dùng không đặc quyền (Non-root User) có UID/GID 10001
+RUN addgroup -g 10001 -S appgroup && adduser -u 10001 -S appuser -G appgroup
+
+# Khởi tạo trước thư mục lưu trữ log kiểm toán và cấp quyền sở hữu cho appuser
+RUN mkdir -p /app/logs/audit /app/keys && chown -R appuser:appgroup /app/logs /app/keys
 
 # Sao chép các tệp đã biên dịch và node_modules tối giản từ tầng builder
 COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules

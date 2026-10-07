@@ -59,7 +59,9 @@ class VisualInfraTestRunner:
         })
 
     def run_animation(self):
-        total = 21
+        total = len(self.results)
+        passed_count = sum(1 for r in self.results if r["passed"])
+        pct_passed = int((passed_count / total) * 100) if total > 0 else 0
         spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         sys.stdout.write("\n")
         for i in range(1, total + 1):
@@ -70,7 +72,8 @@ class VisualInfraTestRunner:
             sys.stdout.write(f"\r  {CYAN}{spin}{RESET}  Đang kiểm thử hạ tầng & CSDL: [{bar}] {BOLD}{pct}%{RESET} ({i:02d}/{total} TC)")
             sys.stdout.flush()
             time.sleep(0.01)
-        sys.stdout.write(f"\r  {GREEN}✔{RESET}  Hoàn tất kiểm thử hạ tầng & CSDL: [{GREEN}{'━' * 32}{RESET}] {BOLD}100%{RESET} (21/21 TC)\n\n")
+        tag = f"{GREEN}✔{RESET}" if passed_count == total else f"{RED}✖{RESET}"
+        sys.stdout.write(f"\r  {tag}  Hoàn tất kiểm thử hạ tầng & CSDL: [{GREEN}{'━' * 32}{RESET}] {BOLD}{pct_passed}%{RESET} ({passed_count:02d}/{total:02d} TC)\n\n")
         sys.stdout.flush()
 
     def render_table(self):
@@ -128,15 +131,15 @@ def execute_suite() -> bool:
     runner.record("TC-01", "Chống nghẽn", "Ràng buộc lock_timeout = '2s' chống kẹt DDL", "SET lock_timeout = '2s';" in sql_001)
     runner.record("TC-02", "RBAC Schema", "Bảng users có ràng buộc CHECK vai trò ADMIN/VIEWER", "CHECK (role IN ('ADMIN', 'VIEWER'))" in sql_001)
     runner.record("TC-03", "Node Catalog", "Bảng nodes có token_hash, token_prefix, status", "token_hash VARCHAR(64)" in sql_001 and "token_prefix" in sql_001)
-    runner.record("TC-04", "Tối ưu hóa", "Chỉ mục Hash Index trên token_hash đạt O(1)", "USING HASH (token_hash)" in sql_001)
-    runner.record("TC-05", "Audit Log", "Bảng audit_logs cơ chế Append-Only và index thời gian", "CREATE TABLE IF NOT EXISTS audit_logs" in sql_001 and "ix_audit_logs_created_at" in sql_001)
+    runner.record("TC-04", "Tối ưu hóa", "Chỉ mục B-Tree UNIQUE Index trên token_hash", "UNIQUE INDEX" in sql_001 and "token_hash" in sql_001)
+    runner.record("TC-05", "Audit Log", "Bảng audit_logs Append-Only và có Trigger chống can thiệp", "CREATE TABLE IF NOT EXISTS audit_logs" in sql_001 and "prevent_audit_logs_tampering" in sql_001)
 
     # 2. KIỂM THỬ MIGRATION 002 RANGE PARTITIONING (CĐ-05)
     mig_002 = PROJECT_ROOT / "gateway/migrations/002_partition_metrics.sql"
     with open(mig_002, "r", encoding="utf-8") as f:
         sql_002 = f.read()
 
-    runner.record("TC-06", "Partitioning", "Bảng metrics_history có PARTITION BY RANGE", "PARTITION BY RANGE (recorded_at)" in sql_002)
+    runner.record("TC-06", "Partitioning", "Bảng metrics_history định dạng chuẩn YYYY_MM_DD", "PARTITION BY RANGE (recorded_at)" in sql_002 and "metrics_history_y" in sql_002 and "YYYY_MM_DD" in sql_002)
     runner.record("TC-07", "Dự phòng", "Có phân vùng mặc định metrics_history_default", "PARTITION OF metrics_history DEFAULT;" in sql_002)
     runner.record("TC-08", "Tự động hóa", "Hàm tự động tạo phân vùng create_daily_metrics_partition", "create_daily_metrics_partition" in sql_002)
     runner.record("TC-09", "Thu hồi đĩa", "Hàm tự động DROP phân vùng cũ trong O(1) giải phóng đĩa", "drop_old_metrics_partitions" in sql_002)
@@ -146,17 +149,21 @@ def execute_suite() -> bool:
     is_executable = os.access(script_path, os.X_OK)
     runner.record("TC-10", "Kịch bản", "Tệp init-secrets.sh tồn tại và có quyền thực thi", is_executable)
 
-    bastion_key = PROJECT_ROOT / "keys/bastion_id_ed25519"
+    keys_dir = PROJECT_ROOT / "keys"
+    bastion_key = keys_dir / "bastion_id_ed25519"
+    wg_key = keys_dir / "wireguard_gateway_private.key"
+    if not (bastion_key.exists() and wg_key.exists()):
+        import subprocess
+        subprocess.run(["bash", str(script_path)], capture_output=True)
+
     key_exists = bastion_key.exists()
     key_mode = oct(stat.S_IMODE(os.stat(bastion_key).st_mode)) if key_exists else "000"
     runner.record("TC-11", "Khóa Bastion", "Khóa riêng tư Ed25519 phân quyền nghiêm ngặt chmod 600", key_exists and key_mode == "0o600")
 
-    wg_key = PROJECT_ROOT / "keys/wireguard_gateway_private.key"
     wg_exists = wg_key.exists()
     wg_mode = oct(stat.S_IMODE(os.stat(wg_key).st_mode)) if wg_exists else "000"
     runner.record("TC-12", "Khóa WireGuard", "Khóa riêng tư WireGuard Curve25519 phân quyền chmod 600", wg_exists and wg_mode == "0o600")
 
-    keys_dir = PROJECT_ROOT / "keys"
     dir_mode = oct(stat.S_IMODE(os.stat(keys_dir).st_mode)) if keys_dir.exists() else "000"
     runner.record("TC-13", "Bảo mật", "Thư mục keys/ được cô lập phân quyền chmod 700", dir_mode == "0o700")
 
@@ -165,8 +172,9 @@ def execute_suite() -> bool:
     with open(compose_path, "r", encoding="utf-8") as f:
         compose_text = f.read()
 
-    runner.record("TC-14", "Chống lan ngang", "Cấu hình bridge vô hiệu hóa enable_icc: 'false'", 'enable_icc: "false"' in compose_text or 'enable_icc": "false"' in compose_text)
-    runner.record("TC-15", "Lưu trữ", "Khai báo 4 Volumes độc lập: DB, Audit, Caddy Data/Config", "zt_postgres_data:" in compose_text and "zt_audit_logs:" in compose_text)
+    runner.record("TC-14", "Chống lan ngang", "Phân tách mạng Zero Trust zt_ingress_net và zt_internal_net", "zt_ingress_net:" in compose_text and "zt_internal_net:" in compose_text)
+    has_4_vols = all(v in compose_text for v in ["zt_postgres_data:", "zt_audit_logs:", "caddy_data:", "caddy_config:"])
+    runner.record("TC-15", "Lưu trữ", "Khai báo đủ 4 Volumes độc lập: DB, Audit, Caddy Data/Config", has_4_vols)
     runner.record("TC-16", "Healthcheck", "PostgreSQL có cơ chế giám sát sức khỏe pg_isready", "pg_isready" in compose_text)
 
     # 5. KIỂM THỬ PROXY CADDY VÀ WIREGUARD
@@ -174,7 +182,7 @@ def execute_suite() -> bool:
     with open(caddy_path, "r", encoding="utf-8") as f:
         caddy_text = f.read()
 
-    runner.record("TC-17", "Cổng biên", "Caddyfile chuyển tiếp Gateway trên cổng 3000 & 80/443", ":3000" in caddy_text and ":80, :443" in caddy_text)
+    runner.record("TC-17", "Cổng biên", "Caddyfile chuyển tiếp Gateway trên cổng 80 (redir) & 443 (TLS)", ":80" in caddy_text and ":443" in caddy_text and "redir" in caddy_text)
     runner.record("TC-18", "WebSocket", "Caddyfile hỗ trợ chuyển giao thức WebSocket cho Bastion", "header Connection *Upgrade*" in caddy_text)
 
     wg_gw_path = PROJECT_ROOT / "deploy/wireguard/wg0-gateway.conf"

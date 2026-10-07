@@ -96,6 +96,7 @@ paths:
             format: uuid
       responses:
         '200':
+          description: Thông tin chi tiết của máy chủ
           content:
             application/json:
               schema:
@@ -195,6 +196,7 @@ paths:
             maximum: 1440
       responses:
         '200':
+          description: Dữ liệu lịch sử đo đạc tài nguyên
           content:
             application/json:
               schema:
@@ -214,6 +216,7 @@ paths:
             default: 50
       responses:
         '200':
+          description: Danh sách các cảnh báo sự cố
           content:
             application/json:
               schema:
