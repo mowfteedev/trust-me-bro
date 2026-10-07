@@ -50,11 +50,25 @@ if [[ ! -f "${WG_PRIV_KEY}" ]] || [[ "${1:-}" == "--force" ]]; then
     echo "  └─> Đang tạo cặp khóa Curve25519 cho WireGuard..."
     if command -v wg >/dev/null 2>&1; then
         wg genkey | tee "${WG_PRIV_KEY}" | wg pubkey > "${WG_PUB_KEY}"
+    elif python3 -c "from cryptography.hazmat.primitives.asymmetric import x25519" >/dev/null 2>&1; then
+        # Sử dụng Python cryptography để dẫn xuất khóa công khai chuẩn Curve25519 (scalar multiplication)
+        python3 -c "
+import base64
+from cryptography.hazmat.primitives.asymmetric import x25519
+from cryptography.hazmat.primitives import serialization
+
+priv = x25519.X25519PrivateKey.generate()
+priv_bytes = priv.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+pub_bytes = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+
+with open('${WG_PRIV_KEY}', 'w') as f:
+    f.write(base64.b64encode(priv_bytes).decode() + '\n')
+with open('${WG_PUB_KEY}', 'w') as f:
+    f.write(base64.b64encode(pub_bytes).decode() + '\n')
+"
     else
-        # Sinh chuỗi ngẫu nhiên 32 bytes base64 chuẩn Curve25519
-        openssl rand -base64 32 > "${WG_PRIV_KEY}"
-        # Khóa công khai mẫu phục vụ khởi tạo môi trường
-        openssl rand -base64 32 > "${WG_PUB_KEY}"
+        echo "      ❌ LỖI: Cần công cụ 'wg' (wireguard-tools) hoặc thư viện Python 'cryptography' để sinh cặp khóa Curve25519 hợp lệ." >&2
+        exit 1
     fi
     chmod 600 "${WG_PRIV_KEY}"
     chmod 644 "${WG_PUB_KEY}"
@@ -70,14 +84,22 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 
     # Sinh chuỗi JWT_SECRET ngẫu nhiên 64 ký tự hex an toàn
     RANDOM_JWT_SECRET=$(openssl rand -hex 32)
-    # Thay thế chuỗi mặc định trong .env
+    # Sinh mật khẩu ngẫu nhiên cho CSDL PostgreSQL (32 ký tự hex)
+    RANDOM_DB_PASSWORD=$(openssl rand -hex 16)
+    # Sinh mã OTP Telegram ngẫu nhiên 6 chữ số
+    RANDOM_TELEGRAM_OTP=$(od -An -N3 -tu4 /dev/urandom | awk '{printf "%06d", $1 % 1000000}')
+
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' "s|JWT_SECRET=.*|JWT_SECRET=${RANDOM_JWT_SECRET}|g" "${ENV_FILE}"
+        sed -i '' "s|postgres://zt_admin:[^@]*@|postgres://zt_admin:${RANDOM_DB_PASSWORD}@|g" "${ENV_FILE}"
+        sed -i '' "s|TELEGRAM_PAIR_OTP=.*|TELEGRAM_PAIR_OTP=${RANDOM_TELEGRAM_OTP}|g" "${ENV_FILE}"
     else
         sed -i "s|JWT_SECRET=.*|JWT_SECRET=${RANDOM_JWT_SECRET}|g" "${ENV_FILE}"
+        sed -i "s|postgres://zt_admin:[^@]*@|postgres://zt_admin:${RANDOM_DB_PASSWORD}@|g" "${ENV_FILE}"
+        sed -i "s|TELEGRAM_PAIR_OTP=.*|TELEGRAM_PAIR_OTP=${RANDOM_TELEGRAM_OTP}|g" "${ENV_FILE}"
     fi
     chmod 600 "${ENV_FILE}"
-    echo "      ✔ Tệp .env đã được khởi tạo với JWT_SECRET ngẫu nhiên đạt chuẩn an ninh."
+    echo "      ✔ Tệp .env đã được khởi tạo với bí mật ngẫu nhiên (JWT, DB Password, OTP) đạt chuẩn an ninh."
 else
     echo "      ℹ Tệp .env đã tồn tại. Không ghi đè."
 fi
