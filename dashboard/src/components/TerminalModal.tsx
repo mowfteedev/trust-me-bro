@@ -107,18 +107,24 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
         socket.onmessage = (event) => {
           if (!isSubscribed) return;
           try {
-            const frame = JSON.parse(event.data);
-            if (frame.type === 'DATA' && typeof frame.data === 'string') {
-              term.write(frame.data);
-            } else if (frame.type === 'READY') {
-              setConnectionStatus('CONNECTED');
-              term.writeln(`\r\n\x1b[32m✔ ${frame.message}\x1b[0m\r\n`);
-              // Gửi gói tin RESIZE ban đầu
-              fitAddon.fit();
-              socket.send(JSON.stringify({ type: 'RESIZE', rows: term.rows, cols: term.cols }));
-            } else if (frame.type === 'ERROR') {
-              term.writeln(`\r\n\x1b[31m❌ [LỖI] ${frame.message}\x1b[0m\r\n`);
+            if (typeof event.data === 'string' && event.data.startsWith('{')) {
+              const frame = JSON.parse(event.data);
+              if (frame.type === 'DATA' && typeof frame.data === 'string') {
+                term.write(frame.data);
+                return;
+              } else if (frame.type === 'READY') {
+                setConnectionStatus('CONNECTED');
+                term.writeln(`\r\n\x1b[32m✔ ${frame.message}\x1b[0m\r\n`);
+                // Gửi gói tin RESIZE ban đầu
+                fitAddon.fit();
+                socket.send(JSON.stringify({ type: 'RESIZE', rows: term.rows, cols: term.cols }));
+                return;
+              } else if (frame.type === 'ERROR') {
+                term.writeln(`\r\n\x1b[31m❌ [LỖI] ${frame.message}\x1b[0m\r\n`);
+                return;
+              }
             }
+            term.write(event.data);
           } catch {
             term.write(event.data);
           }
@@ -137,10 +143,10 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
           term.writeln(`\r\n\x1b[33m🔌 Phiên làm việc đã kết thúc (Mã: ${event.code}).\x1b[0m`);
         };
 
-        // Gửi ký tự người dùng nhập vào SSH stream
+        // Gửi ký tự người dùng nhập vào SSH stream (Raw Stream siêu tốc không độ trễ)
         term.onData((data) => {
           if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: 'DATA', data }));
+            socket.send(data);
           }
         });
       } catch (err: any) {

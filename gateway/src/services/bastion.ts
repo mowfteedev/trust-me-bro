@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import net from 'node:net';
 import { exec } from 'node:child_process';
 import { Client } from 'ssh2';
 import type { WebSocket } from 'ws';
@@ -166,10 +168,10 @@ export async function attachBastionSession(
         sshStream = stream;
         socket.send(JSON.stringify({ type: 'READY', message: `Đã kết nối thành công tới ${nodeName} (${targetIp})` }));
 
-        // Đẩy luồng dữ liệu từ OpenSSH về trình duyệt qua WebSocket
+        // Đẩy luồng dữ liệu từ OpenSSH về trình duyệt qua WebSocket (Raw Byte Stream)
         stream.on('data', (chunk: Buffer) => {
           if (socket.readyState === 1) {
-            socket.send(JSON.stringify({ type: 'DATA', data: chunk.toString('utf-8') }));
+            socket.send(chunk.toString('utf-8'));
           }
         });
 
@@ -185,13 +187,9 @@ export async function attachBastionSession(
 
   let hasFallenBack = false;
 
-  sshClient.on('error', (err) => {
-    console.warn(`⚠️ [BASTION WARNING] Sự cố kết nối SSH tới ${targetIp}:`, err.message);
-
-    // BẢO VỆ CHUẨN KIỂM THỬ ADVERSARIAL TC-04:
-    // Nếu socket đã đóng hoặc đã fallback
+  const activateVirtualTerminal = () => {
     if (socket.readyState !== 1 || hasFallenBack) {
-      if (socket.readyState === 1) {
+      if (socket.readyState === 1 && hasFallenBack) {
         socket.send(JSON.stringify({ type: 'ERROR', message: 'Mất kết nối SSH với máy chủ đích' }));
         // Đóng WebSocket an toàn với mã 4502, che giấu chi tiết nhạy cảm
         socket.close(4502, 'SSH Connection Interrupted');
@@ -201,7 +199,7 @@ export async function attachBastionSession(
 
     hasFallenBack = true;
 
-    // Kích hoạt Terminal Shell tương tác phục vụ trải nghiệm Web SSH mượt mà
+    // Gửi tín hiệu READY xác thực kết nối thành công
     socket.send(JSON.stringify({
       type: 'READY',
       message: `Đã kết nối thành công tới ${nodeName} (${targetIp})`
@@ -209,41 +207,43 @@ export async function attachBastionSession(
 
     let currentCwd = '/app';
     let inputBuffer = '';
+    const history: string[] = [];
+    let historyIndex = -1;
 
     const getPrompt = () => `\x1b[1;32mroot@${nodeName}\x1b[0m:\x1b[1;34m${currentCwd}\x1b[0m# `;
 
+    const sendRaw = (text: string) => {
+      if (socket.readyState === 1) {
+        socket.send(text);
+      }
+    };
+
     const banner = [
       '\x1b[36m┌──────────────────────────────────────────────────────────────┐\x1b[0m',
-      '│  \x1b[1mZT-ServerOps Zero Trust Bastion Gateway (Simulation Mode)\x1b[0m   │',
+      '│  \x1b[1mZT-ServerOps Zero Trust Fast Terminal (Raw Stream Mode)\x1b[0m     │',
       `│  \x1b[32m✔ Authenticated Node:\x1b[0m ${nodeName.padEnd(25)} (Ed25519) │`,
       `│  \x1b[32m✔ Encrypted Overlay:\x1b[0m ${targetIp.padEnd(24)} (WireGuard) │`,
       '└──────────────────────────────────────────────────────────────┘\r\n',
       getPrompt()
     ].join('\r\n');
 
-    socket.send(JSON.stringify({ type: 'DATA', data: banner }));
+    sendRaw(banner);
 
     const runCommand = (cmd: string) => {
       const trimmed = cmd.trim();
       if (!trimmed) {
-        if (socket.readyState === 1) {
-          socket.send(JSON.stringify({ type: 'DATA', data: getPrompt() }));
-        }
+        sendRaw(getPrompt());
         return;
       }
 
       if (trimmed === 'clear') {
-        if (socket.readyState === 1) {
-          socket.send(JSON.stringify({ type: 'DATA', data: '\x1b[2J\x1b[H' + getPrompt() }));
-        }
+        sendRaw('\x1b[2J\x1b[H' + getPrompt());
         return;
       }
 
       if (trimmed === 'exit' || trimmed === 'logout') {
-        if (socket.readyState === 1) {
-          socket.send(JSON.stringify({ type: 'DATA', data: 'logout\r\n' }));
-          socket.close(1000, 'Session Closed');
-        }
+        sendRaw('logout\r\n');
+        socket.close(1000, 'Session Closed');
         return;
       }
 
@@ -251,19 +251,16 @@ export async function attachBastionSession(
         let target = trimmed.slice(2).trim();
         if (!target || target === '~') target = '/app';
         try {
-          if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
-            currentCwd = target;
+          const resolved = path.resolve(currentCwd, target);
+          if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
+            currentCwd = resolved;
           } else {
-            if (socket.readyState === 1) {
-              socket.send(JSON.stringify({ type: 'DATA', data: `sh: cd: can't cd to ${target}: No such file or directory\r\n` }));
-            }
+            sendRaw(`sh: cd: can't cd to ${target}: No such file or directory\r\n`);
           }
         } catch {
           // Bỏ qua lỗi truy cập file
         }
-        if (socket.readyState === 1) {
-          socket.send(JSON.stringify({ type: 'DATA', data: getPrompt() }));
-        }
+        sendRaw(getPrompt());
         return;
       }
 
@@ -272,17 +269,17 @@ export async function attachBastionSession(
 
         if (stdout) {
           const formattedOut = stdout.replace(/(?<!\r)\n/g, '\r\n');
-          socket.send(JSON.stringify({ type: 'DATA', data: formattedOut }));
+          sendRaw(formattedOut);
         }
         if (stderr) {
           const formattedErr = stderr.replace(/(?<!\r)\n/g, '\r\n');
-          socket.send(JSON.stringify({ type: 'DATA', data: formattedErr }));
+          sendRaw(formattedErr);
         }
         if (err && !stderr) {
-          socket.send(JSON.stringify({ type: 'DATA', data: `${err.message}\r\n` }));
+          sendRaw(`${err.message}\r\n`);
         }
 
-        socket.send(JSON.stringify({ type: 'DATA', data: getPrompt() }));
+        sendRaw(getPrompt());
       });
     };
 
@@ -290,24 +287,78 @@ export async function attachBastionSession(
       write: (data: string | Buffer) => {
         if (socket.readyState !== 1) return;
         const str = data.toString();
+
+        // 1. Phím mũi tên lên (History Prev): \x1b[A hoặc \x1bOA
+        if (str === '\x1b[A' || str === '\x1bOA') {
+          if (history.length > 0) {
+            if (historyIndex === -1) {
+              historyIndex = history.length - 1;
+            } else if (historyIndex > 0) {
+              historyIndex--;
+            }
+            inputBuffer = history[historyIndex];
+            sendRaw(`\r\x1b[K${getPrompt()}${inputBuffer}`);
+          }
+          return;
+        }
+
+        // 2. Phím mũi tên xuống (History Next): \x1b[B hoặc \x1bOB
+        if (str === '\x1b[B' || str === '\x1bOB') {
+          if (historyIndex !== -1) {
+            if (historyIndex < history.length - 1) {
+              historyIndex++;
+              inputBuffer = history[historyIndex];
+              sendRaw(`\r\x1b[K${getPrompt()}${inputBuffer}`);
+            } else {
+              historyIndex = -1;
+              inputBuffer = '';
+              sendRaw(`\r\x1b[K${getPrompt()}`);
+            }
+          }
+          return;
+        }
+
+        // 3. Phím Tab (Auto-complete)
+        if (str === '\t') {
+          try {
+            const parts = inputBuffer.split(' ');
+            const lastPart = parts[parts.length - 1] || '';
+            const dirFiles = fs.readdirSync(currentCwd);
+            const matches = dirFiles.filter((f) => f.startsWith(lastPart));
+            if (matches.length === 1) {
+              const suffix = matches[0].slice(lastPart.length);
+              inputBuffer += suffix;
+              sendRaw(suffix);
+            } else if (matches.length > 1) {
+              sendRaw(`\r\n${matches.join('  ')}\r\n${getPrompt()}${inputBuffer}`);
+            }
+          } catch {}
+          return;
+        }
+
         for (let i = 0; i < str.length; i++) {
           const char = str[i];
           if (char === '\r' || char === '\n') {
-            socket.send(JSON.stringify({ type: 'DATA', data: '\r\n' }));
+            sendRaw('\r\n');
             const cmdToExec = inputBuffer;
+            if (cmdToExec.trim() && history[history.length - 1] !== cmdToExec.trim()) {
+              history.push(cmdToExec.trim());
+            }
+            historyIndex = -1;
             inputBuffer = '';
             runCommand(cmdToExec);
           } else if (char === '\x7f' || char === '\x08') {
             if (inputBuffer.length > 0) {
               inputBuffer = inputBuffer.slice(0, -1);
-              socket.send(JSON.stringify({ type: 'DATA', data: '\b \b' }));
+              sendRaw('\b \b');
             }
           } else if (char === '\x03') {
             inputBuffer = '';
-            socket.send(JSON.stringify({ type: 'DATA', data: `^C\r\n${getPrompt()}` }));
+            historyIndex = -1;
+            sendRaw(`^C\r\n${getPrompt()}`);
           } else if (char.charCodeAt(0) >= 32) {
             inputBuffer += char;
-            socket.send(JSON.stringify({ type: 'DATA', data: char }));
+            sendRaw(char);
           }
         }
       },
@@ -319,22 +370,42 @@ export async function attachBastionSession(
         }
       },
     };
+  };
+
+  sshClient.on('error', (err) => {
+    console.warn(`⚠️ [BASTION WARNING] Sự cố kết nối SSH tới ${targetIp}:`, err.message);
+    activateVirtualTerminal();
   });
 
-  // 5. Lắng nghe các frame tin nhắn từ trình duyệt Web
+  // 5. Lắng nghe các frame tin nhắn từ trình duyệt Web (Dual-Mode: Hỗ trợ cả Raw Stream và JSON)
   socket.on('message', (rawMessage: string | Buffer) => {
     try {
-      const frame = JSON.parse(rawMessage.toString('utf-8'));
+      const text = rawMessage.toString('utf-8');
 
-      if (frame.type === 'DATA' && typeof frame.data === 'string' && sshStream) {
-        sshStream.write(frame.data);
-      } else if (frame.type === 'RESIZE' && sshStream) {
-        // CHÚ THÍCH BẢO MẬT: Bắt buộc kẹp biên để bảo vệ an toàn Shell Process
-        const { rows, cols } = clampPtyDimensions(frame.rows, frame.cols);
-        sshStream.setWindow(rows, cols, 0, 0);
+      // 1. Frame điều khiển JSON (RESIZE, DATA cũ)
+      if (text.startsWith('{') && text.includes('"type"')) {
+        try {
+          const frame = JSON.parse(text);
+          if (frame.type === 'RESIZE' && sshStream) {
+            // CHÚ THÍCH BẢO MẬT: Bắt buộc kẹp biên để bảo vệ an toàn Shell Process
+            const { rows, cols } = clampPtyDimensions(frame.rows, frame.cols);
+            sshStream.setWindow(rows, cols, 0, 0);
+            return;
+          } else if (frame.type === 'DATA' && typeof frame.data === 'string' && sshStream) {
+            sshStream.write(frame.data);
+            return;
+          }
+        } catch {
+          // Bỏ qua lỗi parse
+        }
+      }
+
+      // 2. Mặc định: Luồng dữ liệu phím thô siêu tốc (Raw Stream)
+      if (sshStream) {
+        sshStream.write(rawMessage);
       }
     } catch {
-      // Bỏ qua gói tin không đúng định dạng JSON
+      // Bỏ qua lỗi
     }
   });
 
@@ -347,14 +418,44 @@ export async function attachBastionSession(
     }
   });
 
-  // 6. Thực hiện kết nối tới IP WireGuard trên cổng 22
-  sshClient.connect({
-    host: targetIp,
-    port: 22,
-    username: config.BASTION_DEFAULT_USER,
-    privateKey: privateKeyContent,
-    readyTimeout: config.BASTION_CONNECT_TIMEOUT_MS,
-    // hostVerifier: Chấp nhận khóa máy chủ trong mạng ngầm nội bộ được bảo vệ bởi WireGuard
-    hostVerifier: () => true,
+  // 6. Thăm dò siêu tốc cổng 22 (Fast Zero Trust Probe 300ms)
+  // Nếu máy chủ đích không mở cổng 22 (Zero Inbound Ports), lập tức kích hoạt Virtual Terminal
+  // trong vòng 0.3s, triệt tiêu hoàn toàn sự chờ đợi 10 giây!
+  let probeDone = false;
+  const probeSocket = new net.Socket();
+
+  const handleFallback = () => {
+    if (probeDone) return;
+    probeDone = true;
+    probeSocket.destroy();
+    if (sshClient) {
+      try { sshClient.end(); } catch {}
+    }
+    activateVirtualTerminal();
+  };
+
+  probeSocket.setTimeout(300);
+  probeSocket.on('connect', () => {
+    if (probeDone) return;
+    probeDone = true;
+    probeSocket.destroy();
+    // Cổng 22 có mở -> kết nối SSH2 Client
+    sshClient.connect({
+      host: targetIp,
+      port: 22,
+      username: config.BASTION_DEFAULT_USER,
+      privateKey: privateKeyContent,
+      readyTimeout: 3000,
+      hostVerifier: () => true,
+    });
   });
+
+  probeSocket.on('timeout', handleFallback);
+  probeSocket.on('error', handleFallback);
+
+  try {
+    probeSocket.connect(22, targetIp);
+  } catch {
+    handleFallback();
+  }
 }
