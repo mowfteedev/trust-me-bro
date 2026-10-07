@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
-import { exec } from 'node:child_process';
+import { exec, spawn, type ChildProcess } from 'node:child_process';
 import { Client } from 'ssh2';
 import type { WebSocket } from 'ws';
 import { config } from '../config/env.js';
@@ -209,6 +209,7 @@ export async function attachBastionSession(
     let inputBuffer = '';
     const history: string[] = [];
     let historyIndex = -1;
+    let currentChild: ChildProcess | null = null;
 
     const getPrompt = () => `\x1b[1;32mroot@${nodeName}\x1b[0m:\x1b[1;34m${currentCwd}\x1b[0m# `;
 
@@ -264,29 +265,89 @@ export async function attachBastionSession(
         return;
       }
 
-      exec(trimmed, { cwd: currentCwd, timeout: 15000 }, (err, stdout, stderr) => {
-        if (socket.readyState !== 1) return;
+      // Smart CLI Aliasing & Tối ưu hóa lệnh tương tác phổ biến
+      let commandToRun = trimmed;
+      if (trimmed === 'top') {
+        commandToRun = 'top -b -n 1';
+      } else if (trimmed.startsWith('top ') && !trimmed.includes('-b')) {
+        commandToRun = `top -b -n 1 ${trimmed.slice(4)}`;
+      } else if (trimmed === 'ping' || (trimmed.startsWith('ping ') && !trimmed.includes('-c'))) {
+        commandToRun = `${trimmed} -c 4`;
+      }
 
-        if (stdout) {
-          const formattedOut = stdout.replace(/(?<!\r)\n/g, '\r\n');
-          sendRaw(formattedOut);
-        }
-        if (stderr) {
-          const formattedErr = stderr.replace(/(?<!\r)\n/g, '\r\n');
-          sendRaw(formattedErr);
-        }
-        if (err && !stderr) {
-          sendRaw(`${err.message}\r\n`);
-        }
+      // Khởi chạy tiến trình Streaming qua spawn
+      try {
+        const child = spawn('/bin/sh', ['-c', commandToRun], {
+          cwd: currentCwd,
+          env: { ...process.env, TERM: 'xterm-256color' }
+        });
+        currentChild = child;
 
-        sendRaw(getPrompt());
-      });
+        // Timeout bảo vệ chống cạn kiệt tài nguyên (60s)
+        const timeoutTimer = setTimeout(() => {
+          if (child && !child.killed) {
+            try {
+              child.kill('SIGKILL');
+              sendRaw('\r\n\x1b[31m[Lệnh bị ngắt do vượt quá thời gian thực thi (timeout 60s)]\x1b[0m\r\n');
+            } catch {}
+          }
+        }, 60000);
+
+        child.stdout?.on('data', (chunk: Buffer) => {
+          if (socket.readyState !== 1) return;
+          const formatted = chunk.toString('utf-8').replace(/(?<!\r)\n/g, '\r\n');
+          sendRaw(formatted);
+        });
+
+        child.stderr?.on('data', (chunk: Buffer) => {
+          if (socket.readyState !== 1) return;
+          const formatted = chunk.toString('utf-8').replace(/(?<!\r)\n/g, '\r\n');
+          sendRaw(formatted);
+        });
+
+        child.on('error', (err) => {
+          if (socket.readyState === 1) {
+            sendRaw(`sh: ${err.message}\r\n`);
+          }
+        });
+
+        child.on('close', () => {
+          clearTimeout(timeoutTimer);
+          if (currentChild === child) {
+            currentChild = null;
+          }
+          if (socket.readyState === 1) {
+            sendRaw(getPrompt());
+          }
+        });
+      } catch (err: any) {
+        currentChild = null;
+        sendRaw(`sh: ${err?.message || 'Không thể thực thi lệnh'}\r\n${getPrompt()}`);
+      }
     };
 
     sshStream = {
       write: (data: string | Buffer) => {
         if (socket.readyState !== 1) return;
         const str = data.toString();
+
+        // Nếu đang có tiến trình con đang chạy (Streaming Process)
+        if (currentChild && !currentChild.killed) {
+          if (str === '\x03') {
+            // Người dùng gửi Ctrl+C: ngắt tiến trình con ngay lập tức
+            try {
+              currentChild.kill('SIGINT');
+            } catch {}
+            sendRaw('^C\r\n');
+            return;
+          }
+          if (currentChild.stdin && !currentChild.stdin.destroyed) {
+            try {
+              currentChild.stdin.write(data);
+            } catch {}
+          }
+          return;
+        }
 
         // 1. Phím mũi tên lên (History Prev): \x1b[A hoặc \x1bOA
         if (str === '\x1b[A' || str === '\x1bOA') {
@@ -364,6 +425,12 @@ export async function attachBastionSession(
       },
       setWindow: () => {},
       end: () => {
+        if (currentChild && !currentChild.killed) {
+          try {
+            currentChild.kill('SIGKILL');
+          } catch {}
+          currentChild = null;
+        }
         if (socket.readyState === 1) {
           // Đóng WebSocket an toàn với mã 4502, che giấu chi tiết nhạy cảm
           socket.close(4502, 'SSH Connection Interrupted');
