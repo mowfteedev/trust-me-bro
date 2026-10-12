@@ -1,7 +1,5 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import net from 'node:net';
-import { exec, spawn, type ChildProcess } from 'node:child_process';
 import { Client } from 'ssh2';
 import type { WebSocket } from 'ws';
 import { config } from '../config/env.js';
@@ -23,6 +21,10 @@ import { generateSecureToken } from '../utils/crypto.js';
  *    Sử dụng One-Time Ticket có thời hạn 30 giây và tiêu hủy ngay sau khi xác thực thành công.
  * 3. Ẩn thông tin nhạy cảm: Mọi lỗi rớt mạng hoặc từ chối kết nối SSH đều được bọc mã lỗi
  *    chuẩn 4502 trước khi trả về trình duyệt.
+ * 4. Zero Trust Fail-Closed (R1 Fix): Tuyệt đối không fallback sang shell cục bộ trên Gateway.
+ *    Nếu kết nối SSH tới máy chủ đích thất bại, phiên sẽ bị ngắt lập tức với mã 4502.
+ * 5. Chống cạn kiệt RAM (H4 Fix): Áp dụng WebSocket Backpressure. Nếu bufferedAmount > 64KB,
+ *    tạm dừng (pause) luồng đọc từ SSH cho đến khi buffer mạng xả sạch (drain).
  */
 
 interface BastionTicket {
@@ -133,6 +135,15 @@ export async function attachBastionSession(
     return;
   }
 
+  // Ghi nhận bắt đầu phiên Bastion vào Audit Log
+  if (authResult.userId) {
+    await query(
+      `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
+       VALUES ($1, 'BASTION_SESSION_START', 'bastion', $2, $3::inet);`,
+      [authResult.userId, JSON.stringify({ node_id: nodeIdentifier, target_ip: targetIp }), '127.0.0.1']
+    ).catch(() => {});
+  }
+
   // 3. Đọc tệp khóa riêng Ed25519
   let privateKeyContent: Buffer;
   try {
@@ -147,6 +158,45 @@ export async function attachBastionSession(
   // 4. Khởi tạo đối tượng SSH2 Client
   const sshClient = new Client();
   let sshStream: any = null;
+  let isClosed = false;
+
+  const closeSession = (code: number, reason: string, userMsg?: string) => {
+    if (isClosed) return;
+    isClosed = true;
+
+    if (userMsg && socket.readyState === 1) {
+      try {
+        socket.send(JSON.stringify({ type: 'ERROR', message: userMsg }));
+      } catch {}
+    }
+
+    if (sshStream && typeof sshStream.end === 'function') {
+      try { sshStream.end(); } catch {}
+    }
+
+    if (sshClient) {
+      try { sshClient.end(); } catch {}
+    }
+
+    if (socket.readyState === 1) {
+      try {
+        if (code === 4502) {
+          socket.close(4502, 'SSH Connection Interrupted');
+        } else {
+          socket.close(code, reason);
+        }
+      } catch {}
+    }
+
+    // Ghi nhận kết thúc phiên Bastion vào Audit Log
+    if (authResult.userId) {
+      query(
+        `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
+         VALUES ($1, 'BASTION_SESSION_END', 'bastion', $2, $3::inet);`,
+        [authResult.userId, JSON.stringify({ node_id: nodeIdentifier, code, reason }), '127.0.0.1']
+      ).catch(() => {});
+    }
+  };
 
   sshClient.on('ready', () => {
     // Mở luồng PTY tương tác với kích thước mặc định 80x24
@@ -159,289 +209,56 @@ export async function attachBastionSession(
       (err, stream) => {
         if (err) {
           console.error('❌ [BASTION ERROR] Không thể cấp phát PTY Shell:', err.message);
-          socket.send(JSON.stringify({ type: 'ERROR', message: 'Không thể khởi tạo phiên PTY trên máy chủ' }));
-          socket.close(4502, 'PTY Shell Failed');
-          sshClient.end();
+          closeSession(4502, 'SSH Connection Interrupted', 'Không thể khởi tạo phiên PTY trên máy chủ');
           return;
         }
 
         sshStream = stream;
-        socket.send(JSON.stringify({ type: 'READY', message: `Đã kết nối thành công tới ${nodeName} (${targetIp})` }));
+        if (socket.readyState === 1) {
+          socket.send(JSON.stringify({ type: 'READY', message: `Đã kết nối thành công tới ${nodeName} (${targetIp})` }));
+        }
+
+        // Lắng nghe drain để phục hồi luồng đọc (Backpressure recovery)
+        const rawSocket = (socket as any)._socket;
+        if (rawSocket && typeof rawSocket.on === 'function') {
+          rawSocket.on('drain', () => {
+            if (sshStream && typeof sshStream.resume === 'function') {
+              sshStream.resume();
+            }
+          });
+        }
 
         // Đẩy luồng dữ liệu từ OpenSSH về trình duyệt qua WebSocket (Raw Byte Stream)
         stream.on('data', (chunk: Buffer) => {
           if (socket.readyState === 1) {
-            socket.send(chunk.toString('utf-8'));
+            try {
+              socket.send(chunk.toString('utf-8'));
+              // WebSocket Backpressure Guard: nếu bufferedAmount > 64KB thì tạm dừng SSH stream
+              if ((socket as any).bufferedAmount > 65536 && typeof stream.pause === 'function') {
+                stream.pause();
+              }
+            } catch (sendErr) {
+              console.warn('⚠️ [BASTION SEND ERROR]', sendErr);
+            }
           }
         });
 
+        stream.on('error', (streamErr: any) => {
+          console.warn('⚠️ [BASTION STREAM ERROR]', streamErr.message);
+          closeSession(4502, 'SSH Connection Interrupted', 'Mất kết nối SSH với máy chủ đích');
+        });
+
         stream.on('close', () => {
-          if (socket.readyState === 1) {
-            socket.close(1000, 'Session Closed');
-          }
-          sshClient.end();
+          closeSession(1000, 'Session Closed');
         });
       }
     );
   });
 
-  let hasFallenBack = false;
-
-  const activateVirtualTerminal = () => {
-    if (socket.readyState !== 1 || hasFallenBack) {
-      if (socket.readyState === 1 && hasFallenBack) {
-        socket.send(JSON.stringify({ type: 'ERROR', message: 'Mất kết nối SSH với máy chủ đích' }));
-        // Đóng WebSocket an toàn với mã 4502, che giấu chi tiết nhạy cảm
-        socket.close(4502, 'SSH Connection Interrupted');
-      }
-      return;
-    }
-
-    hasFallenBack = true;
-
-    // Gửi tín hiệu READY xác thực kết nối thành công
-    socket.send(JSON.stringify({
-      type: 'READY',
-      message: `Đã kết nối thành công tới ${nodeName} (${targetIp})`
-    }));
-
-    let currentCwd = '/app';
-    let inputBuffer = '';
-    const history: string[] = [];
-    let historyIndex = -1;
-    let currentChild: ChildProcess | null = null;
-
-    const getPrompt = () => `\x1b[1;32mroot@${nodeName}\x1b[0m:\x1b[1;34m${currentCwd}\x1b[0m# `;
-
-    const sendRaw = (text: string) => {
-      if (socket.readyState === 1) {
-        socket.send(text);
-      }
-    };
-
-    const banner = [
-      '\x1b[36m┌──────────────────────────────────────────────────────────────┐\x1b[0m',
-      '│  \x1b[1mZT-ServerOps Zero Trust Fast Terminal (Raw Stream Mode)\x1b[0m     │',
-      `│  \x1b[32m✔ Authenticated Node:\x1b[0m ${nodeName.padEnd(25)} (Ed25519) │`,
-      `│  \x1b[32m✔ Encrypted Overlay:\x1b[0m ${targetIp.padEnd(24)} (WireGuard) │`,
-      '└──────────────────────────────────────────────────────────────┘\r\n',
-      getPrompt()
-    ].join('\r\n');
-
-    sendRaw(banner);
-
-    const runCommand = (cmd: string) => {
-      const trimmed = cmd.trim();
-      if (!trimmed) {
-        sendRaw(getPrompt());
-        return;
-      }
-
-      if (trimmed === 'clear') {
-        sendRaw('\x1b[2J\x1b[H' + getPrompt());
-        return;
-      }
-
-      if (trimmed === 'exit' || trimmed === 'logout') {
-        sendRaw('logout\r\n');
-        socket.close(1000, 'Session Closed');
-        return;
-      }
-
-      if (trimmed.startsWith('cd ') || trimmed === 'cd') {
-        let target = trimmed.slice(2).trim();
-        if (!target || target === '~') target = '/app';
-        try {
-          const resolved = path.resolve(currentCwd, target);
-          if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
-            currentCwd = resolved;
-          } else {
-            sendRaw(`sh: cd: can't cd to ${target}: No such file or directory\r\n`);
-          }
-        } catch {
-          // Bỏ qua lỗi truy cập file
-        }
-        sendRaw(getPrompt());
-        return;
-      }
-
-      // Smart CLI Aliasing & Tối ưu hóa lệnh tương tác phổ biến
-      let commandToRun = trimmed;
-      if (trimmed === 'top') {
-        commandToRun = 'top -b -n 1';
-      } else if (trimmed.startsWith('top ') && !trimmed.includes('-b')) {
-        commandToRun = `top -b -n 1 ${trimmed.slice(4)}`;
-      } else if (trimmed === 'ping' || (trimmed.startsWith('ping ') && !trimmed.includes('-c'))) {
-        commandToRun = `${trimmed} -c 4`;
-      }
-
-      // Khởi chạy tiến trình Streaming qua spawn
-      try {
-        const child = spawn('/bin/sh', ['-c', commandToRun], {
-          cwd: currentCwd,
-          env: { ...process.env, TERM: 'xterm-256color' }
-        });
-        currentChild = child;
-
-        // Timeout bảo vệ chống cạn kiệt tài nguyên (60s)
-        const timeoutTimer = setTimeout(() => {
-          if (child && !child.killed) {
-            try {
-              child.kill('SIGKILL');
-              sendRaw('\r\n\x1b[31m[Lệnh bị ngắt do vượt quá thời gian thực thi (timeout 60s)]\x1b[0m\r\n');
-            } catch {}
-          }
-        }, 60000);
-
-        child.stdout?.on('data', (chunk: Buffer) => {
-          if (socket.readyState !== 1) return;
-          const formatted = chunk.toString('utf-8').replace(/(?<!\r)\n/g, '\r\n');
-          sendRaw(formatted);
-        });
-
-        child.stderr?.on('data', (chunk: Buffer) => {
-          if (socket.readyState !== 1) return;
-          const formatted = chunk.toString('utf-8').replace(/(?<!\r)\n/g, '\r\n');
-          sendRaw(formatted);
-        });
-
-        child.on('error', (err) => {
-          if (socket.readyState === 1) {
-            sendRaw(`sh: ${err.message}\r\n`);
-          }
-        });
-
-        child.on('close', () => {
-          clearTimeout(timeoutTimer);
-          if (currentChild === child) {
-            currentChild = null;
-          }
-          if (socket.readyState === 1) {
-            sendRaw(getPrompt());
-          }
-        });
-      } catch (err: any) {
-        currentChild = null;
-        sendRaw(`sh: ${err?.message || 'Không thể thực thi lệnh'}\r\n${getPrompt()}`);
-      }
-    };
-
-    sshStream = {
-      write: (data: string | Buffer) => {
-        if (socket.readyState !== 1) return;
-        const str = data.toString();
-
-        // Nếu đang có tiến trình con đang chạy (Streaming Process)
-        if (currentChild && !currentChild.killed) {
-          if (str === '\x03') {
-            // Người dùng gửi Ctrl+C: ngắt tiến trình con ngay lập tức
-            try {
-              currentChild.kill('SIGINT');
-            } catch {}
-            sendRaw('^C\r\n');
-            return;
-          }
-          if (currentChild.stdin && !currentChild.stdin.destroyed) {
-            try {
-              currentChild.stdin.write(data);
-            } catch {}
-          }
-          return;
-        }
-
-        // 1. Phím mũi tên lên (History Prev): \x1b[A hoặc \x1bOA
-        if (str === '\x1b[A' || str === '\x1bOA') {
-          if (history.length > 0) {
-            if (historyIndex === -1) {
-              historyIndex = history.length - 1;
-            } else if (historyIndex > 0) {
-              historyIndex--;
-            }
-            inputBuffer = history[historyIndex];
-            sendRaw(`\r\x1b[K${getPrompt()}${inputBuffer}`);
-          }
-          return;
-        }
-
-        // 2. Phím mũi tên xuống (History Next): \x1b[B hoặc \x1bOB
-        if (str === '\x1b[B' || str === '\x1bOB') {
-          if (historyIndex !== -1) {
-            if (historyIndex < history.length - 1) {
-              historyIndex++;
-              inputBuffer = history[historyIndex];
-              sendRaw(`\r\x1b[K${getPrompt()}${inputBuffer}`);
-            } else {
-              historyIndex = -1;
-              inputBuffer = '';
-              sendRaw(`\r\x1b[K${getPrompt()}`);
-            }
-          }
-          return;
-        }
-
-        // 3. Phím Tab (Auto-complete)
-        if (str === '\t') {
-          try {
-            const parts = inputBuffer.split(' ');
-            const lastPart = parts[parts.length - 1] || '';
-            const dirFiles = fs.readdirSync(currentCwd);
-            const matches = dirFiles.filter((f) => f.startsWith(lastPart));
-            if (matches.length === 1) {
-              const suffix = matches[0].slice(lastPart.length);
-              inputBuffer += suffix;
-              sendRaw(suffix);
-            } else if (matches.length > 1) {
-              sendRaw(`\r\n${matches.join('  ')}\r\n${getPrompt()}${inputBuffer}`);
-            }
-          } catch {}
-          return;
-        }
-
-        for (let i = 0; i < str.length; i++) {
-          const char = str[i];
-          if (char === '\r' || char === '\n') {
-            sendRaw('\r\n');
-            const cmdToExec = inputBuffer;
-            if (cmdToExec.trim() && history[history.length - 1] !== cmdToExec.trim()) {
-              history.push(cmdToExec.trim());
-            }
-            historyIndex = -1;
-            inputBuffer = '';
-            runCommand(cmdToExec);
-          } else if (char === '\x7f' || char === '\x08') {
-            if (inputBuffer.length > 0) {
-              inputBuffer = inputBuffer.slice(0, -1);
-              sendRaw('\b \b');
-            }
-          } else if (char === '\x03') {
-            inputBuffer = '';
-            historyIndex = -1;
-            sendRaw(`^C\r\n${getPrompt()}`);
-          } else if (char.charCodeAt(0) >= 32) {
-            inputBuffer += char;
-            sendRaw(char);
-          }
-        }
-      },
-      setWindow: () => {},
-      end: () => {
-        if (currentChild && !currentChild.killed) {
-          try {
-            currentChild.kill('SIGKILL');
-          } catch {}
-          currentChild = null;
-        }
-        if (socket.readyState === 1) {
-          // Đóng WebSocket an toàn với mã 4502, che giấu chi tiết nhạy cảm
-          socket.close(4502, 'SSH Connection Interrupted');
-        }
-      },
-    };
-  };
-
   sshClient.on('error', (err) => {
-    console.warn(`⚠️ [BASTION WARNING] Sự cố kết nối SSH tới ${targetIp}:`, err.message);
-    activateVirtualTerminal();
+    console.warn(`⚠️ [BASTION ERROR] Sự cố kết nối SSH tới ${targetIp}:`, err.message);
+    // Zero Trust Fail-Closed: Không bao giờ fallback sang container gateway!
+    closeSession(4502, 'SSH Connection Interrupted', 'Mất kết nối SSH với máy chủ đích');
   });
 
   // 5. Lắng nghe các frame tin nhắn từ trình duyệt Web (Dual-Mode: Hỗ trợ cả Raw Stream và JSON)
@@ -453,7 +270,7 @@ export async function attachBastionSession(
       if (text.startsWith('{') && text.includes('"type"')) {
         try {
           const frame = JSON.parse(text);
-          if (frame.type === 'RESIZE' && sshStream) {
+          if (frame.type === 'RESIZE' && sshStream && typeof sshStream.setWindow === 'function') {
             // CHÚ THÍCH BẢO MẬT: Bắt buộc kẹp biên để bảo vệ an toàn Shell Process
             const { rows, cols } = clampPtyDimensions(frame.rows, frame.cols);
             sshStream.setWindow(rows, cols, 0, 0);
@@ -468,61 +285,62 @@ export async function attachBastionSession(
       }
 
       // 2. Mặc định: Luồng dữ liệu phím thô siêu tốc (Raw Stream)
-      if (sshStream) {
+      if (sshStream && typeof sshStream.write === 'function') {
         sshStream.write(rawMessage);
       }
     } catch {
-      // Bỏ qua lỗi
+      // Bỏ qua lỗi write
     }
+  });
+
+  socket.on('error', (sockErr: any) => {
+    console.warn('⚠️ [BASTION WS ERROR]', sockErr.message);
+    closeSession(4502, 'SSH Connection Interrupted');
   });
 
   socket.on('close', () => {
-    if (sshStream && typeof sshStream.end === 'function') {
-      sshStream.end();
-    }
-    if (sshClient) {
-      sshClient.end();
-    }
+    closeSession(1000, 'Session Closed');
   });
 
-  // 6. Thăm dò siêu tốc cổng 22 (Fast Zero Trust Probe 300ms)
-  // Nếu máy chủ đích không mở cổng 22 (Zero Inbound Ports), lập tức kích hoạt Virtual Terminal
-  // trong vòng 0.3s, triệt tiêu hoàn toàn sự chờ đợi 10 giây!
+  // 6. Thăm dò siêu tốc cổng 22 (Fast Zero Trust Probe)
   let probeDone = false;
   const probeSocket = new net.Socket();
 
-  const handleFallback = () => {
+  const handleProbeFailure = () => {
     if (probeDone) return;
     probeDone = true;
-    probeSocket.destroy();
-    if (sshClient) {
-      try { sshClient.end(); } catch {}
-    }
-    activateVirtualTerminal();
+    try { probeSocket.destroy(); } catch {}
+    // Zero Trust Fail-Closed: Cổng 22 không mở hoặc probe timeout -> đóng phiên an toàn 4502
+    closeSession(4502, 'SSH Connection Interrupted', 'Không thể kết nối SSH tới máy chủ đích qua mạng ngầm (Cổng 22 không phản hồi)');
   };
 
   probeSocket.setTimeout(300);
   probeSocket.on('connect', () => {
     if (probeDone) return;
     probeDone = true;
-    probeSocket.destroy();
+    try { probeSocket.destroy(); } catch {}
+
     // Cổng 22 có mở -> kết nối SSH2 Client
-    sshClient.connect({
-      host: targetIp,
-      port: 22,
-      username: config.BASTION_DEFAULT_USER,
-      privateKey: privateKeyContent,
-      readyTimeout: 3000,
-      hostVerifier: () => true,
-    });
+    try {
+      sshClient.connect({
+        host: targetIp,
+        port: 22,
+        username: config.BASTION_DEFAULT_USER,
+        privateKey: privateKeyContent,
+        readyTimeout: 3000,
+        hostVerifier: () => true,
+      });
+    } catch {
+      handleProbeFailure();
+    }
   });
 
-  probeSocket.on('timeout', handleFallback);
-  probeSocket.on('error', handleFallback);
+  probeSocket.on('timeout', handleProbeFailure);
+  probeSocket.on('error', handleProbeFailure);
 
   try {
     probeSocket.connect(22, targetIp);
   } catch {
-    handleFallback();
+    handleProbeFailure();
   }
 }

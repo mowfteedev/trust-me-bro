@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     user_id UUID REFERENCES users(id) ON DELETE RESTRICT,
     node_id UUID REFERENCES nodes(id) ON DELETE RESTRICT,
     action VARCHAR(50) NOT NULL,
+    target VARCHAR(100),
     details JSONB NOT NULL DEFAULT '{}'::jsonb,
     ip_address INET,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

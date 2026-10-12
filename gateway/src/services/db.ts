@@ -75,7 +75,15 @@ export async function checkDatabaseHealth(): Promise<{ healthy: boolean; latency
  * giúp hệ thống có thể đăng nhập ngay cả khi dùng volume cơ sở dữ liệu cũ
  */
 export async function ensureSeedData(): Promise<void> {
+  // CHÚ THÍCH BẢO MẬT (CWE-798 Prevention):
+  // Cấm tuyệt đối việc tự động nạp tài khoản mẫu mật khẩu cố định trên môi trường Production
+  if (config.NODE_ENV === 'production' && process.env.ALLOW_DEFAULT_SEED !== 'true') {
+    console.log('🛡️ [SECURITY] Môi trường Production đã vô hiệu hóa nạp tài khoản mẫu mặc định.');
+    return;
+  }
+
   try {
+    console.warn('⚠️ [SECURITY NOTICE] Đang kích hoạt dữ liệu mẫu môi trường Development/Lab (admin/viewer).');
     // 1. Tạo tài khoản Quản trị viên (ADMIN) mặc định nếu chưa có
     // Mật khẩu: SecureAdmin2026!
     await query(`

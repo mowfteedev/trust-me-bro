@@ -13,6 +13,9 @@ import { config } from '../config/env.js';
  * ==============================================================================
  */
 
+// Hash giả lập chuẩn Scrypt (16 bytes salt + 64 bytes derived key) để triệt tiêu chênh lệch thời gian (Timing Attack)
+const DUMMY_HASH = '0123456789abcdef0123456789abcdef:00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
+
 const LoginDTOSchema = z.object({
   username: z.string().min(3).max(50),
   password: z.string().min(6).max(100),
@@ -46,7 +49,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
       );
 
       if (userRes.rows.length === 0) {
-        // CHÚ THÍCH BẢO MẬT: Trả về thông báo chung để chống tấn công dò quét người dùng (User Enumeration)
+        // CHÚ THÍCH BẢO MẬT: Chạy verifyPassword với DUMMY_HASH để tiêu tốn thời gian Scrypt tương đương,
+        // triệt tiêu hoàn toàn khả năng đo độ trễ để dò quét sự tồn tại của người dùng (User Enumeration Timing Attack)
+        verifyPassword(password, DUMMY_HASH);
         return reply.status(401).send({
           type: 'https://tools.ietf.org/html/rfc7807',
           title: 'Đăng nhập thất bại',
@@ -58,17 +63,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
 
       const user = userRes.rows[0];
 
-      if (!user.is_active) {
-        return reply.status(403).send({
-          type: 'https://tools.ietf.org/html/rfc7807',
-          title: 'Tài khoản bị khóa',
-          status: 403,
-          code: 'ACCOUNT_DISABLED',
-          detail: 'Tài khoản của bạn đã bị vô hiệu hóa trong hệ thống',
-        });
-      }
-
-      // 2. Kiểm tra mật khẩu an toàn với Scrypt và timingSafeEqual
+      // 2. Kiểm tra mật khẩu an toàn với Scrypt và timingSafeEqual TRƯỚC TIÊN
       const isPasswordValid = verifyPassword(password, user.password_hash);
       if (!isPasswordValid) {
         return reply.status(401).send({
@@ -77,6 +72,17 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           status: 401,
           code: 'INVALID_CREDENTIALS',
           detail: 'Tên đăng nhập hoặc mật khẩu không chính xác',
+        });
+      }
+
+      // 3. Chỉ sau khi mật khẩu hợp lệ mới kiểm tra trạng thái tài khoản
+      if (!user.is_active) {
+        return reply.status(403).send({
+          type: 'https://tools.ietf.org/html/rfc7807',
+          title: 'Tài khoản bị khóa',
+          status: 403,
+          code: 'ACCOUNT_DISABLED',
+          detail: 'Tài khoản của bạn đã bị vô hiệu hóa trong hệ thống',
         });
       }
 

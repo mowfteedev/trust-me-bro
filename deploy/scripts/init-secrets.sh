@@ -91,10 +91,12 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' "s|JWT_SECRET=.*|JWT_SECRET=${RANDOM_JWT_SECRET}|g" "${ENV_FILE}"
+        sed -i '' "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${RANDOM_DB_PASSWORD}|g" "${ENV_FILE}"
         sed -i '' "s|postgres://zt_admin:[^@]*@|postgres://zt_admin:${RANDOM_DB_PASSWORD}@|g" "${ENV_FILE}"
         sed -i '' "s|TELEGRAM_PAIR_OTP=.*|TELEGRAM_PAIR_OTP=${RANDOM_TELEGRAM_OTP}|g" "${ENV_FILE}"
     else
         sed -i "s|JWT_SECRET=.*|JWT_SECRET=${RANDOM_JWT_SECRET}|g" "${ENV_FILE}"
+        sed -i "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${RANDOM_DB_PASSWORD}|g" "${ENV_FILE}"
         sed -i "s|postgres://zt_admin:[^@]*@|postgres://zt_admin:${RANDOM_DB_PASSWORD}@|g" "${ENV_FILE}"
         sed -i "s|TELEGRAM_PAIR_OTP=.*|TELEGRAM_PAIR_OTP=${RANDOM_TELEGRAM_OTP}|g" "${ENV_FILE}"
     fi

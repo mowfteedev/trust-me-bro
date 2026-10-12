@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middlewares/auth.middleware.js';
 import { createBastionTicket, attachBastionSession } from '../services/bastion.js';
+import { query } from '../services/db.js';
 
 /**
  * ==============================================================================
@@ -38,6 +39,16 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const { node_id } = parseResult.data;
       const user = req.user as any;
       const ticket = createBastionTicket(node_id, user.id);
+
+      // Ghi nhận sự kiện cấp vé Bastion vào audit_logs
+      const clientIp = (req.ip || '127.0.0.1').replace(/^::ffff:/, '');
+      await query(
+        `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
+         VALUES ($1, 'BASTION_TICKET_ISSUED', 'bastion', $2, $3::inet);`,
+        [user.id, JSON.stringify({ node_id }), clientIp]
+      ).catch((logErr) => {
+        req.log.warn({ logErr }, 'Không thể ghi audit log cho bastion ticket');
+      });
 
       return reply.status(200).send({
         success: true,

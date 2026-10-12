@@ -29,6 +29,7 @@ fi
 
 INSTALL_DIR="/opt/zt-serverops/agent"
 mkdir -p "${INSTALL_DIR}"
+ENV_TARGET="${INSTALL_DIR}/.env"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -d "${SCRIPT_DIR}/src" ]]; then

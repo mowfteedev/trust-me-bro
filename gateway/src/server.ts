@@ -109,12 +109,18 @@ export async function buildServer(): Promise<FastifyInstance> {
     req.log.error(error);
 
     const statusCode = error.statusCode || 500;
+    // BẢO MẬT: Không rò rỉ chi tiết lỗi CSDL hay stack trace ra ngoài nếu là lỗi 500 ở Production
+    const isProd = config.NODE_ENV === 'production';
+    const detail = (statusCode >= 500 && isProd)
+      ? 'Đã xảy ra lỗi nội bộ trên hệ thống'
+      : (error.message || 'Đã xảy ra lỗi nội bộ trên hệ thống');
+
     reply.status(statusCode).send({
       type: 'https://tools.ietf.org/html/rfc7807',
       title: error.name || 'Lỗi xử lý yêu cầu',
       status: statusCode,
       code: (error as any).code || 'INTERNAL_ERROR',
-      detail: error.message || 'Đã xảy ra lỗi nội bộ trên hệ thống',
+      detail,
       request_id: req.id,
       timestamp: new Date().toISOString(),
     });
@@ -122,6 +128,20 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   return fastify;
 }
+
+// Chống crash đột ngột do lỗi stream EPIPE / ECONNRESET (C2 Crash Protection)
+process.on('uncaughtException', (err: any) => {
+  if (err?.code === 'EPIPE' || err?.code === 'ECONNRESET') {
+    console.warn(`⚠️ [PROCESS RESILIENCE] Bỏ qua lỗi stream đứt đột ngột (${err.code})`);
+    return;
+  }
+  console.error('❌ [FATAL UNCAUGHT EXCEPTION]', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  console.error('❌ [FATAL UNHANDLED REJECTION]', reason);
+});
 
 /**
  * Quy trình khởi chạy ứng dụng chính
@@ -172,3 +192,4 @@ const isDirectExecution = process.argv[1] && (
 if (isDirectExecution) {
   start();
 }
+
