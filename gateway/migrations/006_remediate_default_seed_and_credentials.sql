@@ -157,7 +157,7 @@ WHERE username IN ('admin', 'viewer')
 
 -- Vô hiệu hóa token worker mẫu mà KHÔNG DELETE NODE (N04 REMEDIATION - Bảo toàn lịch sử metrics/alerts/audit)
 UPDATE public.nodes
-SET token_hash = 'REVOKED_' || md5(random()::text || clock_timestamp()::text)
+SET token_hash = 'REVOKED_' || token_hash
 WHERE token_prefix = 'secret-t'
   AND (
     token_hash = '10a3ce77a769aabf8361db2ba4aab0af15bdb1352c84f66dea2280049de5cecc'
