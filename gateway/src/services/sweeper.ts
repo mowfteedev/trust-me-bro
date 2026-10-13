@@ -50,14 +50,18 @@ export async function runSweeperCycle(): Promise<{
       console.warn('⚠️ [SWEEPER] Không thể tạo trước phân vùng ngày mới:', partErr.message);
     }
 
-    // 2. Thu hồi các phân vùng cũ quá 7 ngày bằng DROP TABLE giải phóng đĩa cứng tức thì
+    // 2. Thu hồi các phân vùng cũ (Lưu ý N03: Hàm này được bảo vệ nghiêm ngặt chỉ dành cho bảo trì / admin)
+    // zt_app không có quyền thực thi để tránh rủi ro xóa dữ liệu trái phép. Nếu được cấp quyền chuyên biệt thì thực thi.
     try {
       const dropRes = await query(`SELECT drop_old_metrics_partitions(7);`);
       if (dropRes.rows.length > 0) {
         droppedPartitions = dropRes.rows.map((r: any) => r.drop_old_metrics_partitions);
       }
     } catch (dropErr: any) {
-      console.warn('⚠️ [SWEEPER] Không thể dọn dẹp phân vùng cũ:', dropErr.message);
+      // Bỏ qua lỗi permission denied do áp dụng nguyên tắc Least Privilege (N03)
+      if (!dropErr.message?.includes('permission denied')) {
+        console.warn('⚠️ [SWEEPER] Không thể dọn dẹp phân vùng cũ:', dropErr.message);
+      }
     }
 
     // 3. Quét phát hiện các Endpoint Hosts bị mất kết nối (Liveness Check)

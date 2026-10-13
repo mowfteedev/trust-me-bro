@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { query, closeDatabasePool } from '../services/db.js';
 import { hashPassword } from '../utils/crypto.js';
 
@@ -12,35 +13,58 @@ import { hashPassword } from '../utils/crypto.js';
  *
  * Cho phép thiết lập tài khoản quản trị viên an toàn trong môi trường Production
  * mà không cần phụ thuộc vào thông tin xác thực mẫu (default seed credentials).
- * Bảo mật: Ưu tiên nhận mật khẩu qua biến môi trường hoặc tệp tin an toàn (chmod 600)
- * để tránh lộ mật khẩu trong danh sách tiến trình của hệ điều hành (`ps aux`).
+ *
+ * BẢO MẬT (P1 REMEDIATION):
+ * 1. TUYỆT ĐỐI CẤM truyền mật khẩu qua CLI argv (--password) để chống rò rỉ qua /proc và `ps aux`.
+ * 2. Tiếp nhận mật khẩu an toàn qua:
+ *    - Biến môi trường: BOOTSTRAP_ADMIN_PASSWORD
+ *    - Tệp tin bí mật: --password-file <đường_dẫn> hoặc BOOTSTRAP_ADMIN_PASSWORD_FILE
+ * 3. Tuyệt đối KHÔNG in mật khẩu thô ra stdout/stderr. Nếu tự sinh ngẫu nhiên, mật khẩu
+ *    được lưu an toàn vào tệp riêng biệt phân quyền chặt chẽ (chmod 600).
  */
 
 async function bootstrapAdmin() {
   const args = process.argv.slice(2);
   let username = process.env.BOOTSTRAP_ADMIN_USER || 'admin';
   let password = process.env.BOOTSTRAP_ADMIN_PASSWORD || '';
-
-  // Đọc mật khẩu từ file bảo mật nếu được cấu hình
-  if (!password && process.env.BOOTSTRAP_ADMIN_PASSWORD_FILE && fs.existsSync(process.env.BOOTSTRAP_ADMIN_PASSWORD_FILE)) {
-    password = fs.readFileSync(process.env.BOOTSTRAP_ADMIN_PASSWORD_FILE, 'utf-8').trim();
-  }
+  let passwordFile = process.env.BOOTSTRAP_ADMIN_PASSWORD_FILE || '';
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--username' && args[i + 1]) {
       username = args[i + 1];
       i++;
-    } else if (args[i] === '--password' && args[i + 1]) {
-      console.warn('⚠️ [SECURITY WARNING] Truyền mật khẩu qua cờ dòng lệnh CLI có thể bị ghi vết trong danh sách tiến trình hệ thống (ps aux). Khuyến nghị dùng BOOTSTRAP_ADMIN_PASSWORD.');
-      password = args[i + 1];
+    } else if (args[i] === '--password-file' && args[i + 1]) {
+      passwordFile = args[i + 1];
       i++;
+    } else if (args[i] === '--password') {
+      console.error('❌ [SECURITY VIOLATION] CẤM truyền mật khẩu trực tiếp qua đối số dòng lệnh CLI (--password).');
+      console.error('👉 Vui lòng sử dụng cờ --password-file <đường_dẫn> hoặc biến môi trường BOOTSTRAP_ADMIN_PASSWORD.');
+      process.exit(1);
     }
   }
 
+  // Đọc mật khẩu từ tệp bảo mật nếu có
+  if (!password && passwordFile) {
+    if (!fs.existsSync(passwordFile)) {
+      console.error(`❌ [ERROR] Không tìm thấy tệp mật khẩu: ${passwordFile}`);
+      process.exit(1);
+    }
+    password = fs.readFileSync(passwordFile, 'utf-8').trim();
+  }
+
   let generated = false;
+  let secretSavePath = '';
   if (!password) {
     password = crypto.randomBytes(16).toString('base64').replace(/[^a-zA-Z0-9]/g, 'x') + '!A1';
     generated = true;
+
+    // Lưu mật khẩu tự sinh vào tệp phân quyền an toàn 0600
+    const keysDir = path.resolve(process.cwd(), 'keys');
+    if (!fs.existsSync(keysDir)) {
+      fs.mkdirSync(keysDir, { mode: 0o700, recursive: true });
+    }
+    secretSavePath = path.join(keysDir, 'bootstrap_admin.secret');
+    fs.writeFileSync(secretSavePath, password + '\n', { mode: 0o600 });
   }
 
   const pwdHash = hashPassword(password);
@@ -62,10 +86,10 @@ async function bootstrapAdmin() {
   console.log(`✅ [BOOTSTRAP ADMIN] Khởi tạo tài khoản quản trị viên thành công!`);
   console.log(`👤 Username: ${username}`);
   if (generated) {
-    console.log(`🔑 Generated Password: \x1b[32m${password}\x1b[0m`);
-    console.log(`⚠️ Vui lòng lưu trữ mật khẩu an toàn và thay đổi ngay sau khi đăng nhập lần đầu!`);
+    console.log(`🔒 Mật khẩu tự sinh đã được lưu an toàn tại: ${secretSavePath} (phân quyền chmod 600)`);
+    console.log(`⚠️ Tuyệt đối không để lộ tệp bí mật này và vui lòng đổi mật khẩu sau khi đăng nhập.`);
   } else {
-    console.log(`🔑 Password: (đã thiết lập thành công từ biến môi trường/nguồn an toàn)`);
+    console.log(`🔒 Password: (Đã thiết lập thành công từ biến môi trường/tệp bí mật bảo vệ)`);
   }
 
   await closeDatabasePool();

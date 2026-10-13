@@ -60,11 +60,30 @@ services:
       dockerfile: Dockerfile
     container_name: zt_gateway
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
+      # Cấu hình mạng dịch vụ Fastify
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 3000
+      NODE_ENV: ${NODE_ENV:-production}
+      # Danh tính và Xác thực
+      JWT_SECRET: ${JWT_SECRET:-ThayDoiChuoiBiMatNayBangChuoiNgauNhienDaiToiThieu32KyTu!}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      # Kết nối CSDL: CHỈ SỬ DỤNG VAI TRÒ ÍT QUYỀN zt_app (N02 REMEDIATION)
+      DATABASE_URL: ${DATABASE_URL:-postgres://zt_app:SecureAppRole2026!@postgres:5432/zt_serverops}
+      DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-20}
+      DB_IDLE_TIMEOUT_MS: ${DB_IDLE_TIMEOUT_MS:-30000}
+      # Web SSH Bastion
+      BASTION_SSH_KEY_PATH: ${BASTION_SSH_KEY_PATH:-./keys/bastion_id_ed25519}
+      BASTION_DEFAULT_USER: ${BASTION_DEFAULT_USER:-root}
+      BASTION_CONNECT_TIMEOUT_MS: ${BASTION_CONNECT_TIMEOUT_MS:-10000}
+      # Giám sát Liveness Sweeper
+      SWEEPER_INTERVAL_MS: ${SWEEPER_INTERVAL_MS:-5000}
+      NODE_OFFLINE_THRESHOLD_SECONDS: ${NODE_OFFLINE_THRESHOLD_SECONDS:-30}
+      # Telegram Bot & WireGuard
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_PAIR_OTP: ${TELEGRAM_PAIR_OTP:-}
+      WG_GATEWAY_IP: ${WG_GATEWAY_IP:-10.100.0.1}
+      WG_LISTEN_PORT: ${WG_LISTEN_PORT:-51820}
     depends_on:
       postgres:
         condition: service_healthy

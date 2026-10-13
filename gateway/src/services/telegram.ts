@@ -82,13 +82,21 @@ class TelegramService {
 
     if (inputOtp.trim() === this.pairOtp) {
       try {
-        // Lưu vào CSDL để không bị mất khi Gateway restart (V12)
-        await query(
+        // Lưu vào CSDL với DB Atomic Compare-And-Set (Chống race condition giữa nhiều instances)
+        const res = await query(
           `INSERT INTO system_settings (key, value, updated_at)
            VALUES ('telegram_paired_chat_id', $1, (now() AT TIME ZONE 'UTC'))
-           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;`,
+           ON CONFLICT (key) DO UPDATE
+           SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+           WHERE system_settings.value = $1 OR system_settings.value IS NULL OR system_settings.value = '';`,
           [chatId]
         );
+
+        if (res.rowCount === 0) {
+          console.warn(`⚠️ [TELEGRAM DB] Từ chối ghép nối do CSDL đã được gán Chat ID khác bởi instance đồng thời.`);
+          return false;
+        }
+
         this.pairedChatId = chatId;
         console.log(`✔ [TELEGRAM BOT] Ghép nối thành công và đã lưu DB với Chat ID: ${chatId}`);
         return true;

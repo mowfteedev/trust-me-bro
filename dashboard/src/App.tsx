@@ -64,7 +64,10 @@ export const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await api.logout();
+    const res = await api.logout();
+    if (!res.serverRevoked) {
+      console.warn('⚠️ [LOGOUT WARNING] Máy chủ chưa xác nhận thu hồi phiên do sự cố mạng hoặc 503.');
+    }
     setCurrentUser(null);
     setSelectedTerminalNode(null);
     setIsMobileMenuOpen(false);

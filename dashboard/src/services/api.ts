@@ -54,18 +54,24 @@ class ApiService {
   }
 
   /**
-   * Đăng xuất người dùng: Thu hồi phiên làm việc phía máy chủ trước khi xóa bộ nhớ cục bộ
+   * Đăng xuất người dùng: Thu hồi phiên làm việc phía máy chủ trước khi xóa bộ nhớ cục bộ (P1 Remediation)
+   * Phân biệt rõ ràng giữa thành công thu hồi server-side và lỗi ngoại tuyến/503.
    */
-  public async logout(): Promise<void> {
+  public async logout(): Promise<{ serverRevoked: boolean; error?: string }> {
+    let serverRevoked = false;
+    let errorMsg: string | undefined;
     try {
       if (this.token) {
         await this.request('/api/auth/logout', { method: 'POST' });
+        serverRevoked = true;
       }
-    } catch (err) {
-      console.warn('⚠️ [API LOGOUT] Lỗi khi thông báo thu hồi phiên tới máy chủ:', err);
+    } catch (err: any) {
+      errorMsg = err.message || 'Mất kết nối máy chủ';
+      console.warn('⚠️ [API LOGOUT] Máy chủ chưa xác nhận thu hồi phiên do sự cố kết nối:', errorMsg);
     } finally {
       this.clearSession();
     }
+    return { serverRevoked, error: errorMsg };
   }
 
   /**
