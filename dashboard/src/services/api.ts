@@ -54,6 +54,21 @@ class ApiService {
   }
 
   /**
+   * Đăng xuất người dùng: Thu hồi phiên làm việc phía máy chủ trước khi xóa bộ nhớ cục bộ
+   */
+  public async logout(): Promise<void> {
+    try {
+      if (this.token) {
+        await this.request('/api/auth/logout', { method: 'POST' });
+      }
+    } catch (err) {
+      console.warn('⚠️ [API LOGOUT] Lỗi khi thông báo thu hồi phiên tới máy chủ:', err);
+    } finally {
+      this.clearSession();
+    }
+  }
+
+  /**
    * Bộ điều phối HTTP Request có tự động đính kèm JWT Bearer Header
    */
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {

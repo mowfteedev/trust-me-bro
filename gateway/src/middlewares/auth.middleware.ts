@@ -23,6 +23,8 @@ export interface AuthUserPayload {
   username: string;
   role: 'ADMIN' | 'VIEWER';
   session_version: number;
+  exp?: number;
+  authExpiresAt?: number;
 }
 
 declare module '@fastify/jwt' {
@@ -114,11 +116,15 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply): Pr
   }
 
   // 4. Gán quyền và danh tính TỪ CƠ SỞ DỮ LIỆU vào req.user (Không tin role trong JWT payload)
+  const expSeconds = (payload as any).exp;
+  const authExpiresAt = typeof expSeconds === 'number' ? expSeconds * 1000 : Date.now() + 86400000;
   req.user = {
     id: dbUser.id,
     username: dbUser.username,
     role: dbUser.role as 'ADMIN' | 'VIEWER',
     session_version: dbUser.session_version,
+    exp: expSeconds,
+    authExpiresAt,
   };
 }
 

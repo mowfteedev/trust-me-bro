@@ -39,11 +39,23 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const { node_id } = parseResult.data;
       const user = req.user as AuthUserPayload;
 
-      // Giới hạn thời hạn ticket theo thời hạn JWT còn lại (tối đa 30s)
-      const jwtExp = (req.user as any).exp ? ((req.user as any).exp * 1000 - Date.now()) : 30000;
-      const ttlSeconds = Math.max(5, Math.min(30, Math.floor(jwtExp / 1000)));
+      // Giới hạn thời hạn ticket theo thời hạn JWT còn lại (tối đa 30s) (R04 Remediation)
+      const now = Date.now();
+      const authExpiresAt = user.authExpiresAt || (user.exp ? user.exp * 1000 : now + 30000);
+      const remainingSeconds = Math.floor((authExpiresAt - now) / 1000);
 
-      const ticket = createBastionTicket(node_id, user.id, user.session_version, ttlSeconds);
+      if (remainingSeconds <= 0) {
+        return reply.status(401).send({
+          type: 'https://tools.ietf.org/html/rfc7807',
+          title: 'Mã xác thực đã hết hạn',
+          status: 401,
+          code: 'TOKEN_EXPIRED',
+          detail: 'Mã xác thực JWT đã hết hạn, không thể cấp vé kết nối Web SSH',
+        });
+      }
+
+      const ttlSeconds = Math.min(30, remainingSeconds);
+      const ticket = createBastionTicket(node_id, user.id, user.session_version, ttlSeconds, authExpiresAt);
 
       // Ghi nhận sự kiện cấp vé Bastion vào audit_logs - BẮT BUỘC THÀNH CÔNG (FAIL-CLOSED)
       const clientIp = (req.ip || '127.0.0.1').replace(/^::ffff:/, '');

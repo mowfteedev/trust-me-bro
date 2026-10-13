@@ -95,17 +95,26 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         expiresIn: config.JWT_EXPIRES_IN,
       });
 
-      // 5. Ghi nhận log kiểm toán bất biến
+      // 5. Ghi nhận log kiểm toán bất biến - FAIL-CLOSED (R07 Remediation)
       const clientIp = req.ip || '127.0.0.1';
       const normalizedIp = clientIp === '::1' ? '127.0.0.1' : clientIp.replace(/^::ffff:/, '');
 
-      await query(
-        `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
-         VALUES ($1, 'LOGIN_SUCCESS', 'auth', $2, $3::inet);`,
-        [user.id, JSON.stringify({ user_agent: req.headers['user-agent'] || 'unknown' }), normalizedIp]
-      ).catch((logErr) => {
-        console.error('⚠️ [AUDIT WARNING] Không thể ghi log đăng nhập:', logErr.message);
-      });
+      try {
+        await query(
+          `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
+           VALUES ($1, 'LOGIN_SUCCESS', 'auth', $2, $3::inet);`,
+          [user.id, JSON.stringify({ user_agent: req.headers['user-agent'] || 'unknown' }), normalizedIp]
+        );
+      } catch (auditErr: any) {
+        req.log.error({ auditErr }, 'Lỗi ghi audit log khi đăng nhập - Fail-Closed kích hoạt');
+        return reply.status(503).send({
+          type: 'https://tools.ietf.org/html/rfc7807',
+          title: 'Lỗi ghi nhận nhật ký kiểm toán',
+          status: 503,
+          code: 'AUDIT_LOG_FAILURE',
+          detail: 'Đăng nhập bị từ chối do không thể lưu vết kiểm toán an toàn trên hệ thống',
+        });
+      }
 
       return reply.status(200).send({
         success: true,
@@ -142,11 +151,22 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
       );
 
       const clientIp = (req.ip || '127.0.0.1').replace(/^::ffff:/, '');
-      await query(
-        `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
-         VALUES ($1, 'LOGOUT_SUCCESS', 'auth', $2, $3::inet);`,
-        [user.id, JSON.stringify({ reason: 'user_initiated_logout' }), clientIp]
-      ).catch(() => {});
+      try {
+        await query(
+          `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
+           VALUES ($1, 'LOGOUT_SUCCESS', 'auth', $2, $3::inet);`,
+          [user.id, JSON.stringify({ reason: 'user_initiated_logout' }), clientIp]
+        );
+      } catch (auditErr: any) {
+        req.log.error({ auditErr }, 'Lỗi ghi audit log khi đăng xuất - Fail-Closed kích hoạt');
+        return reply.status(503).send({
+          type: 'https://tools.ietf.org/html/rfc7807',
+          title: 'Lỗi ghi nhận nhật ký kiểm toán',
+          status: 503,
+          code: 'AUDIT_LOG_FAILURE',
+          detail: 'Không thể ghi nhận nhật ký kiểm toán cho thao tác đăng xuất',
+        });
+      }
 
       return reply.status(200).send({
         success: true,

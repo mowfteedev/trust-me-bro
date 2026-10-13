@@ -63,8 +63,8 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleLogout = () => {
-    api.clearSession();
+  const handleLogout = async () => {
+    await api.logout();
     setCurrentUser(null);
     setSelectedTerminalNode(null);
     setIsMobileMenuOpen(false);
