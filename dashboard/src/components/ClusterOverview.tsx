@@ -54,9 +54,9 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
       const data = await api.getNodes();
       setNodes(data);
 
-      // Nếu chưa chọn node nào hoặc node đã chọn không còn tồn tại, tự động chọn node đầu tiên
-      if (data.length > 0 && (!selectedNode || !data.some((n) => n.id === selectedNode.id))) {
-        setSelectedNode(data[0]);
+      // Cập nhật selectedNode an toàn chống Stale Closure (Functional State Updater)
+      if (data.length > 0) {
+        setSelectedNode((prev) => (prev && data.some((n) => n.id === prev.id) ? prev : data[0]));
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Không thể kết nối tới Control Plane Gateway');

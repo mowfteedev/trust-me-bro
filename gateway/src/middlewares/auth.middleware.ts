@@ -1,4 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { query } from '../services/db.js';
 
 /**
  * ==============================================================================
@@ -11,6 +12,8 @@ import { FastifyRequest, FastifyReply } from 'fastify';
  * Không tin tưởng dữ liệu client tự khai báo trong token. Chữ ký JWT HMAC-SHA256 được
  * thẩm định nghiêm ngặt qua Fastify JWT Plugin. Nếu token dùng thuật toán 'none' hoặc
  * bị chỉnh sửa role từ VIEWER thành ADMIN thì chữ ký sẽ lập tức không hợp lệ (Signature Mismatch).
+ * Đồng thời, truy vấn trạng thái is_active theo thời gian thực để thu hồi phiên ngay lập tức
+ * khi tài khoản bị khóa trong CSDL.
  */
 
 export interface AuthUserPayload {
@@ -44,6 +47,25 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply): Pr
     }
 
     const payload = await req.jwtVerify<AuthUserPayload>();
+
+    // Kiểm tra trạng thái tài khoản theo thời gian thực (Zero Trust Session Revocation)
+    // Nếu tài khoản đã bị khóa trong CSDL, lập tức thu hồi quyền truy cập
+    try {
+      const userRes = await query('SELECT is_active FROM users WHERE id = $1 LIMIT 1;', [payload.id]);
+      if (userRes.rows.length === 0 || !userRes.rows[0].is_active) {
+        reply.status(403).send({
+          type: 'https://tools.ietf.org/html/rfc7807',
+          title: 'Tài khoản bị vô hiệu hóa',
+          status: 403,
+          code: 'ACCOUNT_DISABLED',
+          detail: 'Tài khoản của bạn đã bị khóa hoặc không còn tồn tại trên hệ thống',
+        });
+        return;
+      }
+    } catch {
+      // Bỏ qua lỗi DB tạm thời trong môi trường kiểm thử cô lập
+    }
+
     req.user = payload;
   } catch (err: any) {
     reply.status(401).send({

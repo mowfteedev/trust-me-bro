@@ -23,8 +23,9 @@ class TelegramService {
 
   constructor() {
     this.botToken = config.TELEGRAM_BOT_TOKEN || '';
-    // Sử dụng OTP từ biến môi trường hoặc tự động sinh ngẫu nhiên lúc khởi động
-    this.pairOtp = config.TELEGRAM_PAIR_OTP || generateNumericOtp(6);
+    // Sử dụng OTP từ biến môi trường (nếu không phải giá trị mẫu 889900) hoặc tự động sinh ngẫu nhiên lúc khởi động
+    const configuredOtp = config.TELEGRAM_PAIR_OTP;
+    this.pairOtp = (configuredOtp && configuredOtp !== '889900') ? configuredOtp : generateNumericOtp(6);
 
     if (this.botToken) {
       console.log('🤖 [TELEGRAM BOT] Đã kích hoạt dịch vụ thông báo On-Call.');
@@ -54,6 +55,12 @@ class TelegramService {
    * Ghép nối thủ công bằng mã OTP
    */
   public pairWithOtp(chatId: string, inputOtp: string): boolean {
+    // Khóa chống chiếm quyền (Anti-Hijack Guard): Không cho phép ghi đè khi đã ghép nối thành công
+    if (this.pairedChatId !== null && this.pairedChatId !== chatId) {
+      console.warn(`⚠️ [TELEGRAM SECURITY] Từ chối ghép nối từ Chat ID ${chatId} do bot đã có quản trị viên.`);
+      return false;
+    }
+
     if (inputOtp.trim() === this.pairOtp) {
       this.pairedChatId = chatId;
       console.log(`✔ [TELEGRAM BOT] Ghép nối thành công với Chat ID: ${chatId}`);
