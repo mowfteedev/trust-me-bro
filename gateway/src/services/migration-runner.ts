@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import pg from 'pg';
-import { config } from '../config/env.js';
 
 const { Pool } = pg;
 
@@ -12,18 +11,20 @@ const { Pool } = pg;
  * Phụ trách: database (chủ trì), devops, backend
  * ==============================================================================
  *
- * LÝ DO PHI TRỰC GIÁC (RATIONALE - R02 REMEDIATION):
+ * LÝ DO PHI TRỰC GIÁC (RATIONALE - N01 & N02 REMEDIATION):
  * Tách biệt hoàn toàn quyền hạn giữa vai trò Migration và vai trò Runtime:
  * - Khi chạy Migration DDL: Cần quyền admin/owner (zt_admin) để CREATE TABLE, ALTER TABLE, ALTER FUNCTION.
- * - Sử dụng MIGRATION_DATABASE_URL (nếu có) hoặc fallback về DATABASE_URL.
- * - Khởi tạo Pool chuyên dụng, sau khi hoàn thành chạy migration thì đóng ngay lập tức (migrationPool.end())
- *   để không chiếm dụng connection slot của cơ sở dữ liệu.
+ * - Chỉ nhận DATABASE_URL từ process.env, độc lập hoàn toàn với config Gateway.
+ * - Khởi tạo Pool chuyên dụng, sau khi hoàn thành chạy migration thì đóng ngay lập tức.
  */
 
 const LOCK_ID = 84729103;
 
 export async function runMigrations(): Promise<void> {
-  const migrationUrl = config.MIGRATION_DATABASE_URL || config.DATABASE_URL;
+  const migrationUrl = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
+  if (!migrationUrl) {
+    throw new Error('❌ [MIGRATION ERROR] Thiếu biến môi trường DATABASE_URL cho tiến trình migration!');
+  }
   const migrationPool = new Pool({
     connectionString: migrationUrl,
     max: 2,
@@ -37,7 +38,7 @@ export async function runMigrations(): Promise<void> {
     // 1. Giữ khóa độc quyền toàn cục chống Race Condition khi nhiều Gateway khởi động cùng lúc
     await client.query('SELECT pg_advisory_lock($1);', [LOCK_ID]);
 
-    // 2. Tạo bảng theo dõi các bản migration đã áp dụng
+    // 2. Tạo bảng theo dõi các bản migration đã áp dụng (N01 REMEDIATION - Khởi tạo trước khi chạy DDL phụ thuộc)
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         name VARCHAR(255) PRIMARY KEY,
@@ -54,8 +55,7 @@ export async function runMigrations(): Promise<void> {
 
     let migrationsDir = possibleDirs.find(d => fs.existsSync(d));
     if (!migrationsDir) {
-      console.warn('⚠️ [MIGRATION RUNNER] Không tìm thấy thư mục migrations. Bỏ qua chạy migration tự động.');
-      return;
+      throw new Error('❌ [MIGRATION ERROR] Không tìm thấy thư mục migrations hợp lệ!');
     }
 
     const files = fs.readdirSync(migrationsDir)

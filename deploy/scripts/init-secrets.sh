@@ -84,8 +84,9 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 
     # Sinh chuỗi JWT_SECRET ngẫu nhiên 64 ký tự hex an toàn
     RANDOM_JWT_SECRET=$(openssl rand -hex 32)
-    # Sinh mật khẩu ngẫu nhiên cho CSDL PostgreSQL (32 ký tự hex)
+    # Sinh mật khẩu ngẫu nhiên cho CSDL PostgreSQL admin và app (32 ký tự hex)
     RANDOM_DB_PASSWORD=$(openssl rand -hex 16)
+    RANDOM_APP_PASSWORD=$(openssl rand -hex 16)
     # Sinh mã OTP Telegram ngẫu nhiên 6 chữ số
     RANDOM_TELEGRAM_OTP=$(od -An -N3 -tu4 /dev/urandom | awk '{printf "%06d", $1 % 1000000}')
 
@@ -93,15 +94,17 @@ if [[ ! -f "${ENV_FILE}" ]]; then
         sed -i '' "s|JWT_SECRET=.*|JWT_SECRET=${RANDOM_JWT_SECRET}|g" "${ENV_FILE}"
         sed -i '' "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${RANDOM_DB_PASSWORD}|g" "${ENV_FILE}"
         sed -i '' "s|postgres://zt_admin:[^@]*@|postgres://zt_admin:${RANDOM_DB_PASSWORD}@|g" "${ENV_FILE}"
+        sed -i '' "s|postgres://zt_app:[^@]*@|postgres://zt_app:${RANDOM_APP_PASSWORD}@|g" "${ENV_FILE}"
         sed -i '' "s|TELEGRAM_PAIR_OTP=.*|TELEGRAM_PAIR_OTP=${RANDOM_TELEGRAM_OTP}|g" "${ENV_FILE}"
     else
         sed -i "s|JWT_SECRET=.*|JWT_SECRET=${RANDOM_JWT_SECRET}|g" "${ENV_FILE}"
         sed -i "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${RANDOM_DB_PASSWORD}|g" "${ENV_FILE}"
         sed -i "s|postgres://zt_admin:[^@]*@|postgres://zt_admin:${RANDOM_DB_PASSWORD}@|g" "${ENV_FILE}"
+        sed -i "s|postgres://zt_app:[^@]*@|postgres://zt_app:${RANDOM_APP_PASSWORD}@|g" "${ENV_FILE}"
         sed -i "s|TELEGRAM_PAIR_OTP=.*|TELEGRAM_PAIR_OTP=${RANDOM_TELEGRAM_OTP}|g" "${ENV_FILE}"
     fi
     chmod 600 "${ENV_FILE}"
-    echo "      ✔ Tệp .env đã được khởi tạo với bí mật ngẫu nhiên (JWT, DB Password, OTP) đạt chuẩn an ninh."
+    echo "      ✔ Tệp .env đã được khởi tạo với bí mật ngẫu nhiên (JWT, DB Admin/App Passwords, OTP) đạt chuẩn an ninh."
 else
     echo "      ℹ Tệp .env đã tồn tại. Không ghi đè."
 fi

@@ -32,11 +32,10 @@ const envSchema = z.object({
   }),
   JWT_EXPIRES_IN: z.string().default('1d'),
 
-  // Kết nối cơ sở dữ liệu PostgreSQL
+  // Kết nối cơ sở dữ liệu PostgreSQL (Chỉ sử dụng vai trò ít quyền zt_app - N02 REMEDIATION)
   DATABASE_URL: z.string().url({
     message: 'LỖI CẤU HÌNH: DATABASE_URL không đúng định dạng connection string!',
   }),
-  MIGRATION_DATABASE_URL: z.string().url().optional(),
   DB_MAX_CONNECTIONS: z.coerce.number().int().min(5).max(100).default(20),
   DB_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30000),
 

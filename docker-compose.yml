@@ -18,7 +18,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-zt_serverops}
     volumes:
       - zt_postgres_data:/var/lib/postgresql/data
-      - ./gateway/migrations:/docker-entrypoint-initdb.d:ro
     networks:
       - zt_internal_net
     healthcheck:
@@ -26,6 +25,31 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 1.5. TIẾN TRÌNH THỰC THI SCHEMA MIGRATIONS ĐỘC LẬP (ZT_MIGRATOR)
+  # ----------------------------------------------------------------------------
+  # LÝ DO PHI TRỰC GIÁC (RATIONALE - N01 & N02 REMEDIATION):
+  # Tách biệt hoàn toàn quyền sở hữu schema DDL:
+  # - zt_migrator là nơi duy nhất giữ thông tin xác thực zt_admin để chạy DDL.
+  # - Sau khi áp dụng xong các bản migration (001 -> 006), container tự thoát (exit 0).
+  # - zt_gateway chỉ khởi động sau khi zt_migrator hoàn tất thành công.
+  # ----------------------------------------------------------------------------
+  migrator:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: zt_migrator
+    restart: "no"
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgres://${POSTGRES_USER:-zt_admin}:${POSTGRES_PASSWORD:-SecurePassword123!}@postgres:5432/${POSTGRES_DB:-zt_serverops}}
+      NODE_ENV: ${NODE_ENV:-development}
+    command: ["npm", "run", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zt_internal_net
 
   # ----------------------------------------------------------------------------
   # 2. TRẠM ĐIỀU HÀNH TRUNG TÂM (CONTROL PLANE GATEWAY)
@@ -44,6 +68,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     volumes:
       - ./keys/bastion_id_ed25519:/app/keys/bastion_id_ed25519:ro
       - zt_audit_logs:/app/logs/audit

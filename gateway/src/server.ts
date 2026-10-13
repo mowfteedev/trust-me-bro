@@ -6,7 +6,6 @@ import websocket from '@fastify/websocket';
 
 import { config } from './config/env.js';
 import { checkDatabaseHealth, closeDatabasePool, ensureSeedData } from './services/db.js';
-import { runMigrations } from './services/migration-runner.js';
 import { authRoutes } from './routes/auth.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { bastionRoutes } from './routes/bastion.js';
@@ -152,16 +151,13 @@ async function start() {
   try {
     const server = await buildServer();
 
-    // 1. Tự động áp dụng toàn bộ bản migration CSDL (Schema Migrations Runner với Advisory Lock)
-    await runMigrations();
-
-    // 2. Khởi tạo dịch vụ Telegram Bot và khôi phục Chat ID đã ghép nối (V12)
+    // 1. Khởi tạo dịch vụ Telegram Bot và khôi phục Chat ID đã ghép nối (V12)
     await telegramService.init();
 
-    // 3. Đảm bảo dữ liệu khởi tạo ban đầu (chỉ nạp nếu chưa có hoặc môi trường phát triển)
+    // 2. Đảm bảo dữ liệu khởi tạo ban đầu (chỉ nạp nếu chưa có hoặc môi trường phát triển)
     await ensureSeedData();
 
-    // 4. Khởi động dịch vụ Sweeper chạy nền
+    // 3. Khởi động dịch vụ Sweeper chạy nền
     startSweeper();
 
     // Lắng nghe kết nối trên HOST và PORT đã cấu hình
