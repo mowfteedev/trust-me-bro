@@ -54,3 +54,15 @@ REVOKE ALL ON FUNCTION public.drop_old_metrics_partitions(integer) FROM PUBLIC;
 -- zt_app chỉ có quyền tạo partition, không có quyền xóa partition
 GRANT EXECUTE ON FUNCTION public.create_daily_metrics_partition(date) TO zt_app;
 REVOKE EXECUTE ON FUNCTION public.drop_old_metrics_partitions(integer) FROM zt_app;
+
+-- 9. THIẾT LẬP VAI TRÒ BẢO TRÌ ĐỊNH KỲ (MAINTENANCE PRINCIPAL):
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'zt_maintenance') THEN
+    CREATE ROLE zt_maintenance WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION;
+  END IF;
+END $$;
+GRANT CONNECT ON DATABASE zt_serverops TO zt_maintenance;
+GRANT USAGE ON SCHEMA public TO zt_maintenance;
+GRANT EXECUTE ON FUNCTION public.drop_old_metrics_partitions(integer) TO zt_maintenance;
+

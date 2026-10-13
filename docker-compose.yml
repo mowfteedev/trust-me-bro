@@ -52,6 +52,27 @@ services:
       - zt_internal_net
 
   # ----------------------------------------------------------------------------
+  # 1.6. DỊCH VỤ BẢO TRÌ PHÂN VÙNG DỮ LIỆU ĐỊNH KỲ (ZT_MAINTENANCE)
+  # Phân quyền: Sử dụng vai trò chuyên trách zt_maintenance (N03 Remediation)
+  # ----------------------------------------------------------------------------
+  maintenance:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: zt_maintenance
+    profiles: ["maintenance"]
+    restart: "no"
+    environment:
+      MAINTENANCE_DATABASE_URL: postgres://zt_maintenance:SecureMaintenance2026!@postgres:5432/${POSTGRES_DB:-zt_serverops}
+      RETENTION_DAYS: 7
+    command: ["node", "dist/scripts/run-maintenance.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zt_internal_net
+
+  # ----------------------------------------------------------------------------
   # 2. TRẠM ĐIỀU HÀNH TRUNG TÂM (CONTROL PLANE GATEWAY)
   # ----------------------------------------------------------------------------
   gateway:

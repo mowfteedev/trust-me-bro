@@ -107,7 +107,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
     try {
       // 3. Tra cứu điểm chính xác qua chỉ mục B-Tree UNIQUE Index (Tốc độ O(1), < 1ms)
       const nodeRes = await query(
-        'SELECT id, name, ip_address, token_hash, status FROM nodes WHERE token_hash = $1 LIMIT 1;',
+        'SELECT id, name, ip_address, token_hash, status, is_token_revoked FROM nodes WHERE token_hash = $1 LIMIT 1;',
         [inputHash]
       );
 
@@ -115,7 +115,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
         // Kiểm tra xem có node nào mang token_prefix này mà đã bị revoked không (N04 REMEDIATION)
         const prefix = rawToken.trim().slice(0, 8);
         const revokedCheck = await query(
-          "SELECT id FROM nodes WHERE token_prefix = $1 AND (token_hash LIKE 'REVOKED_%' OR status = 'REVOKED') LIMIT 1;",
+          "SELECT id FROM nodes WHERE token_prefix = $1 AND (is_token_revoked = TRUE OR token_hash LIKE 'REVOKED_%' OR status = 'REVOKED') LIMIT 1;",
           [prefix]
         );
         if (revokedCheck.rows.length > 0) {
@@ -139,7 +139,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
 
       const node = nodeRes.rows[0];
 
-      if (node.token_hash?.startsWith('REVOKED_') || node.status === 'REVOKED') {
+      if (node.is_token_revoked || node.token_hash?.startsWith('REVOKED_') || node.status === 'REVOKED') {
         return reply.status(401).send({
           type: 'https://tools.ietf.org/html/rfc7807',
           title: 'Mã xác thực đã bị thu hồi',

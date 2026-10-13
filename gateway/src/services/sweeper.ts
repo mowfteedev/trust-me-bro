@@ -109,6 +109,43 @@ export async function runSweeperCycle(): Promise<{
       await telegramService.sendAlert(node.name, 'CRITICAL', alertMsg);
       console.warn(`🚨 [LIVENESS ALERT] Đã chuyển máy chủ ${node.name} sang trạng thái OFFLINE.`);
     }
+
+    // 4. Đối soát và dọn dẹp các phiên audit START mồ côi do Process Crash / Ungraceful Shutdown (N08 Reconciliation)
+    try {
+      const orphanSessionsRes = await query(
+        `SELECT start_log.id, start_log.user_id, start_log.details->>'session_id' as session_id,
+                start_log.details->>'node_id' as node_id, start_log.created_at
+         FROM audit_logs start_log
+         WHERE start_log.action = 'BASTION_SESSION_START'
+           AND start_log.created_at < (now() AT TIME ZONE 'UTC') - INTERVAL '30 minutes'
+           AND NOT EXISTS (
+             SELECT 1 FROM audit_logs end_log
+             WHERE end_log.action = 'BASTION_SESSION_END'
+               AND end_log.details->>'session_id' = start_log.details->>'session_id'
+           )
+         LIMIT 10;`
+      );
+
+      for (const orphan of orphanSessionsRes.rows) {
+        if (!orphan.session_id) continue;
+        await query(
+          `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
+           VALUES ($1, 'BASTION_SESSION_END', 'bastion', $2, '127.0.0.1'::inet);`,
+          [
+            orphan.user_id,
+            JSON.stringify({
+              session_id: orphan.session_id,
+              node_id: orphan.node_id,
+              reason: 'Orphaned Session Reconciled After Process Crash / Hard Timeout',
+              reconciled_at: new Date().toISOString()
+            })
+          ]
+        );
+        console.warn(`🧹 [AUDIT RECONCILER] Đã tự động đóng phiên mồ côi session_id: ${orphan.session_id}`);
+      }
+    } catch (reconcileErr: any) {
+      console.warn('⚠️ [SWEEPER RECONCILE] Lỗi kiểm tra đối soát audit log mồ côi:', reconcileErr.message);
+    }
   } catch (err: any) {
     console.error('❌ [SWEEPER ERROR] Sự cố trong vòng lặp Sweeper:', err.message);
   } finally {
