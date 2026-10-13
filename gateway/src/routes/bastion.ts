@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { authenticate, authorize } from '../middlewares/auth.middleware.js';
+import { authenticate, authorize, AuthUserPayload } from '../middlewares/auth.middleware.js';
 import { createBastionTicket, attachBastionSession } from '../services/bastion.js';
 import { query } from '../services/db.js';
 
@@ -37,23 +37,37 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       }
 
       const { node_id } = parseResult.data;
-      const user = req.user as any;
-      const ticket = createBastionTicket(node_id, user.id);
+      const user = req.user as AuthUserPayload;
 
-      // Ghi nhận sự kiện cấp vé Bastion vào audit_logs
+      // Giới hạn thời hạn ticket theo thời hạn JWT còn lại (tối đa 30s)
+      const jwtExp = (req.user as any).exp ? ((req.user as any).exp * 1000 - Date.now()) : 30000;
+      const ttlSeconds = Math.max(5, Math.min(30, Math.floor(jwtExp / 1000)));
+
+      const ticket = createBastionTicket(node_id, user.id, user.session_version, ttlSeconds);
+
+      // Ghi nhận sự kiện cấp vé Bastion vào audit_logs - BẮT BUỘC THÀNH CÔNG (FAIL-CLOSED)
       const clientIp = (req.ip || '127.0.0.1').replace(/^::ffff:/, '');
-      await query(
-        `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
-         VALUES ($1, 'BASTION_TICKET_ISSUED', 'bastion', $2, $3::inet);`,
-        [user.id, JSON.stringify({ node_id }), clientIp]
-      ).catch((logErr) => {
-        req.log.warn({ logErr }, 'Không thể ghi audit log cho bastion ticket');
-      });
+      try {
+        await query(
+          `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
+           VALUES ($1, 'BASTION_TICKET_ISSUED', 'bastion', $2, $3::inet);`,
+          [user.id, JSON.stringify({ node_id }), clientIp]
+        );
+      } catch (auditErr: any) {
+        req.log.error({ auditErr }, 'Lỗi ghi audit log khi cấp vé Bastion - Fail-Closed kích hoạt');
+        return reply.status(503).send({
+          type: 'https://tools.ietf.org/html/rfc7807',
+          title: 'Lỗi ghi nhận nhật ký kiểm toán',
+          status: 503,
+          code: 'AUDIT_LOG_FAILURE',
+          detail: 'Hành động đặc quyền bị từ chối do không thể lưu vết kiểm toán an toàn',
+        });
+      }
 
       return reply.status(200).send({
         success: true,
         ticket,
-        expires_in_seconds: 30,
+        expires_in_seconds: ttlSeconds,
       });
     }
   );
