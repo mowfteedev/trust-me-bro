@@ -9,27 +9,34 @@ import { generateSecureToken } from '../utils/crypto.js';
 
 /**
  * ==============================================================================
- * DỊCH VỤ CẦU NỐI WEB SSH PTY BASTION BRIDGE (bastion.ts) - BẢN VÁ BẢO MẬT TOÀN DIỆN
+ * DỊCH VỤ CẦU NỐI WEB SSH PTY BASTION BRIDGE (bastion.ts) - BẢN VÁ BẢO MẬT v3.3
  * Dự án: ZT-ServerOps (do-an-co-so-nganh)
  * Phụ trách: backend (chủ trì), security, tester, code-reviewer
  * ==============================================================================
  *
- * CÁC BẢN VÁ TRỌNG TÂM ĐÃ TÍCH HỢP:
- * 1. [B2 FIX - Session Revocation]:
- *    - Ticket lưu userId + sessionVersion. Khi redeem, BẮT BUỘC kiểm tra lại is_active, role, session_version từ CSDL.
- *    - Active Session Registry: Quản lý toàn bộ phiên mở, kiểm tra batch định kỳ mỗi 2s.
- *    - Independent Deadline: Mất kết nối CSDL quá 5s tự động ngắt phiên (Fail-Closed).
- *    - Ngắt terminal ngay lập tức khi user bị khóa, hạ quyền hoặc đăng xuất (session_version thay đổi).
- * 2. [B6 FIX - Vòng Đời & Backpressure]:
- *    - Đăng ký WS close/error và cờ cancellation TRƯỚC mọi thao tác bất đồng bộ.
- *    - Quản lý trạng thái rõ ràng (INIT -> PROBING -> CONNECTING -> READY -> CLOSED).
- *    - Hủy ngay mọi tài nguyên đến muộn (Late Resources) sau khi CLOSED.
- *    - Input WS -> SSH: Kiểm tra canWrite. Nếu false -> socket.pause() và chờ sshStream.drain.
- *    - Output SSH -> WS: Ngưỡng 64KB High Watermark -> pause stream, 16KB Low Watermark -> resume.
- *    - Hạn mức Quota phiên theo user/node/global và dọn dẹp sạch khi SIGTERM.
- * 3. [B5 FIX - SSH Host Key Pinning]:
- *    - Thẩm định danh tính máy chủ qua hostVerifier (SHA256 hex fingerprint).
- *    - Chặn đứng kết nối nếu node chưa ghim host_key_fingerprint hoặc fingerprint bị sai lệch.
+ * CÁC BẢN VÁ TRỌNG TÂM ĐÃ TÍCH HỢP (REMEDIATION ROUND 2):
+ * 1. [B2 FIX / R03 - Independent Watchdog & Lease Deadline]:
+ *    - In-flight check guard chống query chồng chéo khi CSDL bị trễ/treo.
+ *    - Independent Watchdog Timer chạy mỗi 1s bằng monotonic clock (Date.now()).
+ *    - Cưỡng chế ngắt phiên sau 5s mất kết nối CSDL (Fail-Closed 4503) độc lập với DB query.
+ *    - Chặn đứng Late Response hồi sinh các phiên đã đóng.
+ * 2. [B2 FIX / R04 - JWT Expiry, Ticket TTL & Terminal Hard-Expiry]:
+ *    - Bảo toàn authExpiresAt từ JWT payload qua ticket vào ActiveSession.
+ *    - Cấp ticket giới hạn nghiêm ngặt theo thời hạn còn lại của JWT.
+ *    - Hard-Expiry Timer tự động ngắt terminal ngay khi JWT hết hạn.
+ * 3. [B6 FIX / R05 - Synchronous Slot Reservation & Node Quota]:
+ *    - Đặt chỗ đồng bộ (Synchronous Slot Reservation) trong activeSessions trước mọi await.
+ *    - Áp dụng triệt để giới hạn MAX_SESSIONS_PER_NODE = 10 sau khi lookup node.
+ * 4. [B6 FIX / R06 - Input/Output Backpressure, Timer Leak & RFC 6455 Compliant]:
+ *    - Single drain listener cho input backpressure kèm bounded queue chống tràn RAM.
+ *    - Quản lý tập trung output interval timer, dọn dẹp sạch sẽ trong runCleanup().
+ *    - Loại bỏ mã đóng WebSocket 1006 (bị cấm bởi RFC 6455), dùng mã hợp lệ 1011/4500.
+ * 5. [B3 FIX / R07 - Audit Logging Fail-Closed & Session End]:
+ *    - BASTION_SESSION_START bắt buộc thành công (Fail-Closed).
+ *    - Ghi nhận sự kiện BASTION_SESSION_END khi kết thúc phiên.
+ * 6. [B5 FIX - SSH Host Key Pinning & Error Masking]:
+ *    - Ghim vân tay SHA-256 fingerprint chống MITM.
+ *    - Che giấu chi tiết lỗi SSH nội bộ (Masked Errors) ra phía client.
  */
 
 interface BastionTicket {
@@ -37,6 +44,7 @@ interface BastionTicket {
   userId: string;
   sessionVersion: number;
   expiresAt: number;
+  authExpiresAt: number;
 }
 
 interface ActiveSession {
@@ -50,9 +58,13 @@ interface ActiveSession {
   sshClient: Client | null;
   sshStream: any | null;
   createdAt: number;
+  authExpiresAt: number;
   lastDbHealthyTime: number;
   lastActivityTime: number;
-  cleanupFn: (code?: number, reason?: string, msg?: string) => void;
+  isAuditStarted: boolean;
+  hardExpiryTimer: NodeJS.Timeout | null;
+  outputDrainInterval: NodeJS.Timeout | null;
+  cleanupFn: (closeCode?: number, reason?: string, userMsg?: string) => void;
 }
 
 // Bảng lưu trữ One-Time Ticket trong bộ nhớ RAM
@@ -76,15 +88,23 @@ setInterval(() => {
   }
 }, 10000).unref();
 
+// Cờ chống truy vấn chồng chéo (In-flight guard)
+let isCheckingDb = false;
+
 /**
- * Background Session Registry Batch Checker:
+ * Background Session Registry Batch Checker (R03 Remediation):
  * Quét định kỳ mỗi 2 giây để thu hồi phiên mở khi người dùng bị khóa/hạ quyền/đăng xuất trong CSDL
  */
 const sessionCheckerInterval = setInterval(async () => {
   if (activeSessions.size === 0) return;
+  if (isCheckingDb) return; // In-flight check guard chống query chồng chéo khi CSDL treo
+  isCheckingDb = true;
 
   const userIds = Array.from(new Set(Array.from(activeSessions.values()).map(s => s.userId)));
-  if (userIds.length === 0) return;
+  if (userIds.length === 0) {
+    isCheckingDb = false;
+    return;
+  }
 
   try {
     const res = await query(
@@ -99,7 +119,7 @@ const sessionCheckerInterval = setInterval(async () => {
 
     const now = Date.now();
     for (const [sessionId, session] of activeSessions.entries()) {
-      if (session.state === 'CLOSED') continue;
+      if (session.state === 'CLOSED') continue; // Chặn late response hồi sinh session
       session.lastDbHealthyTime = now;
       const user = userMap.get(session.userId);
 
@@ -113,29 +133,48 @@ const sessionCheckerInterval = setInterval(async () => {
       }
     }
   } catch (err: any) {
-    // DEADLINE ĐỘC LẬP: Nếu mất kết nối CSDL quá 5 giây, cưỡng chế đóng các phiên để bảo đảm Fail-Closed!
-    const now = Date.now();
-    for (const [sessionId, session] of activeSessions.entries()) {
-      if (session.state === 'CLOSED') continue;
-      if (now - session.lastDbHealthyTime > 5000) {
-        console.error(`🚨 [BASTION DB DEADLINE EXCEEDED] Đóng phiên ${sessionId} vì mất kết nối CSDL quá deadline 5s`);
-        session.cleanupFn(4503, 'DB Deadline Exceeded', 'Mất kết nối kiểm tra an ninh cơ sở dữ liệu quá thời hạn cho phép');
-      }
-    }
+    console.warn('⚠️ [BASTION SESSION CHECKER] Lỗi truy vấn CSDL trong batch check:', err.message);
+  } finally {
+    isCheckingDb = false;
   }
 }, 2000);
 sessionCheckerInterval.unref();
 
 /**
- * Cấp phát One-Time Ticket dùng một lần để kết nối Web SSH (Gắn liền session_version)
+ * Independent Watchdog Timer (R03 Remediation):
+ * Chạy mỗi 1 giây hoàn toàn độc lập với DB query.
+ * Nếu Date.now() - session.lastDbHealthyTime > 5000ms -> ngắt phiên ngay lập tức với mã 4503.
  */
-export function createBastionTicket(nodeId: string, userId: string, sessionVersion: number, ttlSeconds = 30): string {
+const independentWatchdogInterval = setInterval(() => {
+  if (activeSessions.size === 0) return;
+  const now = Date.now();
+  for (const [sessionId, session] of activeSessions.entries()) {
+    if (session.state === 'CLOSED') continue;
+    if (now - session.lastDbHealthyTime > 5000) {
+      console.error(`🚨 [BASTION DB DEADLINE EXCEEDED] Đóng phiên ${sessionId} vì mất kết nối CSDL quá deadline 5s`);
+      session.cleanupFn(4503, 'DB Deadline Exceeded', 'Mất kết nối kiểm tra an ninh cơ sở dữ liệu quá thời hạn cho phép');
+    }
+  }
+}, 1000);
+independentWatchdogInterval.unref();
+
+/**
+ * Cấp phát One-Time Ticket dùng một lần để kết nối Web SSH (Gắn liền session_version và authExpiresAt)
+ */
+export function createBastionTicket(
+  nodeId: string,
+  userId: string,
+  sessionVersion: number,
+  ttlSeconds = 30,
+  authExpiresAt = Date.now() + 86400000
+): string {
   const ticket = generateSecureToken(32);
   ticketStore.set(ticket, {
     nodeId,
     userId,
     sessionVersion,
-    expiresAt: Date.now() + Math.max(5000, ttlSeconds * 1000),
+    expiresAt: Date.now() + Math.max(1000, ttlSeconds * 1000),
+    authExpiresAt,
   });
   return ticket;
 }
@@ -187,22 +226,31 @@ export async function attachBastionSession(
   const sessionId = crypto.randomUUID();
   let sessionState: 'INIT' | 'PROBING' | 'CONNECTING' | 'READY' | 'CLOSING' | 'CLOSED' = 'INIT';
   let isCancelled = false;
+  let isInputPaused = false;
 
   let probeSocket: net.Socket | null = null;
   let sshClient: Client | null = null;
   let sshStream: any = null;
-  let slowConsumerCheckTimer: NodeJS.Timeout | null = null;
 
   // 1. Hàm dọn dẹp tài nguyên lũy thừa (Idempotent Cleanup)
   const runCleanup = (closeCode = 1000, reason = 'Session Closed', userMsg?: string) => {
     if (sessionState === 'CLOSED') return;
     sessionState = 'CLOSED';
     isCancelled = true;
+
+    const existingSession = activeSessions.get(sessionId);
     activeSessions.delete(sessionId);
 
-    if (slowConsumerCheckTimer) {
-      clearInterval(slowConsumerCheckTimer);
-      slowConsumerCheckTimer = null;
+    // Dọn dẹp Hard Expiry Timer (R04)
+    if (existingSession?.hardExpiryTimer) {
+      clearTimeout(existingSession.hardExpiryTimer);
+      existingSession.hardExpiryTimer = null;
+    }
+
+    // Dọn dẹp Output Drain Timer (R06)
+    if (existingSession?.outputDrainInterval) {
+      clearInterval(existingSession.outputDrainInterval);
+      existingSession.outputDrainInterval = null;
     }
 
     if (probeSocket) {
@@ -223,11 +271,28 @@ export async function attachBastionSession(
       sshClient = null;
     }
 
+    // Ghi nhận Audit Log phiên kết thúc nếu đã từng bắt đầu (R07)
+    if (existingSession?.isAuditStarted) {
+      existingSession.isAuditStarted = false;
+      query(
+        `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
+         VALUES ($1, 'BASTION_SESSION_END', 'bastion', $2, '127.0.0.1'::inet);`,
+        [existingSession.userId, JSON.stringify({ session_id: sessionId, node_id: nodeIdentifier, reason })]
+      ).catch((err) => {
+        console.warn('⚠️ [BASTION AUDIT END ERROR] Lỗi ghi audit log khi kết thúc phiên:', err.message);
+      });
+    }
+
+    // Đóng WebSocket an toàn tuân thủ RFC 6455 (Không dùng mã 1006)
     if (socket.readyState === 1 || socket.readyState === 0) {
       if (userMsg && socket.readyState === 1) {
         try { socket.send(JSON.stringify({ type: 'ERROR', message: userMsg })); } catch {}
       }
-      try { socket.close(closeCode, reason); } catch {}
+      try {
+        // Chuẩn hóa closeCode: Nếu là 1006 (RFC 6455 cấm) chuyển thành 1011
+        const safeCloseCode = closeCode === 1006 ? 1011 : closeCode;
+        socket.close(safeCloseCode, reason);
+      } catch {}
     }
   };
 
@@ -238,10 +303,12 @@ export async function attachBastionSession(
 
   socket.on('error', (err) => {
     console.warn(`⚠️ [BASTION WS ERROR ${sessionId}]:`, err.message);
-    runCleanup(1006, 'Socket Error');
+    // RFC 6455: Dùng 1011 (Internal Error) thay vì 1006
+    runCleanup(1011, 'Socket Error');
   });
 
-  // 3. Kiểm tra hạn mức phiên toàn cục (Session Quota Guard)
+  // 3. SYNCHRONOUS SLOT RESERVATION (R05 Remediation):
+  // Kiểm tra hạn mức toàn cục đồng bộ trước bất kỳ await nào
   if (activeSessions.size >= MAX_GLOBAL_SESSIONS) {
     runCleanup(4429, 'Session Quota Exceeded', 'Hệ thống đã đạt giới hạn số phiên kết nối đồng thời');
     return;
@@ -254,14 +321,44 @@ export async function attachBastionSession(
     return;
   }
 
-  const { userId, sessionVersion } = authResult.ticketData;
+  const { userId, sessionVersion, authExpiresAt } = authResult.ticketData;
 
-  // Kiểm tra hạn mức phiên của riêng người dùng
+  // Kiểm tra hạn mức người dùng đồng bộ
   const userOpenSessions = Array.from(activeSessions.values()).filter(s => s.userId === userId).length;
   if (userOpenSessions >= MAX_SESSIONS_PER_USER) {
     runCleanup(4429, 'User Quota Exceeded', 'Tài khoản đã mở quá số phiên SSH cho phép (tối đa 5 phiên)');
     return;
   }
+
+  // Khởi tạo và thiết lập Hard-Expiry Timer (R04 Remediation)
+  const timeUntilJwtExpires = Math.max(0, authExpiresAt - Date.now());
+  const hardExpiryTimer = setTimeout(() => {
+    console.warn(`⏰ [BASTION JWT EXPIRED] Phiên ${sessionId} đã đạt giới hạn thời gian sống của JWT (${authExpiresAt})`);
+    runCleanup(4401, 'Token Expired', 'Mã xác thực JWT đã hết hạn');
+  }, timeUntilJwtExpires);
+  hardExpiryTimer.unref();
+
+  // ĐĂNG KÝ NGAY LẬP TỨC VÀO ACTIVE SESSIONS ĐỂ CHIẾM SLOT ĐỒNG BỘ (Chống Race Condition R05)
+  const sessionRecord: ActiveSession = {
+    sessionId,
+    userId,
+    sessionVersion,
+    nodeId: nodeIdentifier,
+    nodeName: nodeIdentifier,
+    state: 'INIT',
+    socket,
+    sshClient: null,
+    sshStream: null,
+    createdAt: Date.now(),
+    authExpiresAt,
+    lastDbHealthyTime: Date.now(),
+    lastActivityTime: Date.now(),
+    isAuditStarted: false,
+    hardExpiryTimer,
+    outputDrainInterval: null,
+    cleanupFn: runCleanup,
+  };
+  activeSessions.set(sessionId, sessionRecord);
 
   // 5. Kiểm tra quyền hạn và trạng thái tài khoản thời gian thực trong CSDL (B2 Fix)
   let dbUser: any;
@@ -301,6 +398,7 @@ export async function attachBastionSession(
   // 6. Tra cứu thông tin máy chủ con và Host Key Fingerprint (B5 Fix)
   let targetIp = '';
   let nodeName = nodeIdentifier;
+  let targetNodeId = nodeIdentifier;
   let expectedFingerprint = '';
 
   try {
@@ -314,9 +412,13 @@ export async function attachBastionSession(
       return;
     }
 
+    targetNodeId = nodeRes.rows[0].id;
     targetIp = nodeRes.rows[0].ip_address;
     nodeName = nodeRes.rows[0].name;
     expectedFingerprint = (nodeRes.rows[0].host_key_fingerprint || '').trim();
+
+    sessionRecord.nodeId = targetNodeId;
+    sessionRecord.nodeName = nodeName;
   } catch (nodeDbErr: any) {
     console.error('❌ [BASTION NODE DB ERROR]:', nodeDbErr.message);
     runCleanup(4500, 'Database Error', 'Lỗi truy vấn thông tin máy chủ con');
@@ -328,6 +430,16 @@ export async function attachBastionSession(
     return;
   }
 
+  // KIỂM TRA HẠN MỨC PHIÊN THEO MÁY CHỦ CON (MAX_SESSIONS_PER_NODE = 10) (R05 Remediation)
+  const nodeOpenSessions = Array.from(activeSessions.values()).filter(
+    s => s.nodeId === targetNodeId || s.nodeId === nodeIdentifier
+  ).length;
+
+  if (nodeOpenSessions > MAX_SESSIONS_PER_NODE) {
+    runCleanup(4429, 'Node Quota Exceeded', `Máy chủ ${nodeName} đã đạt giới hạn tối đa ${MAX_SESSIONS_PER_NODE} phiên SSH đồng thời`);
+    return;
+  }
+
   // 7. Ghi nhận bắt đầu phiên Bastion vào Audit Log - FAIL-CLOSED (B3 Fix)
   try {
     await query(
@@ -335,6 +447,7 @@ export async function attachBastionSession(
        VALUES ($1, 'BASTION_SESSION_START', 'bastion', $2, $3::inet);`,
       [dbUser.id, JSON.stringify({ node_id: nodeIdentifier, target_ip: targetIp }), '127.0.0.1']
     );
+    sessionRecord.isAuditStarted = true;
   } catch (auditErr: any) {
     console.error('❌ [BASTION AUDIT FAILURE] Không thể ghi audit log mở phiên, Fail-Closed:', auditErr.message);
     runCleanup(4503, 'Audit Failure', 'Không thể mở phiên do không thể ghi nhận vết kiểm toán an toàn');
@@ -356,26 +469,9 @@ export async function attachBastionSession(
     return;
   }
 
-  // 9. Đăng ký phiên vào Active Session Registry
-  const sessionRecord: ActiveSession = {
-    sessionId,
-    userId: dbUser.id,
-    sessionVersion: dbUser.session_version,
-    nodeId: nodeIdentifier,
-    nodeName,
-    state: 'PROBING',
-    socket,
-    sshClient: null,
-    sshStream: null,
-    createdAt: Date.now(),
-    lastDbHealthyTime: Date.now(),
-    lastActivityTime: Date.now(),
-    cleanupFn: runCleanup,
-  };
-  activeSessions.set(sessionId, sessionRecord);
-
-  // 10. Fast Zero Trust Probe cổng 22
+  // 9. Fast Zero Trust Probe cổng 22
   sessionState = 'PROBING';
+  sessionRecord.state = 'PROBING';
   probeSocket = new net.Socket();
   let probeDone = false;
 
@@ -399,12 +495,14 @@ export async function attachBastionSession(
 
     // Bắt đầu kết nối SSH2 Client
     sessionState = 'CONNECTING';
+    sessionRecord.state = 'CONNECTING';
     sshClient = new Client();
     sessionRecord.sshClient = sshClient;
 
     sshClient.on('error', (err) => {
       console.warn(`⚠️ [BASTION SSH ERROR ${sessionId}] Kết nối SSH tới ${targetIp} thất bại:`, err.message);
-      runCleanup(4502, 'SSH Connection Interrupted', 'Mất kết nối SSH với máy chủ đích: ' + err.message);
+      // P1: Masked error message, không để lộ raw err.message của ssh2
+      runCleanup(4502, 'SSH Connection Interrupted', 'Mất kết nối SSH với máy chủ đích (Xác thực hoặc giao thức SSH thất bại)');
     });
 
     sshClient.on('ready', () => {
@@ -448,7 +546,7 @@ export async function attachBastionSession(
             }));
           }
 
-          // Output SSH -> WS với Backpressure
+          // Output SSH -> WS với Backpressure & Timer Management (R06 Remediation)
           stream.on('data', (chunk: Buffer) => {
             sessionRecord.lastActivityTime = Date.now();
             if (socket.readyState === 1) {
@@ -458,18 +556,33 @@ export async function attachBastionSession(
                 if ((socket as any).bufferedAmount > 65536) {
                   if (typeof stream.pause === 'function') stream.pause();
 
-                  const checkDrain = setInterval(() => {
-                    if ((socket as any).bufferedAmount < 16384) {
-                      clearInterval(checkDrain);
-                      if (sessionState === 'READY' && typeof stream.resume === 'function') {
-                        stream.resume();
+                  // Chỉ khởi tạo một timer duy nhất gắn vào sessionRecord
+                  if (!sessionRecord.outputDrainInterval) {
+                    sessionRecord.outputDrainInterval = setInterval(() => {
+                      if (sessionState === 'CLOSED' || isCancelled) {
+                        if (sessionRecord.outputDrainInterval) {
+                          clearInterval(sessionRecord.outputDrainInterval);
+                          sessionRecord.outputDrainInterval = null;
+                        }
+                        return;
                       }
-                    }
-                  }, 40);
-                  checkDrain.unref();
+
+                      if ((socket as any).bufferedAmount < 16384) {
+                        if (sessionRecord.outputDrainInterval) {
+                          clearInterval(sessionRecord.outputDrainInterval);
+                          sessionRecord.outputDrainInterval = null;
+                        }
+                        if (sessionState === 'READY' && typeof stream.resume === 'function') {
+                          stream.resume();
+                        }
+                      }
+                    }, 40);
+                    sessionRecord.outputDrainInterval.unref();
+                  }
                 }
               } catch (sendErr) {
-                runCleanup(1006, 'Send Error');
+                // RFC 6455: Dùng 1011 thay vì 1006
+                runCleanup(1011, 'Send Error');
               }
             }
           });
@@ -496,15 +609,24 @@ export async function attachBastionSession(
         readyTimeout: 3000,
         hostHash: 'sha256',
         hostVerifier: (hashedKey: string) => {
-          // ZERO TRUST HOST VERIFICATION:
-          // Nếu node chưa được cấu hình host_key_fingerprint -> TỪ CHỐI KẾT NỐI!
+          // ZERO TRUST HOST VERIFICATION (B5 Enforced):
           if (!expectedFingerprint || expectedFingerprint.trim() === '') {
             console.error(`🚨 [BASTION ZERO TRUST] Máy chủ ${nodeName} chưa được ghim Host Key Fingerprint. Từ chối kết nối!`);
             return false;
           }
 
-          const normExpected = expectedFingerprint.trim().toLowerCase().replace(/^sha256:/, '');
+          let normExpected = expectedFingerprint.trim().toLowerCase().replace(/^sha256:/, '');
           const normReceived = hashedKey.trim().toLowerCase().replace(/^sha256:/, '');
+
+          // Hỗ trợ chuẩn hóa nếu expectedFingerprint được lưu ở dạng Base64 (OpenSSH ssh-keygen chuẩn)
+          if (normExpected.length !== 64) {
+            try {
+              const rawB64 = expectedFingerprint.trim().replace(/^sha256:/i, '');
+              const padded = rawB64.padEnd(rawB64.length + ((4 - (rawB64.length % 4)) % 4), '=');
+              normExpected = Buffer.from(padded, 'base64').toString('hex').toLowerCase();
+            } catch {}
+          }
+
           const isMatch = (normExpected === normReceived);
 
           if (!isMatch) {
@@ -518,10 +640,16 @@ export async function attachBastionSession(
     }
   });
 
-  // 11. Xử lý Input từ Web Client với Backpressure (B6 Fix)
+  // 10. Xử lý Input từ Web Client với Bounded Backpressure (R06 Fix)
   socket.on('message', (rawMessage: string | Buffer) => {
     if (sessionState === 'CLOSED' || isCancelled) return;
     sessionRecord.lastActivityTime = Date.now();
+
+    // Bounded Input Guard: Chặn frame quá 64KB chống cạn kiệt RAM
+    if (rawMessage.length > 65536) {
+      console.warn(`⚠️ [BASTION INPUT FLOOD] Nhận frame kích thước vượt 64KB (${rawMessage.length} bytes), từ chối`);
+      return;
+    }
 
     try {
       const text = rawMessage.toString('utf-8');
@@ -538,16 +666,16 @@ export async function attachBastionSession(
         } catch {}
       }
 
-      // Input Stream WS -> SSH
+      // Input Stream WS -> SSH với Single Drain Listener
       if (sshStream && typeof sshStream.write === 'function') {
         const canWrite = sshStream.write(rawMessage);
-        // INPUT BACKPRESSURE GUARD:
-        // Nếu canWrite === false -> Writable buffer đã đầy, tạm dừng WebSocket đọc thêm dữ liệu
-        if (!canWrite) {
+        if (!canWrite && !isInputPaused) {
+          isInputPaused = true;
           if (typeof (socket as any).pause === 'function') {
             (socket as any).pause();
           }
           sshStream.once('drain', () => {
+            isInputPaused = false;
             if (sessionState !== 'CLOSED' && !isCancelled && typeof (socket as any).resume === 'function') {
               (socket as any).resume();
             }
