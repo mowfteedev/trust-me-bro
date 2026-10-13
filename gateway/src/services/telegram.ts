@@ -71,9 +71,9 @@ class TelegramService {
   }
 
   /**
-   * Ghép nối thủ công bằng mã OTP và lưu vào CSDL
+   * Ghép nối thủ công bằng mã OTP và lưu vào CSDL (Bắt buộc hoàn thành lưu trữ trước khi báo thành công - P1)
    */
-  public pairWithOtp(chatId: string, inputOtp: string): boolean {
+  public async pairWithOtp(chatId: string, inputOtp: string): Promise<boolean> {
     // Khóa chống chiếm quyền (Anti-Hijack Guard): Không cho phép ghi đè khi đã ghép nối thành công
     if (this.pairedChatId !== null && this.pairedChatId !== chatId) {
       console.warn(`⚠️ [TELEGRAM SECURITY] Từ chối ghép nối từ Chat ID ${chatId} do bot đã có quản trị viên.`);
@@ -81,18 +81,21 @@ class TelegramService {
     }
 
     if (inputOtp.trim() === this.pairOtp) {
-      this.pairedChatId = chatId;
-      console.log(`✔ [TELEGRAM BOT] Ghép nối thành công với Chat ID: ${chatId}`);
-      // Lưu vào CSDL để không bị mất khi Gateway restart (V12)
-      query(
-        `INSERT INTO system_settings (key, value, updated_at)
-         VALUES ('telegram_paired_chat_id', $1, (now() AT TIME ZONE 'UTC'))
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;`,
-        [chatId]
-      ).catch((err: any) => {
-        console.warn('⚠️ [TELEGRAM DB] Lỗi lưu cấu hình telegram_paired_chat_id vào DB:', err.message);
-      });
-      return true;
+      try {
+        // Lưu vào CSDL để không bị mất khi Gateway restart (V12)
+        await query(
+          `INSERT INTO system_settings (key, value, updated_at)
+           VALUES ('telegram_paired_chat_id', $1, (now() AT TIME ZONE 'UTC'))
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;`,
+          [chatId]
+        );
+        this.pairedChatId = chatId;
+        console.log(`✔ [TELEGRAM BOT] Ghép nối thành công và đã lưu DB với Chat ID: ${chatId}`);
+        return true;
+      } catch (err: any) {
+        console.error('❌ [TELEGRAM DB] Lỗi lưu cấu hình telegram_paired_chat_id vào DB:', err.message);
+        return false;
+      }
     }
     return false;
   }
@@ -161,7 +164,7 @@ class TelegramService {
               const parts = text.split(/\s+/);
               const providedOtp = parts[1] || '';
 
-              if (this.pairWithOtp(chatId, providedOtp)) {
+              if (await this.pairWithOtp(chatId, providedOtp)) {
                 await this.replyTelegram(chatId, `✔ Ghép nối thành công! Kênh này sẽ tiếp nhận cảnh báo On-Call của ZT-ServerOps.`);
               } else {
                 await this.replyTelegram(chatId, `❌ Mã OTP không chính xác. Vui lòng kiểm tra lại trên màn hình console máy chủ.`);
