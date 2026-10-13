@@ -88,12 +88,16 @@ setInterval(() => {
   }
 }, 10000).unref();
 
+// Định danh thực thể Gateway phục vụ heartbeat fencing (R3-04)
+const GATEWAY_INSTANCE_ID = process.env.GATEWAY_INSTANCE_ID || `gw_${process.pid}_${Date.now().toString(36)}`;
+
 // Cờ chống truy vấn chồng chéo (In-flight guard)
 let isCheckingDb = false;
 
 /**
  * Background Session Registry Batch Checker (R03 & N07 Remediation):
  * Quét định kỳ mỗi 2 giây để thu hồi phiên mở khi người dùng bị khóa/hạ quyền/đăng xuất trong CSDL
+ * và gia hạn heartbeat lease cho các phiên còn sống (R3-04 Remediation).
  */
 const sessionCheckerInterval = setInterval(async () => {
   if (activeSessions.size === 0) return;
@@ -120,6 +124,8 @@ const sessionCheckerInterval = setInterval(async () => {
     }
 
     const nowNs = process.hrtime.bigint();
+    const aliveSessionIds: string[] = [];
+
     // N07 REMEDIATION: Chỉ thẩm định và áp dụng cho các phiên nằm trong snapshot ban đầu!
     // Các phiên mới kết nối trong lúc query pending giữ nguyên quyền hợp lệ cho đợt batch sau.
     for (const [sessionId, session] of sessionSnapshot.entries()) {
@@ -127,6 +133,7 @@ const sessionCheckerInterval = setInterval(async () => {
       if (session.state === 'CLOSED') continue; // Chặn late response hồi sinh session
 
       session.lastLeaseRenewNs = nowNs;
+      aliveSessionIds.push(sessionId);
       const user = userMap.get(session.userId);
 
       // Điều kiện thu hồi phiên lập tức:
@@ -138,6 +145,18 @@ const sessionCheckerInterval = setInterval(async () => {
         session.cleanupFn(4403, 'Session Revoked', 'Phiên làm việc đã bị quản trị viên thu hồi hoặc bạn đã đăng xuất');
       }
     }
+
+    // R3-04 REMEDIATION: Gia hạn heartbeat lease vào CSDL cho các phiên đang hoạt động (fencing liveness)
+    if (aliveSessionIds.length > 0) {
+      query(
+        `UPDATE bastion_session_leases
+         SET lease_expires_at = (NOW() AT TIME ZONE 'UTC') + INTERVAL '10 seconds'
+         WHERE session_id = ANY($1::uuid[]) AND status = 'ACTIVE';`,
+        [aliveSessionIds]
+      ).catch((leaseErr) => {
+        console.warn('⚠️ [BASTION LEASE RENEW ERROR]:', leaseErr.message);
+      });
+    }
   } catch (err: any) {
     console.warn('⚠️ [BASTION SESSION CHECKER] Lỗi truy vấn CSDL trong batch check:', err.message);
   } finally {
@@ -147,22 +166,23 @@ const sessionCheckerInterval = setInterval(async () => {
 sessionCheckerInterval.unref();
 
 /**
- * Independent Watchdog Timer (R03 & N06 Remediation):
- * Chạy mỗi 500ms hoàn toàn độc lập với DB query. Sử dụng monotonic clock process.hrtime.bigint().
- * Nếu quá deadline >= 5000ms -> ngắt phiên ngay lập tức với mã 4503, bảo đảm SLA <= 5.2s.
+ * Independent Watchdog Timer (R03, N06 & R3-06 Remediation):
+ * Chạy mỗi 200ms hoàn toàn độc lập với DB query. Sử dụng monotonic clock process.hrtime.bigint().
+ * Ngưỡng deadline 4800ms (4.8s) + tick interval 200ms bảo đảm phát hiện và ngắt phiên muộn nhất ở 5000ms (5.0s, trần SLA <= 5.2s).
  */
+const DB_WATCHDOG_DEADLINE_MS = 4800;
 const independentWatchdogInterval = setInterval(() => {
   if (activeSessions.size === 0) return;
   const nowNs = process.hrtime.bigint();
   for (const [sessionId, session] of activeSessions.entries()) {
     if (session.state === 'CLOSED') continue;
     const elapsedMs = Number((nowNs - session.lastLeaseRenewNs) / 1_000_000n);
-    if (elapsedMs >= 5000) {
-      console.error(`🚨 [BASTION DB DEADLINE EXCEEDED] Đóng phiên ${sessionId} vì mất kết nối CSDL quá deadline 5s (thực tế: ${elapsedMs}ms)`);
+    if (elapsedMs >= DB_WATCHDOG_DEADLINE_MS) {
+      console.error(`🚨 [BASTION DB DEADLINE EXCEEDED] Đóng phiên ${sessionId} vì mất kết nối CSDL quá deadline (thực tế: ${elapsedMs}ms, trần SLA 5.2s)`);
       session.cleanupFn(4503, 'DB Deadline Exceeded', 'Mất kết nối kiểm tra an ninh cơ sở dữ liệu quá thời hạn cho phép');
     }
   }
-}, 500);
+}, 200);
 independentWatchdogInterval.unref();
 
 /**
@@ -281,6 +301,12 @@ export async function attachBastionSession(
       existingSession.outputDrainInterval = null;
     }
 
+    // R3-P1 REMEDIATION: Lưu giữ các handle đối tượng mạng để bảo đảm forced teardown 3s thực sự có hiệu lực
+    const probeToClean = probeSocket;
+    const streamToClean = sshStream;
+    const clientToClean = sshClient;
+    const wsToClean = socket;
+
     if (probeSocket) {
       try { probeSocket.destroy(); } catch {}
       probeSocket = null;
@@ -299,13 +325,29 @@ export async function attachBastionSession(
       sshClient = null;
     }
 
-    // Forced-Close Deadline 3s (N05 REMEDIATION): Hủy cưỡng bức nếu socket/stream chưa giải phóng
+    // Forced-Close Deadline 3s (N05 & R3-P1 REMEDIATION): Hủy cưỡng bức nếu socket/stream/ws chưa giải phóng
     const forcedTimer = setTimeout(() => {
-      if (probeSocket) { try { (probeSocket as any).destroy(); } catch {} probeSocket = null; }
-      if (sshStream) { try { (sshStream as any).destroy(); } catch {} sshStream = null; }
-      if (sshClient) { try { (sshClient as any).destroy(); } catch {} sshClient = null; }
+      try { if (probeToClean && typeof (probeToClean as any).destroy === 'function') (probeToClean as any).destroy(); } catch {}
+      try { if (streamToClean && typeof (streamToClean as any).destroy === 'function') (streamToClean as any).destroy(); } catch {}
+      try { if (clientToClean && typeof (clientToClean as any).destroy === 'function') (clientToClean as any).destroy(); } catch {}
+      try {
+        if (wsToClean && wsToClean.readyState !== 3 /* CLOSED */) {
+          if (typeof (wsToClean as any).terminate === 'function') (wsToClean as any).terminate();
+          else if (typeof (wsToClean as any).close === 'function') (wsToClean as any).close(1011, 'Forced Timeout');
+        }
+      } catch {}
     }, 3000);
     forcedTimer.unref();
+
+    // R3-04 REMEDIATION: Đóng lease an toàn trong CSDL để ngăn ngừa reconciler ghi nhầm hoặc orphan
+    query(
+      `UPDATE bastion_session_leases
+       SET status = 'CLOSED', closed_at = (NOW() AT TIME ZONE 'UTC'), close_reason = $2
+       WHERE session_id = $1::uuid AND status = 'ACTIVE';`,
+      [sessionId, reason || 'Normal Closure']
+    ).catch((leaseCloseErr) => {
+      console.warn('⚠️ [BASTION LEASE CLOSE ERROR]:', leaseCloseErr.message);
+    });
 
     // Ghi nhận Audit Log phiên kết thúc nếu đã từng bắt đầu (R07 & N08 Remediation)
     const auditUserId = existingSession?.userId || currentUserId;
@@ -494,6 +536,17 @@ export async function attachBastionSession(
     );
     isAuditStarted = true;
     sessionRecord.isAuditStarted = true;
+
+    // R3-04 REMEDIATION: Đăng ký active lease vào CSDL phục vụ heartbeat fencing và audit reconciliation
+    await query(
+      `INSERT INTO bastion_session_leases (session_id, user_id, node_id, instance_id, lease_expires_at, status)
+       VALUES ($1, $2, $3, $4, (NOW() AT TIME ZONE 'UTC') + INTERVAL '10 seconds', 'ACTIVE')
+       ON CONFLICT (session_id) DO UPDATE
+       SET lease_expires_at = (NOW() AT TIME ZONE 'UTC') + INTERVAL '10 seconds', status = 'ACTIVE';`,
+      [sessionId, dbUser.id, targetNodeId, GATEWAY_INSTANCE_ID]
+    ).catch((leaseInitErr) => {
+      console.warn('⚠️ [BASTION LEASE INIT ERROR]:', leaseInitErr.message);
+    });
   } catch (auditErr: any) {
     console.error('❌ [BASTION AUDIT FAILURE] Không thể ghi audit log mở phiên, Fail-Closed:', auditErr.message);
     runCleanup(4503, 'Audit Failure', 'Không thể mở phiên do không thể ghi nhận vết kiểm toán an toàn');
@@ -704,9 +757,10 @@ export async function attachBastionSession(
     if (sessionState === 'CLOSED' || isCancelled) return;
     sessionRecord.lastActivityTime = Date.now();
 
-    // Bounded Input Guard: Chặn frame quá 64KB chống cạn kiệt RAM
+    // Bounded Input Guard (R3-P1 REMEDIATION): Chặn frame quá 64KB chống cạn kiệt RAM và đóng kết nối nếu vi phạm
     if (rawMessage.length > 65536) {
-      console.warn(`⚠️ [BASTION INPUT FLOOD] Nhận frame kích thước vượt 64KB (${rawMessage.length} bytes), từ chối`);
+      console.warn(`⚠️ [BASTION INPUT FLOOD] Nhận frame kích thước vượt 64KB (${rawMessage.length} bytes), ngắt phiên`);
+      runCleanup(4429, 'Frame Size Exceeded', 'Frame dữ liệu vượt quá giới hạn cho phép 64KB');
       return;
     }
 
@@ -725,7 +779,58 @@ export async function attachBastionSession(
         } catch {}
       }
 
-      // N05 REMEDIATION: Input Stream WS -> SSH với Bounded Queue tổng byte & Slow-Consumer Timeout
+      // R3-03 REMEDIATION: Hàm xả hàng đợi input có hỗ trợ rearm drain listener và giữ slow-peer timer
+      const pumpInputQueue = () => {
+        if ((sessionState as string) === 'CLOSED' || isCancelled || !sshStream) {
+          if (inputPauseTimer) {
+            clearTimeout(inputPauseTimer);
+            inputPauseTimer = null;
+          }
+          return;
+        }
+
+        while (inputQueue.length > 0) {
+          const nextChunk = inputQueue[0];
+          const ok = sshStream.write(nextChunk);
+          if (!ok) {
+            // Stream đã nhận chunk vào internal buffer nhưng tiếp tục nghẽn
+            inputQueue.shift();
+            totalBufferedInputBytes -= nextChunk.length;
+
+            // R3-03 REMEDIATION: Khi write trả false lần hai (hoặc tiếp theo),
+            // bắt buộc REARM drain listener và DUY TRÌ slow-consumer deadline!
+            isInputPaused = true;
+            if (!inputPauseTimer) {
+              inputPauseTimer = setTimeout(() => {
+                if (isInputPaused && (sessionState as string) !== 'CLOSED') {
+                  console.error(`🚨 [BASTION SLOW PEER TIMEOUT] SSH stream bị nghẽn quá 15s không drain, ngắt phiên`);
+                  runCleanup(4503, 'Slow Peer Timeout', 'Máy chủ đích phản hồi quá chậm (Timeout 15s)');
+                }
+              }, 15000);
+              inputPauseTimer.unref();
+            }
+            sshStream.once('drain', pumpInputQueue);
+            return;
+          }
+
+          // Ghi thành công chunk này
+          inputQueue.shift();
+          totalBufferedInputBytes -= nextChunk.length;
+        }
+
+        // Hàng đợi ứng dụng đã hoàn toàn được xả sạch!
+        if (inputPauseTimer) {
+          clearTimeout(inputPauseTimer);
+          inputPauseTimer = null;
+        }
+        isInputPaused = false;
+        totalBufferedInputBytes = 0;
+        if ((sessionState as string) !== 'CLOSED' && !isCancelled && typeof (socket as any).resume === 'function') {
+          (socket as any).resume();
+        }
+      };
+
+      // N05 & R3-03 REMEDIATION: Input Stream WS -> SSH với Bounded Queue tổng byte & Slow-Consumer Timeout
       if (sshStream && typeof sshStream.write === 'function') {
         const chunk = Buffer.isBuffer(rawMessage) ? rawMessage : Buffer.from(rawMessage);
 
@@ -748,10 +853,10 @@ export async function attachBastionSession(
               (socket as any).pause();
             }
 
-            // Kích hoạt timer slow-consumer timeout 15s (N05 REMEDIATION)
+            // Kích hoạt timer slow-consumer timeout 15s
             if (!inputPauseTimer) {
               inputPauseTimer = setTimeout(() => {
-                if (isInputPaused && sessionState !== 'CLOSED') {
+                if (isInputPaused && (sessionState as string) !== 'CLOSED') {
                   console.error(`🚨 [BASTION SLOW PEER TIMEOUT] SSH stream bị nghẽn quá 15s không drain, ngắt phiên`);
                   runCleanup(4503, 'Slow Peer Timeout', 'Máy chủ đích phản hồi quá chậm (Timeout 15s)');
                 }
@@ -759,31 +864,8 @@ export async function attachBastionSession(
               inputPauseTimer.unref();
             }
 
-            // Đăng ký drain listener duy nhất để xả hàng đợi
-            sshStream.once('drain', () => {
-              if (inputPauseTimer) {
-                clearTimeout(inputPauseTimer);
-                inputPauseTimer = null;
-              }
-
-              // Xả dần các chunk đã đệm trong inputQueue
-              while (inputQueue.length > 0) {
-                const nextChunk = inputQueue.shift()!;
-                totalBufferedInputBytes -= nextChunk.length;
-                const ok = sshStream.write(nextChunk);
-                if (!ok) {
-                  // Vẫn còn nghẽn, tiếp tục chờ drain đợt sau
-                  return;
-                }
-              }
-
-              // Hàng đợi đã rỗng
-              isInputPaused = false;
-              totalBufferedInputBytes = 0;
-              if (sessionState !== 'CLOSED' && !isCancelled && typeof (socket as any).resume === 'function') {
-                (socket as any).resume();
-              }
-            });
+            // Đăng ký drain handler với pumpInputQueue
+            sshStream.once('drain', pumpInputQueue);
           }
         }
       }

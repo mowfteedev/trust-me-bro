@@ -58,13 +58,26 @@ async function bootstrapAdmin() {
     password = crypto.randomBytes(16).toString('base64').replace(/[^a-zA-Z0-9]/g, 'x') + '!A1';
     generated = true;
 
-    // Lưu mật khẩu tự sinh vào tệp phân quyền an toàn 0600
+    // Lưu mật khẩu tự sinh vào tệp phân quyền an toàn 0600 (R3-P1 Remediation)
     const keysDir = path.resolve(process.cwd(), 'keys');
     if (!fs.existsSync(keysDir)) {
       fs.mkdirSync(keysDir, { mode: 0o700, recursive: true });
     }
-    secretSavePath = path.join(keysDir, 'bootstrap_admin.secret');
+    secretSavePath = process.env.BOOTSTRAP_SECRET_PATH || path.join(keysDir, 'bootstrap_admin.secret');
+
+    // Chống tấn công qua Symlink (CWE-59): Kiểm tra nếu tệp tồn tại và là symlink thì hủy bỏ liên kết
+    if (fs.existsSync(secretSavePath)) {
+      const stat = fs.lstatSync(secretSavePath);
+      if (stat.isSymbolicLink()) {
+        fs.unlinkSync(secretSavePath);
+      }
+    }
+
+    // Ghi dữ liệu vào tệp và luôn cưỡng chế chmod 0600 kể cả khi tệp đã tồn tại trước đó
     fs.writeFileSync(secretSavePath, password + '\n', { mode: 0o600 });
+    try {
+      fs.chmodSync(secretSavePath, 0o600);
+    } catch {}
   }
 
   const pwdHash = hashPassword(password);

@@ -15,10 +15,12 @@ import pg from 'pg';
 const { Pool } = pg;
 
 async function runMaintenance() {
-  const dbUrl =
-    process.env.MAINTENANCE_DATABASE_URL ||
-    process.env.DATABASE_URL ||
-    'postgres://zt_maintenance:SecureMaintenance2026!@postgres:5432/zt_serverops';
+  const dbUrl = process.env.MAINTENANCE_DATABASE_URL;
+
+  if (!dbUrl) {
+    console.error('❌ [MAINTENANCE FATAL] Thiếu biến môi trường bắt buộc MAINTENANCE_DATABASE_URL.');
+    process.exit(1);
+  }
 
   const retentionDays = parseInt(process.env.RETENTION_DAYS || '7', 10);
 

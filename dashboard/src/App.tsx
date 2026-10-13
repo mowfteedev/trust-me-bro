@@ -21,7 +21,8 @@ import {
   CheckCircle2,
   ChevronRight,
   Layers,
-  Radio
+  Radio,
+  AlertTriangle
 } from 'lucide-react';
 
 /**
@@ -46,11 +47,13 @@ export const App: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [logoutWarning, setLogoutWarning] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
+    setLogoutWarning(null);
     setIsSubmitting(true);
 
     try {
@@ -64,9 +67,16 @@ export const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    const res = await api.logout();
-    if (!res.serverRevoked) {
-      console.warn('⚠️ [LOGOUT WARNING] Máy chủ chưa xác nhận thu hồi phiên do sự cố mạng hoặc 503.');
+    try {
+      const res = await api.logout();
+      if (!res.serverRevoked) {
+        console.warn('⚠️ [LOGOUT WARNING] Máy chủ chưa xác nhận thu hồi phiên do sự cố mạng hoặc 503.');
+        setLogoutWarning('Máy chủ ngoại tuyến hoặc trả về lỗi 503. Bạn đã được đăng xuất an toàn trên trình duyệt, nhưng phiên làm việc trên máy chủ chưa thể thu hồi từ xa.');
+      } else {
+        setLogoutWarning(null);
+      }
+    } catch {
+      setLogoutWarning('Không thể kết nối đến máy chủ Gateway. Bạn đã được đăng xuất an toàn trên trình duyệt.');
     }
     setCurrentUser(null);
     setSelectedTerminalNode(null);
@@ -105,6 +115,13 @@ export const App: React.FC = () => {
 
           {/* Form */}
           <form onSubmit={handleLogin} className="mt-8 space-y-4">
+            {logoutWarning && (
+              <div className="rounded-xl border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-amber-800 dark:text-amber-300 font-mono flex items-start space-x-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                <span>{logoutWarning}</span>
+              </div>
+            )}
+
             {loginError && (
               <div className="rounded-xl border border-rose-300 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-950/30 p-3 text-xs text-rose-600 dark:text-rose-400 font-mono flex items-center space-x-2">
                 <ShieldAlert className="h-4 w-4 shrink-0" />

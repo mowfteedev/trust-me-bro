@@ -30,3 +30,8 @@ coverage/
 Thumbs.db
 .vscode/
 .idea/
+
+# Bundles, Patches & Test Evidences
+*.zip
+*.patch
+evidence*/

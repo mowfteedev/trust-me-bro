@@ -42,8 +42,8 @@ services:
     container_name: zt_migrator
     restart: "no"
     environment:
-      DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgres://${POSTGRES_USER:-zt_admin}:${POSTGRES_PASSWORD:-SecurePassword123!}@postgres:5432/${POSTGRES_DB:-zt_serverops}}
-      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: "${MIGRATION_DATABASE_URL:?LỖI: MIGRATION_DATABASE_URL bắt buộc phải được thiết lập trong .env}"
+      NODE_ENV: ${NODE_ENV:-production}
     command: ["npm", "run", "migrate"]
     depends_on:
       postgres:
@@ -52,8 +52,30 @@ services:
       - zt_internal_net
 
   # ----------------------------------------------------------------------------
-  # 1.6. DỊCH VỤ BẢO TRÌ PHÂN VÙNG DỮ LIỆU ĐỊNH KỲ (ZT_MAINTENANCE)
-  # Phân quyền: Sử dụng vai trò chuyên trách zt_maintenance (N03 Remediation)
+  # 1.6. DỊCH VỤ CẤP PHÁT MẬT KHẨU VAI TRÒ CSDL THỰC TẾ (ZT_PROVISIONER - R3-01)
+  # Phân quyền: Sử dụng quyền admin zt_admin để gán mật khẩu ngẫu nhiên cho zt_app
+  # ----------------------------------------------------------------------------
+  provisioner:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: zt_provisioner
+    restart: "no"
+    environment:
+      MIGRATION_DATABASE_URL: "${MIGRATION_DATABASE_URL:?LỖI: MIGRATION_DATABASE_URL bắt buộc phải được thiết lập trong .env}"
+      DATABASE_URL: "${DATABASE_URL:?LỖI: DATABASE_URL bắt buộc phải được thiết lập trong .env}"
+      MAINTENANCE_DATABASE_URL: "${MAINTENANCE_DATABASE_URL:?LỖI: MAINTENANCE_DATABASE_URL bắt buộc phải được thiết lập trong .env}"
+      NODE_ENV: ${NODE_ENV:-production}
+    command: ["node", "dist/scripts/provision-roles.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zt_internal_net
+
+  # ----------------------------------------------------------------------------
+  # 1.7. DỊCH VỤ BẢO TRÌ PHÂN VÙNG DỮ LIỆU ĐỊNH KỲ (ZT_MAINTENANCE)
+  # Phân quyền: Sử dụng vai trò chuyên trách zt_maintenance (N03 & R3-05 Remediation)
   # ----------------------------------------------------------------------------
   maintenance:
     build:
@@ -63,12 +85,16 @@ services:
     profiles: ["maintenance"]
     restart: "no"
     environment:
-      MAINTENANCE_DATABASE_URL: postgres://zt_maintenance:SecureMaintenance2026!@postgres:5432/${POSTGRES_DB:-zt_serverops}
+      MAINTENANCE_DATABASE_URL: "${MAINTENANCE_DATABASE_URL:?LỖI: MAINTENANCE_DATABASE_URL bắt buộc phải được thiết lập trong .env}"
       RETENTION_DAYS: 7
     command: ["node", "dist/scripts/run-maintenance.js"]
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      provisioner:
+        condition: service_completed_successfully
     networks:
       - zt_internal_net
 
@@ -87,10 +113,10 @@ services:
       GATEWAY_PORT: 3000
       NODE_ENV: ${NODE_ENV:-production}
       # Danh tính và Xác thực
-      JWT_SECRET: ${JWT_SECRET:-ThayDoiChuoiBiMatNayBangChuoiNgauNhienDaiToiThieu32KyTu!}
+      JWT_SECRET: "${JWT_SECRET:?LỖI: JWT_SECRET bắt buộc phải được thiết lập trong .env}"
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
-      # Kết nối CSDL: CHỈ SỬ DỤNG VAI TRÒ ÍT QUYỀN zt_app (N02 REMEDIATION)
-      DATABASE_URL: ${DATABASE_URL:-postgres://zt_app:SecureAppRole2026!@postgres:5432/zt_serverops}
+      # Kết nối CSDL: CHỈ SỬ DỤNG VAI TRÒ ÍT QUYỀN zt_app (N02 & R3-01 REMEDIATION)
+      DATABASE_URL: "${DATABASE_URL:?LỖI: DATABASE_URL bắt buộc phải được thiết lập trong .env}"
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-20}
       DB_IDLE_TIMEOUT_MS: ${DB_IDLE_TIMEOUT_MS:-30000}
       # Web SSH Bastion
@@ -109,6 +135,8 @@ services:
       postgres:
         condition: service_healthy
       migrator:
+        condition: service_completed_successfully
+      provisioner:
         condition: service_completed_successfully
     volumes:
       - ./keys/bastion_id_ed25519:/app/keys/bastion_id_ed25519:ro

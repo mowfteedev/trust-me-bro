@@ -112,22 +112,6 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
       );
 
       if (nodeRes.rows.length === 0) {
-        // Kiểm tra xem có node nào mang token_prefix này mà đã bị revoked không (N04 REMEDIATION)
-        const prefix = rawToken.trim().slice(0, 8);
-        const revokedCheck = await query(
-          "SELECT id FROM nodes WHERE token_prefix = $1 AND (is_token_revoked = TRUE OR token_hash LIKE 'REVOKED_%' OR status = 'REVOKED') LIMIT 1;",
-          [prefix]
-        );
-        if (revokedCheck.rows.length > 0) {
-          return reply.status(401).send({
-            type: 'https://tools.ietf.org/html/rfc7807',
-            title: 'Mã xác thực đã bị thu hồi',
-            status: 401,
-            code: 'REVOKED_NODE_TOKEN',
-            detail: 'Mã token của máy chủ con này đã bị vô hiệu hóa hoặc thu hồi',
-          });
-        }
-
         return reply.status(401).send({
           type: 'https://tools.ietf.org/html/rfc7807',
           title: 'Mã xác thực không hợp lệ',

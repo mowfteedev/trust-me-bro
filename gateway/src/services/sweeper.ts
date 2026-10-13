@@ -110,41 +110,65 @@ export async function runSweeperCycle(): Promise<{
       console.warn(`🚨 [LIVENESS ALERT] Đã chuyển máy chủ ${node.name} sang trạng thái OFFLINE.`);
     }
 
-    // 4. Đối soát và dọn dẹp các phiên audit START mồ côi do Process Crash / Ungraceful Shutdown (N08 Reconciliation)
+    // 4. Đối soát và dọn dẹp các phiên audit mồ côi dựa trên Shared Lease Fencing & Heartbeat (R3-04 Remediation)
     try {
-      const orphanSessionsRes = await query(
-        `SELECT start_log.id, start_log.user_id, start_log.details->>'session_id' as session_id,
-                start_log.details->>'node_id' as node_id, start_log.created_at
-         FROM audit_logs start_log
-         WHERE start_log.action = 'BASTION_SESSION_START'
-           AND start_log.created_at < (now() AT TIME ZONE 'UTC') - INTERVAL '30 minutes'
+      const expiredLeasesRes = await query(
+        `SELECT l.session_id, l.user_id, l.node_id, l.instance_id, l.status, l.close_reason, l.lease_expires_at, l.created_at
+         FROM bastion_session_leases l
+         WHERE (l.status = 'CLOSED' OR l.lease_expires_at < (now() AT TIME ZONE 'UTC'))
+           AND l.status != 'RECONCILED'
            AND NOT EXISTS (
              SELECT 1 FROM audit_logs end_log
              WHERE end_log.action = 'BASTION_SESSION_END'
-               AND end_log.details->>'session_id' = start_log.details->>'session_id'
+               AND end_log.details->>'session_id' = l.session_id::text
            )
-         LIMIT 10;`
+         LIMIT 20;`
       );
 
-      for (const orphan of orphanSessionsRes.rows) {
-        if (!orphan.session_id) continue;
+      for (const lease of expiredLeasesRes.rows) {
+        if (!lease.session_id) continue;
+        const sessionIdStr = String(lease.session_id);
+        const reason = lease.status === 'CLOSED'
+          ? (lease.close_reason || 'Session closed by owner (Reconciled)')
+          : 'Lease Expired (Heartbeat lost / Gateway instance crash)';
+
+        // Ghi nhận Audit Log BASTION_SESSION_END với điều kiện Idempotent (ngăn ngừa duplicate từ nhiều instance)
         await query(
           `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
-           VALUES ($1, 'BASTION_SESSION_END', 'bastion', $2, '127.0.0.1'::inet);`,
+           SELECT $1, 'BASTION_SESSION_END', 'bastion', $2, '127.0.0.1'::inet
+           WHERE NOT EXISTS (
+             SELECT 1 FROM audit_logs
+             WHERE action = 'BASTION_SESSION_END'
+               AND details->>'session_id' = $3
+           );`,
           [
-            orphan.user_id,
+            lease.user_id,
             JSON.stringify({
-              session_id: orphan.session_id,
-              node_id: orphan.node_id,
-              reason: 'Orphaned Session Reconciled After Process Crash / Hard Timeout',
-              reconciled_at: new Date().toISOString()
-            })
+              session_id: sessionIdStr,
+              node_id: lease.node_id,
+              instance_id: lease.instance_id,
+              reason,
+              lease_expires_at: lease.lease_expires_at,
+              reconciled_at: new Date().toISOString(),
+            }),
+            sessionIdStr,
           ]
         );
-        console.warn(`🧹 [AUDIT RECONCILER] Đã tự động đóng phiên mồ côi session_id: ${orphan.session_id}`);
+
+        // Đánh dấu lease đã được đối soát thành công
+        await query(
+          `UPDATE bastion_session_leases
+           SET status = 'RECONCILED',
+               closed_at = COALESCE(closed_at, (now() AT TIME ZONE 'UTC')),
+               close_reason = COALESCE(close_reason, $2)
+           WHERE session_id = $1::uuid;`,
+          [lease.session_id, reason]
+        );
+
+        console.warn(`🧹 [AUDIT RECONCILER] Đã đối soát và bù đắp END log cho phiên session_id: ${sessionIdStr} (Lý do: ${reason})`);
       }
     } catch (reconcileErr: any) {
-      console.warn('⚠️ [SWEEPER RECONCILE] Lỗi kiểm tra đối soát audit log mồ côi:', reconcileErr.message);
+      console.warn('⚠️ [SWEEPER RECONCILE] Lỗi kiểm tra đối soát audit log lease:', reconcileErr.message);
     }
   } catch (err: any) {
     console.error('❌ [SWEEPER ERROR] Sự cố trong vòng lặp Sweeper:', err.message);

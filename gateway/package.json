@@ -8,6 +8,8 @@
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "migrate": "node dist/scripts/run-migrations.js",
+    "provision": "node dist/scripts/provision-roles.js",
+    "maintenance": "node dist/scripts/run-maintenance.js",
     "bootstrap-admin": "node dist/scripts/bootstrap-admin.js",
     "test": "vitest run"
   },
