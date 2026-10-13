@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { query } from '../services/db.js';
+import { query, getClient } from '../services/db.js';
 import { hashToken, timingSafeCompare } from '../utils/crypto.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
 
@@ -162,47 +162,55 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
         });
       }
 
-      // 7. Ghi nhận số liệu vào bảng phân vùng Range Partitioning (metrics_history)
-      // CHÚ THÍCH CSDL: Sử dụng đúng tên cột ram_* và disk_* trong 002_partition_metrics.sql
-      await query(
-        `INSERT INTO metrics_history (
-          node_id,
-          cpu_percent,
-          ram_used_bytes,
-          ram_total_bytes,
-          ram_percent,
-          disk_used_bytes,
-          disk_total_bytes,
-          disk_percent,
-          network_rx_bytes,
-          network_tx_bytes,
-          uptime_seconds,
-          recorded_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, (now() AT TIME ZONE 'UTC')
-        );`,
-        [
-          node.id,
-          beacon.cpu.percent,
-          beacon.memory.used_bytes,
-          beacon.memory.total_bytes,
-          beacon.memory.percent,
-          beacon.disk.used_bytes,
-          beacon.disk.total_bytes,
-          beacon.disk.percent,
-          beacon.network.rx_bytes,
-          beacon.network.tx_bytes,
-          beacon.uptime_seconds,
-        ]
-      );
+      // 7. Ghi nhận số liệu và cập nhật Liveness trong 1 ACID Transaction duy nhất
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
+        await client.query(
+          `INSERT INTO metrics_history (
+            node_id,
+            cpu_percent,
+            ram_used_bytes,
+            ram_total_bytes,
+            ram_percent,
+            disk_used_bytes,
+            disk_total_bytes,
+            disk_percent,
+            network_rx_bytes,
+            network_tx_bytes,
+            uptime_seconds,
+            recorded_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, (now() AT TIME ZONE 'UTC')
+          );`,
+          [
+            node.id,
+            beacon.cpu.percent,
+            beacon.memory.used_bytes,
+            beacon.memory.total_bytes,
+            beacon.memory.percent,
+            beacon.disk.used_bytes,
+            beacon.disk.total_bytes,
+            beacon.disk.percent,
+            beacon.network.rx_bytes,
+            beacon.network.tx_bytes,
+            beacon.uptime_seconds,
+          ]
+        );
 
-      // 8. Cập nhật nhịp tim Liveness cho máy chủ con
-      await query(
-        `UPDATE nodes
-         SET status = 'HEALTHY', last_seen = (now() AT TIME ZONE 'UTC'), updated_at = (now() AT TIME ZONE 'UTC')
-         WHERE id = $1;`,
-        [node.id]
-      );
+        await client.query(
+          `UPDATE nodes
+           SET status = 'HEALTHY', last_seen = (now() AT TIME ZONE 'UTC'), updated_at = (now() AT TIME ZONE 'UTC')
+           WHERE id = $1;`,
+          [node.id]
+        );
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK');
+        throw txErr;
+      } finally {
+        client.release();
+      }
 
       return reply.status(200).send({
         success: true,

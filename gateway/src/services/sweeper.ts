@@ -73,13 +73,18 @@ export async function runSweeperCycle(): Promise<{
     for (const node of offlineNodesRes.rows) {
       offlineNodesDetected.push(node.name);
 
-      // Cập nhật trạng thái Node thành OFFLINE
-      await query(
+      // Cập nhật trạng thái Node thành OFFLINE có kiểm tra điều kiện an toàn (Optimistic Guard chống Race Condition)
+      const updateRes = await query(
         `UPDATE nodes
          SET status = 'OFFLINE', updated_at = (now() AT TIME ZONE 'UTC')
-         WHERE id = $1;`,
-        [node.id]
+         WHERE id = $1 AND (last_seen = $2 OR (last_seen IS NULL AND $2 IS NULL));`,
+        [node.id, node.last_seen]
       );
+
+      if ((updateRes.rowCount ?? 0) === 0) {
+        // Node đã kịp gửi beacon mới giữa lúc SELECT và UPDATE -> bỏ qua không ghi đè trạng thái
+        continue;
+      }
 
       // Ghi nhận sự cố vào bảng alerts
       const alertMsg = `Máy chủ con ${node.name} (${node.ip_address}) không phản hồi quá ${thresholdSec}s. Chuyển trạng thái sang OFFLINE!`;

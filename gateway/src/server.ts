@@ -6,9 +6,11 @@ import websocket from '@fastify/websocket';
 
 import { config } from './config/env.js';
 import { checkDatabaseHealth, closeDatabasePool, ensureSeedData } from './services/db.js';
+import { runMigrations } from './services/migration-runner.js';
 import { authRoutes } from './routes/auth.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { bastionRoutes } from './routes/bastion.js';
+import { shutdownAllBastionSessions } from './services/bastion.js';
 import { startSweeper, stopSweeper } from './services/sweeper.js';
 import { telegramService } from './services/telegram.js';
 
@@ -150,10 +152,16 @@ async function start() {
   try {
     const server = await buildServer();
 
-    // Đảm bảo dữ liệu khởi tạo ban đầu (admin, viewer, node-worker-01) đã sẵn sàng
+    // 1. Tự động áp dụng toàn bộ bản migration CSDL (Schema Migrations Runner với Advisory Lock)
+    await runMigrations();
+
+    // 2. Khởi tạo dịch vụ Telegram Bot và khôi phục Chat ID đã ghép nối (V12)
+    await telegramService.init();
+
+    // 3. Đảm bảo dữ liệu khởi tạo ban đầu (chỉ nạp nếu chưa có hoặc môi trường phát triển)
     await ensureSeedData();
 
-    // Khởi động dịch vụ Sweeper chạy nền
+    // 4. Khởi động dịch vụ Sweeper chạy nền
     startSweeper();
 
     // Lắng nghe kết nối trên HOST và PORT đã cấu hình
@@ -168,6 +176,7 @@ async function start() {
     // Thiết lập Graceful Shutdown khi nhận tín hiệu từ OS/Docker
     const shutdown = async (signal: string) => {
       console.log(`\n🛑 [SHUTDOWN] Nhận tín hiệu ${signal}. Đang tiến hành ngắt êm đẹp...`);
+      shutdownAllBastionSessions();
       stopSweeper();
       telegramService.stop();
       await server.close();

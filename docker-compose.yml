@@ -45,7 +45,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./keys:/app/keys:ro
+      - ./keys/bastion_id_ed25519:/app/keys/bastion_id_ed25519:ro
       - zt_audit_logs:/app/logs/audit
     networks:
       - zt_ingress_net

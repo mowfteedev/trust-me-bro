@@ -7,6 +7,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
+    "bootstrap-admin": "node dist/scripts/bootstrap-admin.js",
     "test": "vitest run"
   },
   "dependencies": {

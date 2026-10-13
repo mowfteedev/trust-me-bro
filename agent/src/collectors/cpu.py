@@ -11,10 +11,8 @@ class CPUCollector:
     """
 
     def __init__(self):
-        self.prev_idle = 0
-        self.prev_total = 0
-        # Khởi tạo điểm đo ban đầu
-        self._read_cpu_times()
+        # Warm-up sample: Khởi tạo giá trị cơ sở ban đầu từ /proc/stat để triệt tiêu sai số lần đo đầu (V10)
+        self.prev_idle, self.prev_total = self._read_cpu_times()
 
     def _read_cpu_times(self) -> tuple[int, int]:
         """Đọc tổng số jiffies rảnh và bận từ /proc/stat."""

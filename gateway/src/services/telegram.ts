@@ -1,5 +1,6 @@
 import { config } from '../config/env.js';
 import { generateNumericOtp } from '../utils/crypto.js';
+import { query } from './db.js';
 
 /**
  * ==============================================================================
@@ -12,6 +13,7 @@ import { generateNumericOtp } from '../utils/crypto.js';
  * BUG-005 Phòng ngừa: Tuyệt đối không tự động lấy chatId của tin nhắn đầu tiên trên internet.
  * Hệ thống sinh một mã One-Time Pairing Code (OTP) ngẫu nhiên 6 chữ số in ra màn hình console máy chủ.
  * Quản trị viên bắt buộc phải chat trực tiếp: /pair <MÃ_OTP> mới được kích hoạt quyền nhận cảnh báo.
+ * Lưu trữ trạng thái ghép nối trong bảng system_settings để duy trì tính liên tục sau khi khởi động lại.
  */
 
 class TelegramService {
@@ -38,6 +40,23 @@ class TelegramService {
   }
 
   /**
+   * Khởi tạo và nạp chatId đã ghép nối từ bảng system_settings
+   */
+  public async init(): Promise<void> {
+    try {
+      const res = await query(
+        "SELECT value FROM system_settings WHERE key = 'telegram_paired_chat_id' LIMIT 1;"
+      );
+      if (res.rows.length > 0 && res.rows[0].value) {
+        this.pairedChatId = res.rows[0].value;
+        console.log(`✔ [TELEGRAM BOT] Đã nạp Chat ID quản trị viên từ DB: ${this.pairedChatId}`);
+      }
+    } catch (err: any) {
+      console.warn('⚠️ [TELEGRAM WARNING] Không thể nạp chat ID đã ghép nối từ DB:', err.message);
+    }
+  }
+
+  /**
    * Lấy mã OTP hiện tại (phục vụ kiểm thử và hiển thị)
    */
   public getPairOtp(): string {
@@ -52,7 +71,7 @@ class TelegramService {
   }
 
   /**
-   * Ghép nối thủ công bằng mã OTP
+   * Ghép nối thủ công bằng mã OTP và lưu vào CSDL
    */
   public pairWithOtp(chatId: string, inputOtp: string): boolean {
     // Khóa chống chiếm quyền (Anti-Hijack Guard): Không cho phép ghi đè khi đã ghép nối thành công
@@ -64,6 +83,15 @@ class TelegramService {
     if (inputOtp.trim() === this.pairOtp) {
       this.pairedChatId = chatId;
       console.log(`✔ [TELEGRAM BOT] Ghép nối thành công với Chat ID: ${chatId}`);
+      // Lưu vào CSDL để không bị mất khi Gateway restart (V12)
+      query(
+        `INSERT INTO system_settings (key, value, updated_at)
+         VALUES ('telegram_paired_chat_id', $1, (now() AT TIME ZONE 'UTC'))
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;`,
+        [chatId]
+      ).catch((err: any) => {
+        console.warn('⚠️ [TELEGRAM DB] Lỗi lưu cấu hình telegram_paired_chat_id vào DB:', err.message);
+      });
       return true;
     }
     return false;

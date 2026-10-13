@@ -31,10 +31,11 @@ ENV NODE_ENV=production
 # để đồng bộ quyền hạn với host filesystem (tránh lỗi EACCES với keys chmod 600/700)
 RUN mkdir -p /app/logs/audit /app/keys && chown -R node:node /app/logs /app/keys
 
-# Sao chép các tệp đã biên dịch và node_modules tối giản từ tầng builder
+# Sao chép các tệp đã biên dịch, thư mục migrations và node_modules tối giản từ tầng builder
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/package.json ./package.json
+COPY --chown=node:node migrations/ ./migrations/
 
 USER node
 
