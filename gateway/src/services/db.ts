@@ -20,10 +20,11 @@ export const pool = new Pool({
   connectionString: config.DATABASE_URL,
   max: config.DB_MAX_CONNECTIONS,
   idleTimeoutMillis: config.DB_IDLE_TIMEOUT_MS,
-  connectionTimeoutMillis: 5000,
-  // CHÚ THÍCH CẤU HÌNH (SETUP HOOK):
-  // Cài đặt statement_timeout ở cấp phiên để triệt tiêu các truy vấn treo nghẽn quá 10 giây
-  statement_timeout: 10000,
+  connectionTimeoutMillis: 3000,
+  // CHÚ THÍCH BẢO MẬT (FAIL-CLOSED TIMEOUT - B2/R03):
+  // query_timeout ở cấp client Node.js đảm bảo ngắt ngay sau 3s kể cả khi DB server bị đóng băng/treo mạng
+  query_timeout: 3000,
+  statement_timeout: 5000,
 });
 
 pool.on('error', (err) => {
@@ -71,21 +72,18 @@ export async function checkDatabaseHealth(): Promise<{ healthy: boolean; latency
 }
 
 /**
- * Tự động đảm bảo dữ liệu định danh mẫu (admin, viewer, node-worker-01) đã sẵn sàng
- * giúp hệ thống có thể đăng nhập ngay cả khi dùng volume cơ sở dữ liệu cũ
+ * Tự động đảm bảo dữ liệu định danh mẫu (chỉ phục vụ chạy Unit/Integration Test cô lập)
+ * Triệt tiêu hoàn toàn CWE-798: Không tự động chèn mật khẩu mẫu trong môi trường Development/Production.
  */
 export async function ensureSeedData(): Promise<void> {
-  // CHÚ THÍCH BẢO MẬT (CWE-798 Prevention):
-  // Cấm tuyệt đối việc tự động nạp tài khoản mẫu mật khẩu cố định trên môi trường Production
-  if (config.NODE_ENV === 'production' && process.env.ALLOW_DEFAULT_SEED !== 'true') {
-    console.log('🛡️ [SECURITY] Môi trường Production đã vô hiệu hóa nạp tài khoản mẫu mặc định.');
+  // CHÚ THÍCH BẢO MẬT (CWE-798 Prevention - R01):
+  // Tuyệt đối không tự động nạp tài khoản mẫu với mật khẩu cứng ngoài môi trường Test có kiểm soát.
+  if (config.NODE_ENV !== 'test' || process.env.ALLOW_DEFAULT_SEED !== 'true') {
     return;
   }
 
   try {
-    console.warn('⚠️ [SECURITY NOTICE] Đang kích hoạt dữ liệu mẫu môi trường Development/Lab (admin/viewer).');
-    // 1. Tạo tài khoản Quản trị viên (ADMIN) mặc định nếu chưa có
-    // Mật khẩu: SecureAdmin2026!
+    // 1. Tạo tài khoản Quản trị viên (ADMIN) cho test
     await query(`
       INSERT INTO users (username, password_hash, role, is_active)
       VALUES (
@@ -97,8 +95,7 @@ export async function ensureSeedData(): Promise<void> {
       ON CONFLICT (username) DO NOTHING;
     `);
 
-    // 2. Tạo tài khoản Giám sát viên (VIEWER) mặc định nếu chưa có
-    // Mật khẩu: SecureViewer2026!
+    // 2. Tạo tài khoản Giám sát viên (VIEWER) cho test
     await query(`
       INSERT INTO users (username, password_hash, role, is_active)
       VALUES (
@@ -110,24 +107,9 @@ export async function ensureSeedData(): Promise<void> {
       ON CONFLICT (username) DO NOTHING;
     `);
 
-    // 3. Tạo máy chủ con mặc định (node-worker-01) nếu chưa có
-    // Token pre-shared trong docker-compose: secret-token-worker-01
-    await query(`
-      INSERT INTO nodes (name, ip_address, node_type, token_hash, token_prefix, status)
-      VALUES (
-        'node-worker-01',
-        '10.100.0.2',
-        'DOCKER',
-        '10a3ce77a769aabf8361db2ba4aab0af15bdb1352c84f66dea2280049de5cecc',
-        'secret-t',
-        'HEALTHY'
-      )
-      ON CONFLICT (name) DO NOTHING;
-    `);
-
-    console.log('✅ [DATABASE SEED] Dữ liệu mẫu ban đầu (admin, viewer, node-worker-01) đã sẵn sàng.');
+    console.log('✅ [DATABASE TEST SEED] Đã nạp tài khoản mẫu cho môi trường TEST.');
   } catch (err: any) {
-    console.warn('⚠️ [DATABASE SEED] Không thể tự động chèn dữ liệu mẫu (bảng chưa tạo hoặc lỗi khởi tạo):', err.message);
+    console.warn('⚠️ [DATABASE TEST SEED] Lỗi khi nạp dữ liệu test:', err.message);
   }
 }
 

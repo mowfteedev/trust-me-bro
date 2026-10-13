@@ -36,6 +36,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url({
     message: 'LỖI CẤU HÌNH: DATABASE_URL không đúng định dạng connection string!',
   }),
+  MIGRATION_DATABASE_URL: z.string().url().optional(),
   DB_MAX_CONNECTIONS: z.coerce.number().int().min(5).max(100).default(20),
   DB_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30000),
 
