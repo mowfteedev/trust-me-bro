@@ -19,7 +19,7 @@ interface MetricsChartProps {
  * và đạt điểm hiệu năng Lighthouse > 90.
  */
 
-export const MetricsChart: React.FC<MetricsChartProps> = ({ metrics, title = 'Chỉ số CPU & Bộ nhớ (100 chu kỳ gần nhất)' }) => {
+export const MetricsChart: React.FC<MetricsChartProps> = ({ metrics, title = 'CPU & RAM (30 mẫu gần nhất)' }) => {
   if (!metrics || metrics.length === 0) {
     return (
       <div className="flex h-48 w-full items-center justify-center rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900/40 text-slate-400 dark:text-neutral-500">
@@ -62,7 +62,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ metrics, title = 'Ch
 
   return (
     <div className="rounded-xl border border-slate-200/90 dark:border-neutral-800 bg-slate-50/60 dark:bg-neutral-900/60 p-4 shadow-xs">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex flex-wrap gap-2 items-center justify-between">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-neutral-400">{title}</h4>
         <div className="flex items-center space-x-4 text-xs font-mono">
           <span className="flex items-center text-sky-600 dark:text-cyan-400">

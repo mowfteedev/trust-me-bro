@@ -20,50 +20,37 @@ help:
 	@echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════════╝${RESET}"
 	@echo -e "  ${GREEN}make up${RESET}      - Khởi tạo bí mật runtime và kích hoạt toàn bộ cụm dịch vụ"
 	@echo -e "  ${GREEN}make down${RESET}    - Dừng an toàn và giải phóng tài nguyên container"
-	@echo -e "  ${GREEN}make test${RESET}    - Thực thi toàn diện các bộ kiểm thử tự động (Zero-Sleep)"
-	@echo -e "  ${GREEN}make e2e${RESET}     - Chạy kịch bản nghiệm thu luồng E2E Smoke Test"
+	@echo -e "  ${GREEN}make test${RESET}    - Unit tests Agent và Gateway (DB/fetch giả lập)"
+	@echo -e "  ${GREEN}make e2e${RESET}     - Kiểm tra cụm demo thật và DB test riêng"
 	@echo -e "  ${GREEN}make mock${RESET}    - Kích hoạt trình giả lập tải 50 Endpoint Hosts"
 	@echo -e "  ${GREEN}make logs${RESET}    - Giám sát luồng nhật ký thời gian thực của cụm Gateway & Proxy"
 	@echo -e "  ${GREEN}make clean${RESET}   - Dọn dẹp tệp rác, bộ nhớ đệm Python/Node và nhật ký tạm"
 	@echo -e "  ${GREEN}make status${RESET}  - Kiểm tra trạng thái tiến trình và các cổng dịch vụ Zero-Trust\n"
 
 up:
-	@echo -e "${CYAN}==> [1/2] Khởi tạo bí mật runtime & cặp khóa Curve25519...${RESET}"
-	@./deploy/scripts/init-secrets.sh
-	@echo -e "${CYAN}==> [2/2] Kích hoạt toàn bộ cụm dịch vụ qua Docker Compose...${RESET}"
-	@docker-compose up -d --build
-	@echo -e "${GREEN}✔ Toàn bộ hệ thống đã khởi chạy thành công trong mạng Zero-Trust!${RESET}"
+	@python3 deploy/scripts/demo.py up
 
 down:
-	@echo -e "${YELLOW}==> Dừng toàn bộ cụm container và gỡ bỏ mạng nội bộ...${RESET}"
-	@docker-compose down
-	@echo -e "${GREEN}✔ Đã giải phóng toàn bộ tài nguyên cụm.${RESET}"
+	@python3 deploy/scripts/demo.py down
 
 test:
-	@echo -e "${CYAN}==> Thực thi toàn bộ bộ kiểm thử tự động đa tầng...${RESET}"
-	@python3 tests/test_contracts.py
-	@python3 tests/test_infrastructure.py
-	@python3 tests/test_agent.py
-	@python3 tests/test_gateway.py
-	@python3 tests/test_dashboard.py
-	@python3 tests/test_adversarial.py
 	@python3 agent/tests/test_unit_agent.py
-	@python3 gateway/tests/test_unit_gateway.py
-	@echo -e "\n${GREEN}✔ 100% Bộ kiểm thử tự động đã vượt qua thành công!${RESET}"
+	@docker build --target builder -t zt_course_tests gateway
+	@docker run --rm -v "$(CURDIR)/gateway/tests:/app/tests:ro" zt_course_tests npm test
+	@echo "Unit tests dùng mock DB/fetch; chạy make e2e để kiểm chứng cụm thật."
 
 e2e:
-	@./tests/e2e/smoke-test.sh
+	@python3 deploy/scripts/demo.py check
 
 mock:
 	@echo -e "${CYAN}==> Khởi chạy trình giả lập 50 Endpoint Hosts...${RESET}"
 	@python3 deploy/scripts/mock-nodes.py --count 50 --dry-run
 
 status:
-	@echo -e "${CYAN}==> Trạng thái các container dịch vụ:${RESET}"
-	@docker-compose ps || echo "Lưu ý: Docker daemon chưa chạy trên host hoặc đang ở môi trường dev."
+	@python3 deploy/scripts/demo.py status
 
 logs:
-	@docker-compose logs -f gateway proxy
+	@python3 deploy/scripts/demo.py logs
 
 clean:
 	@echo -e "${YELLOW}==> Dọn dẹp tệp rác và bộ đệm hệ thống...${RESET}"

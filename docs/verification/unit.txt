@@ -1,0 +1,79 @@
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 0.028s
+
+OK
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  328.7kB
+Step 1/6 : FROM node:20-alpine AS builder
+ ---> fb4cd12c85ee
+Step 2/6 : WORKDIR /app
+ ---> Using cache
+ ---> 59b535e79ce4
+Step 3/6 : COPY package.json package-lock.json tsconfig.json ./
+ ---> Using cache
+ ---> 35041fc44f75
+Step 4/6 : RUN npm ci
+ ---> Using cache
+ ---> ae1e1beefb1b
+Step 5/6 : COPY src/ ./src/
+ ---> Using cache
+ ---> 6806a984afc2
+Step 6/6 : RUN npm run build
+ ---> Using cache
+ ---> 6ea844d1a07f
+Successfully built 6ea844d1a07f
+Successfully tagged zt_course_tests:latest
+
+> zt-serverops-gateway@1.0.0 test
+> vitest run
+
+
+ RUN  v1.6.1 /app
+
+stdout | new TelegramService (/app/src/services/telegram.ts:41:15)
+[TELEGRAM] Chế độ dry-run; dry-run chỉ ghi log giả lập, không gửi ra ngoài.
+
+stderr | tests/telemetry-alerts.test.ts > Liveness (mock DB) > marks stale at 15s, records offline event atomically and notifies once
+🚨 [LIVENESS ALERT] Đã chuyển máy chủ worker-test sang trạng thái OFFLINE.
+
+stderr | tests/telemetry-alerts.test.ts > Liveness (mock DB) > rolls back offline status if audit persistence fails, leaving it retryable
+❌ [SWEEPER ERROR] Sự cố trong vòng lặp Sweeper: audit failed
+
+stdout | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > dry-run reports simulation without any fetch even with a token
+[TELEGRAM] Chế độ dry-run; dry-run chỉ ghi log giả lập, không gửi ra ngoài.
+[TELEGRAM DRY-RUN / GIẢ LẬP — KHÔNG GỬI] [ZT-ServerOps WARNING] test
+simulation
+2026-10-15T18:06:58.156Z
+
+stdout | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > disabled mode performs no fetch and reports not sent
+[TELEGRAM] Chế độ disabled; dry-run chỉ ghi log giả lập, không gửi ra ngoài.
+
+stdout | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > live transport retries a transient failure, bounds timeout and uses plain text
+🤖 [TELEGRAM BOT] Đã kích hoạt dịch vụ thông báo On-Call.
+🔐 [TELEGRAM OTP] Mã ghép nối quản trị viên (Pairing OTP): [33m123456[0m
+💬 [TELEGRAM HƯỚNG DẪN] Gửi tin nhắn: /pair 123456 tới Bot để nhận cảnh báo.
+✔ [TELEGRAM BOT] Ghép nối thành công và đã lưu DB với Chat ID: test-chat
+
+stdout | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > checks Telegram payload.ok and stops after three unsuccessful attempts
+🤖 [TELEGRAM BOT] Đã kích hoạt dịch vụ thông báo On-Call.
+🔐 [TELEGRAM OTP] Mã ghép nối quản trị viên (Pairing OTP): [33m123456[0m
+💬 [TELEGRAM HƯỚNG DẪN] Gửi tin nhắn: /pair 123456 tới Bot để nhận cảnh báo.
+✔ [TELEGRAM BOT] Ghép nối thành công và đã lưu DB với Chat ID: test-chat
+
+stdout | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > checks Telegram payload.ok and stops after three unsuccessful attempts
+<empty line>
+stderr | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > checks Telegram payload.ok and stops after three unsuccessful attempts
+[TELEGRAM] Gửi thất bại sau retry giới hạn; cảnh báo vẫn được lưu trong DB.
+
+ ✓ tests/telemetry-alerts.test.ts  (11 tests) 145ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  18:06:55
+   Duration  2.58s (transform 364ms, setup 0ms, collect 641ms, tests 145ms, environment 1ms, prepare 399ms)
+
+Unit tests dùng mock DB/fetch; chạy make e2e để kiểm chứng cụm thật.

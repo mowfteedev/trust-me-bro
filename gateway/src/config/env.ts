@@ -45,16 +45,26 @@ const envSchema = z.object({
   BASTION_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
 
   // Cấu hình dịch vụ giám sát trạng thái Liveness
-  SWEEPER_INTERVAL_MS: z.coerce.number().int().min(1000).default(5000),
-  NODE_OFFLINE_THRESHOLD_SECONDS: z.coerce.number().int().min(10).default(30),
+  SWEEPER_INTERVAL_MS: z.coerce.number().int().min(1000).max(10000).default(5000),
+  NODE_STALE_THRESHOLD_SECONDS: z.coerce.number().int().min(3).default(15),
+  NODE_OFFLINE_THRESHOLD_SECONDS: z.coerce.number().int().min(15).max(45).default(30),
+  CPU_ALERT_THRESHOLD_PERCENT: z.coerce.number().min(1).max(100).default(85),
 
   // Dịch vụ thông báo khẩn cấp On-Call qua Telegram (OTP sinh động, không dùng mặc định cố định)
   TELEGRAM_BOT_TOKEN: z.string().optional().default(''),
   TELEGRAM_PAIR_OTP: z.string().min(6).optional(),
+  TELEGRAM_MODE: z.enum(['disabled', 'dry-run', 'live']).default('dry-run'),
+  TELEGRAM_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(10000).default(5000),
 
   // Mạng ngầm WireGuard
   WG_GATEWAY_IP: z.string().ip({ version: 'v4' }).default('10.100.0.1'),
   WG_LISTEN_PORT: z.coerce.number().int().min(1).max(65535).default(51820),
+}).refine((env) => env.NODE_STALE_THRESHOLD_SECONDS < env.NODE_OFFLINE_THRESHOLD_SECONDS, {
+  message: 'NODE_STALE_THRESHOLD_SECONDS phải nhỏ hơn ngưỡng OFFLINE',
+  path: ['NODE_STALE_THRESHOLD_SECONDS'],
+}).refine((env) => env.NODE_OFFLINE_THRESHOLD_SECONDS + env.SWEEPER_INTERVAL_MS / 1000 <= 45, {
+  message: 'Ngưỡng OFFLINE cộng chu kỳ quét phải <= 45 giây theo phiếu giao',
+  path: ['NODE_OFFLINE_THRESHOLD_SECONDS'],
 });
 
 const parseResult = envSchema.safeParse(process.env);

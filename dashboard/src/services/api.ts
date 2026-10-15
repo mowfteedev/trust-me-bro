@@ -32,7 +32,7 @@ class ApiService {
   }
 
   public getCurrentUser(): UserSession | null {
-    return this.user;
+    return this.token ? this.user : null;
   }
 
   public isAuthenticated(): boolean {
@@ -90,10 +90,12 @@ class ApiService {
     const response = await fetch(endpoint, {
       ...options,
       headers,
+      signal: AbortSignal.timeout(10000),
     });
 
-    if (response.status === 401) {
+    if (response.status === 401 && endpoint !== '/api/auth/login') {
       this.clearSession();
+      window.dispatchEvent(new Event('zt-session-expired'));
       throw new Error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
     }
 
@@ -151,7 +153,8 @@ class ApiService {
    * Kiểm tra tính khả dụng của Gateway Server
    */
   public async checkHealth(): Promise<{ status: string }> {
-    const res = await fetch('/healthz');
+    const res = await fetch('/healthz', { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`Gateway: HTTP ${res.status}`);
     return await res.json();
   }
 }

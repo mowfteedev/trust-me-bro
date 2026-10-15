@@ -43,21 +43,20 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Tải danh sách Nodes từ Gateway
   const fetchClusterData = async (isManual = false) => {
     if (isManual) setIsRefreshing(true);
-    setErrorMessage(null);
 
     try {
       const data = await api.getNodes();
       setNodes(data);
+      setErrorMessage(null);
 
-      // Cập nhật selectedNode an toàn chống Stale Closure (Functional State Updater)
-      if (data.length > 0) {
-        setSelectedNode((prev) => (prev && data.some((n) => n.id === prev.id) ? prev : data[0]));
-      }
+      setSelectedNode((prev) => data.find((n) => n.id === prev?.id) ?? data[0] ?? null);
     } catch (err: any) {
       setErrorMessage(err.message || 'Không thể kết nối tới Control Plane Gateway');
     } finally {
@@ -68,17 +67,26 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
 
   // Tự động tải số liệu chuỗi thời gian khi chọn một Node
   useEffect(() => {
+    setMetricsHistory([]);
+    setHistoryError(null);
     if (!selectedNode) return;
-
+    setHistoryLoading(true);
     let isCurrent = true;
     const fetchHistory = () => {
       api
         .getNodeHistory(selectedNode.id)
         .then((data) => {
-          if (isCurrent) setMetricsHistory(data);
+          if (isCurrent) {
+            setMetricsHistory(data);
+            setHistoryError(null);
+            setHistoryLoading(false);
+          }
         })
-        .catch(() => {
-          if (isCurrent) setMetricsHistory([]);
+        .catch((err: Error) => {
+          if (isCurrent) {
+            setHistoryError(err.message || 'Không tải được lịch sử tài nguyên.');
+            setHistoryLoading(false);
+          }
         });
     };
 
@@ -89,7 +97,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
       isCurrent = false;
       clearInterval(historyTimer);
     };
-  }, [selectedNode]);
+  }, [selectedNode?.id]);
 
   // Vòng lặp cập nhật danh sách mỗi 5 giây
   useEffect(() => {
@@ -207,10 +215,10 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
 
         {/* Hướng dẫn cài đặt nhanh */}
         <div className="mt-6 rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-950 p-4 text-left">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-neutral-400 mb-2">Lệnh cài đặt máy con:</p>
-          <code className="block font-mono text-xs text-sky-600 dark:text-cyan-400 bg-white dark:bg-neutral-900/80 p-2.5 rounded-lg border border-slate-200 dark:border-neutral-800 overflow-x-auto select-all">
-            curl -sSL https://gateway/install.sh | sudo bash -s -- --token &lt;YOUR_NODE_TOKEN&gt;
-          </code>
+          <p className="text-sm text-slate-600 dark:text-neutral-400">
+            Làm theo README của dự án: cấu hình WireGuard, đăng ký node/token, sau đó khởi chạy Mini-Agent trên máy con.
+            Dashboard tự hiển thị máy khi nhận được heartbeat hợp lệ.
+          </p>
         </div>
 
         <button
@@ -229,107 +237,13 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
   // --------------------------------------------------------------------------
   return (
     <div className="space-y-6">
-      {/* 4.1 Khối DirectAdmin: Monitoring Tools & What's New Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Cột trái: Monitoring Tools */}
-        <div className="lg:col-span-5 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-5 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center">
-                <Activity className="h-4 w-4 mr-2 text-sky-600" />
-                Monitoring Tools
-              </h3>
-              <button
-                onClick={() => fetchClusterData(true)}
-                className="text-slate-400 hover:text-sky-600 transition-colors p-1"
-                title="Làm mới sự kiện"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-
-            <div className="mt-3 space-y-2.5 text-xs font-mono">
-              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
-                <div className="flex items-center space-x-2 truncate">
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">
-                    PROBE
-                  </span>
-                  <span className="text-slate-700 dark:text-slate-200 truncate">fast_probe_port22 (300ms)</span>
-                </div>
-                <span className="text-slate-400 text-[11px] shrink-0 ml-2">Active</span>
-              </div>
-
-              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
-                <div className="flex items-center space-x-2 truncate">
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-400">
-                    TUNNEL
-                  </span>
-                  <span className="text-slate-700 dark:text-slate-200 truncate">wireguard_overlay (UDP 51820)</span>
-                </div>
-                <span className="text-slate-400 text-[11px] shrink-0 ml-2">Encrypted</span>
-              </div>
-
-              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
-                <div className="flex items-center space-x-2 truncate">
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-400">
-                    SHELL
-                  </span>
-                  <span className="text-slate-700 dark:text-slate-200 truncate">pty_spawn_streaming</span>
-                </div>
-                <span className="text-slate-400 text-[11px] shrink-0 ml-2">0ms Delay</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-center">
-            <span className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline cursor-pointer inline-flex items-center">
-              + Zero-Trust Inbound Policy Active
-            </span>
-          </div>
+      {errorMessage && (
+        <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-4 text-sm text-amber-800 dark:text-amber-300">
+          Không cập nhật được dữ liệu: {errorMessage} Số liệu bên dưới là lần tải thành công gần nhất.
+          <button onClick={() => fetchClusterData(true)} disabled={isRefreshing} className="ml-2 underline">Thử lại</button>
         </div>
-
-        {/* Cột phải: What's New in ZT-ServerOps (4 Cards màu pastel chuẩn DirectAdmin) */}
-        <div className="lg:col-span-7 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-5 shadow-xs">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-3">
-            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Zero-Trust Architecture Highlights</h3>
-            <span className="text-xs text-slate-400 font-mono">Do-an-co-so-nganh</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            {/* Card 1: Real-time Streaming */}
-            <div className="p-3.5 rounded-xl border border-sky-200/80 bg-gradient-to-br from-sky-50 to-sky-100/60 dark:from-sky-950/30 dark:to-sky-900/20 dark:border-sky-800/50">
-              <span className="text-xs font-bold text-sky-800 dark:text-sky-300 block">Real-Time PTY</span>
-              <p className="mt-1 text-[11px] text-sky-700/80 dark:text-sky-400/80 leading-snug">
-                Stream ký tự qua spawn() tức thì, hỗ trợ ngắt Ctrl+C linh hoạt.
-              </p>
-            </div>
-
-            {/* Card 2: Fast Probe */}
-            <div className="p-3.5 rounded-xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 to-emerald-100/60 dark:from-emerald-950/30 dark:to-emerald-900/20 dark:border-emerald-800/50">
-              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 block">Fast Probe 300ms</span>
-              <p className="mt-1 text-[11px] text-emerald-700/80 dark:text-emerald-400/80 leading-snug">
-                Thăm dò cổng 22 chỉ 0.3s, triệt tiêu 10 giây chờ timeout.
-              </p>
-            </div>
-
-            {/* Card 3: Zero Inbound */}
-            <div className="p-3.5 rounded-xl border border-amber-200/80 bg-gradient-to-br from-amber-50 to-amber-100/60 dark:from-amber-950/30 dark:to-amber-900/20 dark:border-amber-800/50">
-              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 block">Zero Inbound Ports</span>
-              <p className="mt-1 text-[11px] text-amber-700/80 dark:text-amber-400/80 leading-snug">
-                Máy con không mở bất kỳ cổng nào ra Internet, an toàn tuyệt đối.
-              </p>
-            </div>
-
-            {/* Card 4: Ed25519 Bastion */}
-            <div className="p-3.5 rounded-xl border border-purple-200/80 bg-gradient-to-br from-purple-50 to-purple-100/60 dark:from-purple-950/30 dark:to-purple-900/20 dark:border-purple-800/50">
-              <span className="text-xs font-bold text-purple-800 dark:text-purple-300 block">Ed25519 Bastion</span>
-              <p className="mt-1 text-[11px] text-purple-700/80 dark:text-purple-400/80 leading-snug">
-                Cầu nối WebSocket-to-SSH mã hóa khóa Ed25519 theo chuẩn RFC 8709.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
+      <p className="text-xs text-slate-500 dark:text-slate-400">Trạng thái theo heartbeat của Gateway. Mặc định: Online dưới 15s, Stale từ 15s, Offline từ 30s; có độ trễ theo chu kỳ quét. Mức tải CPU hiển thị riêng.</p>
 
       {/* 4.2 Thanh tóm tắt trạng thái cụm (KPI Cards) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -345,7 +259,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
         {/* Healthy */}
         <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-4 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 dark:text-neutral-400 text-xs font-mono">
-            <span>HOẠT ĐỘNG (HEALTHY)</span>
+            <span>ONLINE</span>
             <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           </div>
           <p className="mt-2 font-mono text-2xl font-bold text-emerald-600 dark:text-emerald-400">{summary.healthy}</p>
@@ -354,7 +268,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
         {/* Warning */}
         <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-4 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 dark:text-neutral-400 text-xs font-mono">
-            <span>CẢNH BÁO (WARNING)</span>
+            <span>STALE</span>
             <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
           </div>
           <p className="mt-2 font-mono text-2xl font-bold text-amber-600 dark:text-amber-400">{summary.warning}</p>
@@ -363,7 +277,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
         {/* Offline */}
         <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-4 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 dark:text-neutral-400 text-xs font-mono">
-            <span>MẤT KẾT NỐI (OFFLINE)</span>
+            <span>OFFLINE</span>
             <XCircle className="h-4 w-4 text-rose-600 dark:text-red-400" />
           </div>
           <p className="mt-2 font-mono text-2xl font-bold text-rose-600 dark:text-red-400">{summary.offline}</p>
@@ -371,7 +285,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
       </div>
 
       {/* 4.3 Thanh công cụ tìm kiếm và lọc kiểu DirectAdmin */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+      <div id="server-fleet" className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 scroll-mt-20">
         <div className="flex items-center space-x-2 w-full sm:w-auto">
           <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center">
             <Server className="h-4 w-4 mr-2 text-sky-600" />
@@ -404,6 +318,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
         </div>
       </div>
 
+      {filteredNodes.length === 0 && <p className="text-sm text-slate-500">Không tìm thấy máy chủ phù hợp.</p>}
       {/* 4.4 Lưới thẻ máy chủ con */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {filteredNodes.map((node) => {
@@ -425,21 +340,23 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
       {/* 4.5 Biểu đồ tài nguyên thời gian thực của máy chủ đang được chọn */}
       {selectedNode && (
         <div className="mt-8 space-y-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-5 shadow-xs">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-neutral-300 flex items-center">
+          <div className="flex flex-wrap gap-2 items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+            <h3 className="min-w-0 flex flex-wrap gap-1 text-sm font-semibold text-slate-800 dark:text-neutral-300 items-center">
               <Activity className="h-4 w-4 mr-2 text-sky-600 dark:text-cyan-400" />
-              Chuỗi thời gian tài nguyên máy chủ: <span className="text-sky-600 dark:text-cyan-400 ml-1.5 font-mono">{selectedNode.name}</span>
+              Chuỗi thời gian tài nguyên máy chủ: <span className="break-all text-sky-600 dark:text-cyan-400 ml-1.5 font-mono">{selectedNode.name}</span>
             </h3>
             {currentUser?.role === 'ADMIN' && (
               <button
                 onClick={() => onOpenTerminal(selectedNode)}
-                className="text-xs font-mono text-sky-600 dark:text-cyan-400 hover:underline flex items-center font-medium"
+                disabled={selectedNode.status === 'OFFLINE'}
+                className="text-xs font-mono text-sky-600 dark:text-cyan-400 hover:underline flex items-center font-medium disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Terminal className="h-3.5 w-3.5 mr-1" /> Mở Web SSH
               </button>
             )}
           </div>
-          <MetricsChart metrics={metricsHistory} />
+          {historyError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">Không tải được biểu đồ: {historyError} Hệ thống sẽ tự thử lại.</p>}
+          {historyLoading ? <p aria-busy="true" className="py-12 text-center text-sm text-slate-500">Đang tải lịch sử tài nguyên...</p> : (!historyError || metricsHistory.length > 0) && <MetricsChart metrics={metricsHistory} />}
         </div>
       )}
     </div>

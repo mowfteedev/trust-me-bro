@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from './services/api.js';
 import { UserSession, NodeItem } from './types/index.js';
 import { ClusterOverview } from './components/ClusterOverview.js';
@@ -13,15 +13,11 @@ import {
   LayoutDashboard,
   Server,
   Network,
-  FileText,
   Menu,
   X,
   Sun,
   Moon,
-  CheckCircle2,
   ChevronRight,
-  Layers,
-  Radio,
   AlertTriangle
 } from 'lucide-react';
 
@@ -41,7 +37,7 @@ export const App: React.FC = () => {
   // Chế độ Theme (Mặc định Light Mode phong cách DirectAdmin Evolution)
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'fleet' | 'mesh' | 'audit'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'fleet'>('dashboard');
 
   // Form đăng nhập
   const [username, setUsername] = useState('');
@@ -49,6 +45,22 @@ export const App: React.FC = () => {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [logoutWarning, setLogoutWarning] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const onExpired = () => {
+      setCurrentUser(null);
+      setSelectedTerminalNode(null);
+      setLoginError('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+    };
+    window.addEventListener('zt-session-expired', onExpired);
+    return () => window.removeEventListener('zt-session-expired', onExpired);
+  }, []);
+
+  const selectTab = (tab: 'dashboard' | 'fleet') => {
+    setActiveTab(tab);
+    setIsMobileMenuOpen(false);
+    document.getElementById(tab === 'fleet' ? 'server-fleet' : 'cluster-overview')?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +71,8 @@ export const App: React.FC = () => {
     try {
       const user = await api.login(username, password);
       setCurrentUser(user);
+      setPassword('');
+      setActiveTab('dashboard');
     } catch (err: any) {
       setLoginError(err.message || 'Tên đăng nhập hoặc mật khẩu không chính xác');
     } finally {
@@ -71,7 +85,7 @@ export const App: React.FC = () => {
       const res = await api.logout();
       if (!res.serverRevoked) {
         console.warn('⚠️ [LOGOUT WARNING] Máy chủ chưa xác nhận thu hồi phiên do sự cố mạng hoặc 503.');
-        setLogoutWarning('Máy chủ ngoại tuyến hoặc trả về lỗi 503. Bạn đã được đăng xuất an toàn trên trình duyệt, nhưng phiên làm việc trên máy chủ chưa thể thu hồi từ xa.');
+        setLogoutWarning('Đã xóa phiên trên trình duyệt. Gateway chưa xác nhận thu hồi phiên: lỗi kết nối hoặc máy chủ. Token có thể còn hiệu lực đến khi hết hạn.');
       } else {
         setLogoutWarning(null);
       }
@@ -89,7 +103,7 @@ export const App: React.FC = () => {
   if (!currentUser) {
     return (
       <div className={`flex min-h-screen items-center justify-center px-4 py-12 relative overflow-hidden transition-colors ${
-        isDarkMode ? 'bg-[#090d16]' : 'bg-[#f8fafc]'
+        isDarkMode ? 'dark bg-[#090d16]' : 'bg-[#f8fafc]'
       }`}>
         {/* Nền hiệu ứng lưới mạng không gian ngầm */}
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#0284c70a_1px,transparent_1px),linear-gradient(to_bottom,#0284c70a_1px,transparent_1px)] bg-[size:24px_24px]" />
@@ -130,10 +144,12 @@ export const App: React.FC = () => {
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1.5">Tên tài khoản</label>
+              <label htmlFor="username" className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1.5">Tên tài khoản</label>
               <div className="relative">
                 <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <input
+                  id="username"
+                  autoComplete="username"
                   type="text"
                   required
                   value={username}
@@ -145,10 +161,12 @@ export const App: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1.5">Mật khẩu xác thực</label>
+              <label htmlFor="password" className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1.5">Mật khẩu xác thực</label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <input
+                  id="password"
+                  autoComplete="current-password"
                   type="password"
                   required
                   value={password}
@@ -170,7 +188,7 @@ export const App: React.FC = () => {
           </form>
 
           <div className="mt-6 border-t border-slate-100 dark:border-neutral-800 pt-4 flex items-center justify-between text-[11px] font-mono text-slate-400 dark:text-neutral-500">
-            <span>TLS 1.3 • Ed25519</span>
+            <span>WireGuard • SSH Ed25519</span>
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               className="hover:text-sky-600 transition-colors"
@@ -204,7 +222,7 @@ export const App: React.FC = () => {
           {/* Cụm Icons điều hướng nhanh */}
           <div className="flex flex-col space-y-2">
             <button
-              onClick={() => setActiveTab('dashboard')}
+              onClick={() => selectTab('dashboard')}
               className={`p-2.5 rounded-xl transition-all ${
                 activeTab === 'dashboard'
                   ? 'bg-white text-sky-700 shadow-md'
@@ -216,7 +234,7 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveTab('fleet')}
+              onClick={() => selectTab('fleet')}
               className={`p-2.5 rounded-xl transition-all ${
                 activeTab === 'fleet'
                   ? 'bg-white text-sky-700 shadow-md'
@@ -227,29 +245,6 @@ export const App: React.FC = () => {
               <Server className="h-5 w-5" />
             </button>
 
-            <button
-              onClick={() => setActiveTab('mesh')}
-              className={`p-2.5 rounded-xl transition-all ${
-                activeTab === 'mesh'
-                  ? 'bg-white text-sky-700 shadow-md'
-                  : 'text-sky-100 hover:bg-white/15'
-              }`}
-              title="Mạng ảo WireGuard (VPN Mesh)"
-            >
-              <Network className="h-5 w-5" />
-            </button>
-
-            <button
-              onClick={() => setActiveTab('audit')}
-              className={`p-2.5 rounded-xl transition-all ${
-                activeTab === 'audit'
-                  ? 'bg-white text-sky-700 shadow-md'
-                  : 'text-sky-100 hover:bg-white/15'
-              }`}
-              title="Nhật ký Kiểm toán (Audit Logs)"
-            >
-              <FileText className="h-5 w-5" />
-            </button>
           </div>
         </div>
 
@@ -282,7 +277,7 @@ export const App: React.FC = () => {
               <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">Control Panel</h2>
               <span className="text-[11px] font-mono text-slate-400">Navigation</span>
             </div>
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="Gateway Online" />
+            <Shield className="h-4 w-4 text-sky-600" aria-label="Bảng điều khiển" />
           </div>
 
           {/* Segmented Switch: Admin vs User (RBAC Visual - Chuẩn DirectAdmin) */}
@@ -310,7 +305,7 @@ export const App: React.FC = () => {
           {/* Danh mục tính năng */}
           <nav className="mt-5 space-y-1 text-xs">
             <button
-              onClick={() => setActiveTab('dashboard')}
+              onClick={() => selectTab('dashboard')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-colors ${
                 activeTab === 'dashboard'
                   ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-semibold'
@@ -325,7 +320,7 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveTab('fleet')}
+              onClick={() => selectTab('fleet')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-colors ${
                 activeTab === 'fleet'
                   ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-semibold'
@@ -339,35 +334,6 @@ export const App: React.FC = () => {
               <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
             </button>
 
-            <button
-              onClick={() => setActiveTab('mesh')}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-colors ${
-                activeTab === 'mesh'
-                  ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-semibold'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              <span className="flex items-center">
-                <Network className="h-4 w-4 mr-2.5 text-slate-400" />
-                Mạng ảo WireGuard
-              </span>
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            </button>
-
-            <button
-              onClick={() => setActiveTab('audit')}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-colors ${
-                activeTab === 'audit'
-                  ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-semibold'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              <span className="flex items-center">
-                <FileText className="h-4 w-4 mr-2.5 text-slate-400" />
-                Nhật ký Kiểm toán
-              </span>
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            </button>
           </nav>
         </div>
 
@@ -378,7 +344,7 @@ export const App: React.FC = () => {
             <span className="text-xs font-bold">Zero-Trust Shield</span>
           </div>
           <p className="mt-1.5 text-[11px] text-sky-100 leading-snug">
-            Fast Probe 300ms • Cổng 22 Inbound bị chặn tuyệt đối.
+            SSH qua mạng WireGuard. Quyền mở terminal được kiểm tra tại Gateway.
           </p>
           <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-sky-200 border-t border-white/10 pt-2">
             <span>Overlay Mesh</span>
@@ -455,33 +421,20 @@ export const App: React.FC = () => {
               {/* Navigation items trên điện thoại */}
               <nav className="mt-5 space-y-1.5 text-xs font-medium">
                 <button
-                  onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
+                  onClick={() => selectTab('dashboard')}
                   className="w-full min-h-[44px] flex items-center px-3 rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-semibold"
                 >
                   <LayoutDashboard className="h-4 w-4 mr-3 text-sky-600" />
                   Tổng quan (Dashboard)
                 </button>
                 <button
-                  onClick={() => { setActiveTab('fleet'); setIsMobileMenuOpen(false); }}
+                  onClick={() => selectTab('fleet')}
                   className="w-full min-h-[44px] flex items-center px-3 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
                   <Server className="h-4 w-4 mr-3 text-slate-400" />
                   Danh sách Máy chủ
                 </button>
-                <button
-                  onClick={() => { setActiveTab('mesh'); setIsMobileMenuOpen(false); }}
-                  className="w-full min-h-[44px] flex items-center px-3 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                >
-                  <Network className="h-4 w-4 mr-3 text-slate-400" />
-                  Mạng ảo WireGuard
-                </button>
-                <button
-                  onClick={() => { setActiveTab('audit'); setIsMobileMenuOpen(false); }}
-                  className="w-full min-h-[44px] flex items-center px-3 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                >
-                  <FileText className="h-4 w-4 mr-3 text-slate-400" />
-                  Nhật ký Kiểm toán
-                </button>
+
               </nav>
             </div>
 
@@ -521,8 +474,8 @@ export const App: React.FC = () => {
           <div className="flex items-center space-x-4">
             {/* Status WireGuard Mesh */}
             <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Mesh UDP 51820</span>
+              <Network className="h-3.5 w-3.5" />
+              <span>WireGuard • UDP 51820</span>
             </div>
 
             {/* Thông tin tài khoản & Role */}
@@ -551,7 +504,7 @@ export const App: React.FC = () => {
         </header>
 
         {/* Nội dung chính màn hình */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <main id="cluster-overview" className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <ClusterOverview currentUser={currentUser} onOpenTerminal={(node) => setSelectedTerminalNode(node)} />
         </main>
 

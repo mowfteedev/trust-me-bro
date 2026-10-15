@@ -24,14 +24,7 @@ export interface NodeItem {
   status: NodeStatus;
   last_seen: string | null;
   created_at: string;
-  latest_metric?: {
-    cpu_percent: number;
-    memory_used_bytes: number;
-    memory_total_bytes: number;
-    disk_used_bytes: number;
-    disk_total_bytes: number;
-    recorded_at: string;
-  };
+  latest_metric?: MetricSnapshot;
 }
 
 export interface MetricSnapshot {
@@ -43,6 +36,7 @@ export interface MetricSnapshot {
   disk_total_bytes: number;
   network_rx_bytes?: number;
   network_tx_bytes?: number;
+  uptime_seconds?: number;
   recorded_at: string;
 }
 

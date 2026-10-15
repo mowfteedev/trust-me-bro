@@ -1,3 +1,7 @@
+> **TÀI LIỆU LỊCH SỬ (2026-10-07).** Những tuyên bố chứng nhận/PASS bên dưới
+> không áp dụng cho workspace hiện tại. Xem [hướng dẫn hiện tại](../README.md)
+> và bằng chứng chạy thật ngày 2026-10-16; không dùng tài liệu này để nhận production-ready.
+
 # 🏛️ BIÊN BẢN THẨM ĐỊNH MÃ NGUỒN TỐI CAO & CHỨNG NHẬN NGHIỆM THU
 ## CODE REVIEWER VETO AUDIT REPORT — DỰ ÁN TRUST-ME-BRO
 * **Cơ sở đào tạo:** Trường Đại học Công nghiệp Hà Nội (HaUI) - Khoa Công nghệ Thông tin

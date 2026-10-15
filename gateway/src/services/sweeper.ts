@@ -1,4 +1,4 @@
-import { query } from './db.js';
+import { query, getClient } from './db.js';
 import { config } from '../config/env.js';
 import { telegramService } from './telegram.js';
 
@@ -64,49 +64,62 @@ export async function runSweeperCycle(): Promise<{
       }
     }
 
-    // 3. Quét phát hiện các Endpoint Hosts bị mất kết nối (Liveness Check)
+    // HEALTHY = Online, WARNING = Stale, OFFLINE = Offline. CPU alerts are separate.
+    await query(
+      `UPDATE nodes SET status = 'WARNING', updated_at = now()
+       WHERE status = 'HEALTHY' AND last_seen < now() - make_interval(secs => $1)
+         AND last_seen >= now() - make_interval(secs => $2);`,
+      [config.NODE_STALE_THRESHOLD_SECONDS, config.NODE_OFFLINE_THRESHOLD_SECONDS]
+    );
+
     const thresholdSec = config.NODE_OFFLINE_THRESHOLD_SECONDS;
     const offlineNodesRes = await query(
       `SELECT id, name, ip_address, last_seen
        FROM nodes
-       WHERE (last_seen IS NULL OR last_seen < (now() AT TIME ZONE 'UTC') - make_interval(secs => $1))
+       WHERE (last_seen IS NULL OR last_seen < now() - make_interval(secs => $1))
          AND status != 'OFFLINE';`,
       [thresholdSec]
     );
 
     for (const node of offlineNodesRes.rows) {
-      offlineNodesDetected.push(node.name);
-
-      // Cập nhật trạng thái Node thành OFFLINE có kiểm tra điều kiện an toàn (Optimistic Guard chống Race Condition)
-      const updateRes = await query(
-        `UPDATE nodes
-         SET status = 'OFFLINE', updated_at = (now() AT TIME ZONE 'UTC')
-         WHERE id = $1 AND (last_seen = $2 OR (last_seen IS NULL AND $2 IS NULL));`,
-        [node.id, node.last_seen]
-      );
-
-      if ((updateRes.rowCount ?? 0) === 0) {
-        // Node đã kịp gửi beacon mới giữa lúc SELECT và UPDATE -> bỏ qua không ghi đè trạng thái
-        continue;
+      const alertMsg = `NODE_OFFLINE: Máy chủ con ${node.name} (${node.ip_address}) không phản hồi quá ${thresholdSec}s.`;
+      const client = await getClient();
+      let markedOffline = false;
+      try {
+        await client.query('BEGIN');
+        // Recheck age under the row lock: pg Date parsing loses timestamp microseconds,
+        // so equality against the JavaScript last_seen value is not a reliable guard.
+        const updateRes = await client.query(
+          `UPDATE nodes SET status = 'OFFLINE', updated_at = now()
+           WHERE id = $1 AND status != 'OFFLINE'
+             AND (last_seen IS NULL OR last_seen < now() - make_interval(secs => $2));`,
+          [node.id, thresholdSec]
+        );
+        markedOffline = (updateRes.rowCount ?? 0) > 0;
+        if (markedOffline) {
+          await client.query(
+            `INSERT INTO alerts (node_id, severity, message) VALUES ($1, 'CRITICAL', $2);`,
+            [node.id, alertMsg]
+          );
+          await client.query(
+            `INSERT INTO audit_logs (node_id, action, target, details)
+             VALUES ($1, 'NODE_OFFLINE', $2, $3);`,
+            [node.id, node.name, JSON.stringify({ ip: node.ip_address, last_seen: node.last_seen })]
+          );
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
       }
-
-      // Ghi nhận sự cố vào bảng alerts
-      const alertMsg = `Máy chủ con ${node.name} (${node.ip_address}) không phản hồi quá ${thresholdSec}s. Chuyển trạng thái sang OFFLINE!`;
-      await query(
-        `INSERT INTO alerts (node_id, severity, message, triggered_at)
-         VALUES ($1, 'CRITICAL', $2, (now() AT TIME ZONE 'UTC'));`,
-        [node.id, alertMsg]
-      ).catch(() => {});
-
-      // Ghi log kiểm toán bất biến
-      await query(
-        `INSERT INTO audit_logs (action, target, details)
-         VALUES ('NODE_OFFLINE', $1, $2);`,
-        [node.name, JSON.stringify({ ip: node.ip_address, last_seen: node.last_seen })]
-      ).catch(() => {});
-
-      // Bắn cảnh báo khẩn cấp On-Call qua Telegram Bot
-      await telegramService.sendAlert(node.name, 'CRITICAL', alertMsg);
+      if (!markedOffline) continue;
+      offlineNodesDetected.push(node.name);
+      // Bounded Telegram retries run independently of the liveness sweep.
+      void telegramService.sendAlert(node.name, 'CRITICAL', alertMsg).catch((err) => {
+        console.warn('[TELEGRAM] Gửi cảnh báo offline thất bại; cảnh báo đã lưu DB:', err.message);
+      });
       console.warn(`🚨 [LIVENESS ALERT] Đã chuyển máy chủ ${node.name} sang trạng thái OFFLINE.`);
     }
 

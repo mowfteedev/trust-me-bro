@@ -1,0 +1,91 @@
+# Kịch bản trình diễn đồ án (10–15 phút)
+
+## Chuẩn bị
+
+Chạy từ thư mục repository, Linux có Docker/Compose v2 và kernel WireGuard:
+
+```sh
+python3 deploy/scripts/demo.py up
+python3 deploy/scripts/demo.py check
+```
+
+Mở `https://localhost`, chấp nhận chứng chỉ CA nội bộ trên máy demo. Đọc mật
+khẩu cục bộ trong `keys/demo-login.env`, không chiếu tệp này. Mở sẵn hai cửa sổ
+trình duyệt và terminal máy chủ.
+
+## Thứ tự thao tác
+
+| Bước | Thao tác | Kết quả mong đợi và ý nghĩa |
+|---|---|---|
+| 1 | Giới thiệu sơ đồ Gateway–WireGuard–Worker | VPN M2M bảo vệ đường truyền, token và RBAC bảo vệ ứng dụng |
+| 2 | Login `demo-viewer` | Thấy CPU/RAM/disk, tổng RX/TX, uptime, biểu đồ và Online; không có nút SSH |
+| 3 | Giới thiệu `demo.py check` | Backend trả 403 nếu Viewer gọi cấp vé SSH trực tiếp; ẩn nút không phải lớp bảo vệ duy nhất |
+| 4 | Logout, login `demo-admin`, mở Web SSH | Terminal CONNECTED; nhập `id`, `hostname`, `stty size`, tương tác shell thật với user `ztuser` |
+| 5 | Phóng to/thu nhỏ, đóng terminal | PTY resize, socket đóng; DB có START/END cùng session_id |
+| 6 | Xem handshake/transfer WireGuard | Có peer handshake và lưu lượng; không xuất private key |
+| 7 | Tạm dừng worker theo lệnh dưới | Stale khoảng 15–20s, Offline khoảng 30–35s, log cảnh báo ghi rõ DRY-RUN |
+| 8 | Khôi phục worker | Tự về Online; incident offline resolved, không cần reset DB |
+| 9 | Trình bày test CPU | Payload CPU 99% trong **DB test riêng**, incident một lần, về 10% thì resolve; không giả thành tải CPU vật lý |
+| 10 | Logout và giải thích giới hạn | JWT cũ bị từ chối, phiên SSH bị thu hồi; VM/RAM/Telegram thật chưa xác nhận đầy đủ |
+
+Lệnh mạng đã dùng trong kiểm chứng:
+
+```sh
+docker compose --env-file keys/demo.env -p zt_demo --profile demo exec -T wireguard_gateway wg show wg0 latest-handshakes
+docker compose --env-file keys/demo.env -p zt_demo --profile demo exec -T wireguard_gateway wg show wg0 transfer
+docker compose --env-file keys/demo.env -p zt_demo --profile demo exec -T node_worker_01 ss -lnt
+docker compose --env-file keys/demo.env -p zt_demo --profile demo exec -T node_worker_01 iptables -S
+```
+
+Không dùng `wg showconf`, `cat keys/*` hoặc chiếu file env: có thể lộ bí mật.
+
+Lệnh mô phỏng mất máy con, sau đó **phải khôi phục**:
+
+```sh
+docker compose --env-file keys/demo.env -p zt_demo --profile demo pause node_worker_01
+docker compose --env-file keys/demo.env -p zt_demo --profile demo unpause node_worker_01
+```
+
+Chờ giao diện thực sự chuyển trạng thái trước khi chạy `unpause`. Có thể kiểm
+tra tự động cùng thao tác bằng `python3 tests/demo-liveness.py`; bài này khôi
+phục worker trong `finally`. Bằng chứng hiện tại: Stale **17,80s**, Offline
+**32,82s**. Chênh lệch do pha heartbeat và chu kỳ quét, không phải SLA production.
+
+Trong cửa sổ terminal khác, xem log giả lập cảnh báo:
+
+```sh
+python3 deploy/scripts/demo.py logs
+```
+
+`demo.py check` gồm hai phần: 16 kiểm tra trên cụm đang chạy, sau đó các DB tạm
+với Fastify inject để thử payload CPU và timestamp biên. DB tạm được xóa sau
+test; node kiểm thử không được chèn vào dashboard demo. Telegram chỉ ghi log
+`GIẢ LẬP — KHÔNG GỬI`. Không cần và không sử dụng token Bot thật.
+
+## Khi có lỗi
+
+- Port 80/443 đang dùng: đổi `HTTP_PORT`/`HTTPS_PORT` trong `keys/demo.env`, rồi
+  chạy `up` lại; URL sẽ được script in ra.
+- Gateway chưa ready: xem `demo.py status` và `demo.py logs`; kiểm tra migrator
+  và provisioner đã exit 0, PostgreSQL healthy. Không tự xóa volume để chữa lỗi.
+- SSH không vào: kiểm tra handshake, node đang Online, tài khoản `ztuser`,
+  quyền đọc private key và host fingerprint. Không tắt host key verification.
+- Thay Gateway container: chạy `up` cho toàn cụm để WireGuard helper theo đúng
+  network namespace. Không recreate riêng Gateway rồi giữ helper cũ.
+- Tài khoản/node đã tồn tại với bí mật khác: CLI dừng để bảo toàn dữ liệu;
+  dùng đúng `keys/demo.env` và `keys/demo-login.env` của cụm đã tạo.
+- Mất kết nối Gateway: dashboard có thông báo và Retry; số liệu cũ được ghi rõ.
+  Logout offline xóa phiên trình duyệt nhưng chưa xác nhận thu hồi trên server.
+
+## Điểm cần giải thích trước giảng viên
+
+WireGuard không thay thế RBAC; máy có VPN vẫn cần token, quyền ứng dụng và
+fingerprint SSH. Gateway giữ khóa SSH nên vẫn là điểm tin cậy quan trọng;
+không tuyên bố an toàn tuyệt đối. SSH shell demo không có root. Snapshot RAM
+Mini-Agent khoảng 23 MiB, chưa đạt mốc khoảng 10 MB. Docker worker có VPN/SSH
+thật nhưng chưa phải bằng chứng VMware/VirtualBox; xem [VM_SETUP.md](VM_SETUP.md).
+Số liệu `/proc` trong container phản ánh kernel/namespace đang chạy, không nên
+gọi toàn bộ là tài nguyên của một VM riêng.
+
+Kết thúc bằng `python3 deploy/scripts/demo.py down` nếu muốn dừng; dữ liệu demo
+được giữ để chạy lại. Không merge vào main hoặc deploy production.

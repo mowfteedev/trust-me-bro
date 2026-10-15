@@ -1,89 +1,132 @@
-# Đồ Án Cơ Sở Ngành — ZT-ServerOps
+# ZT-ServerOps / trust-me-bro
 
-Hệ thống quản trị và giám sát máy chủ phân tán bảo vệ theo kiến trúc Zero-Trust (Zero Inbound Ports) trên mạng ngầm WireGuard.
-Giải pháp phân tầng độc lập giữa Mặt phẳng Điều khiển (Fastify/TypeScript Control Plane) và Mặt phẳng Dữ liệu (Python POSIX Daemon).
+Đồ án cơ sở ngành Nhóm 9: quản trị máy chủ qua WireGuard, giám sát tài nguyên và
+Web SSH có phân quyền ADMIN/VIEWER. Nhánh làm việc: **`minh-thanh`**; không merge
+vào `main`. Phạm vi là mô hình môn học chạy được và giải thích được.
 
----
+## Khởi chạy demo
 
-## Cấu Trúc Cây Thư Mục Dự Án
+Cần Linux có kernel WireGuard, Docker Engine + **Docker Compose v2**, Python 3,
+OpenSSL và `ssh-keygen`. Tài khoản chạy cần quyền truy cập Docker. Lần build đầu
+cần Internet để tải image/phụ thuộc. Không cần cài Node.js hoặc npm lên host.
+Gateway chạy với UID1000: owner của khóa bind-mount quyền400 phải khớp UID này.
+Máy đã kiểm chứng có `id -u` bằng1000; host dùng UID khác cần cấu hình quyền đọc phù hợp.
 
-```text
-do-an-co-so-nganh/
-├── .env.example                          # Định nghĩa cấu hình môi trường chuẩn hóa
-├── .gitignore                            # Triệt tiêu rò rỉ: Loại trừ keys/, logs/, node_modules/, *.key
-├── docker-compose.yml                    # Điều phối cụm: Gateway, PostgreSQL, Reverse Proxy, Worker Nodes
-├── Makefile                              # Tự động hóa tác vụ: up, test, lint, seed, mock
-├── README.md                             # Tài liệu tổng quan và kiến trúc dự án
-│
-├── contracts/                            # Đặc tả giao thức và lược đồ dữ liệu chuẩn hóa (Single Source of Truth)
-│   ├── telemetry.schema.json             # JSON Schema chuẩn hóa tải trọng Telemetry Ingestion
-│   └── openapi.yaml                      # Đặc tả RESTful API theo chuẩn OpenAPI 3.0
-│
-├── deploy/                               # Hạ tầng vận hành và mạng truyền dẫn (Infrastructure & Underlay)
-│   ├── proxy/
-│   │   └── Caddyfile                     # Cấu hình Reverse Proxy biên, tự động quản lý TLS/ACME
-│   ├── wireguard/
-│   │   ├── wg0-gateway.conf              # Cấu hình giao diện mạng ngầm tại Control Plane
-│   │   └── wg0-node.conf                 # Cấu hình mẫu mạng ngầm cho Endpoint Host
-│   └── scripts/
-│       ├── init-secrets.sh               # Khởi tạo khóa bất đối xứng Ed25519 & Curve25519 tại runtime
-│       ├── seed-db.sh                    # Khởi tạo dữ liệu quản trị viên và đăng ký Node ban đầu
-│       └── mock-nodes.py                 # Kịch bản giả lập tải đồng thời từ 20 đến 50 Endpoint Hosts
-│
-├── gateway/                              # Mặt phẳng điều khiển trung tâm (Control Plane Engine)
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── migrations/                       # Quản lý phiên bản lược đồ CSDL PostgreSQL v3.1
-│   │   ├── 001_init_schema.sql           # Khởi tạo bảng danh mục và phân quyền người dùng
-│   │   └── 002_partition_metrics.sql     # Thiết lập phân vùng Range Partitioning cho Telemetry
-│   ├── tests/                            # Kiểm thử đơn vị cho nền tảng Control Plane (Vitest)
-│   │   ├── token-verify.test.ts          # Thẩm định tính bất biến thời gian của thuật toán so sánh chuỗi
-│   │   └── pty-resize.test.ts            # Kiểm thử tính toàn vẹn và kẹp biên tham số PTY SIGWINCH
-│   └── src/
-│       ├── server.ts                     # Điểm nhập ứng dụng Fastify, nạp Middleware và Plugins
-│       ├── config/env.ts                 # Rà soát ràng buộc tham số môi trường bằng Zod Schema
-│       ├── routes/                       # Các bộ định tuyến REST Endpoints
-│       │   ├── auth.ts                   # Xác thực định danh và cấp phát JSON Web Token (JWT)
-│       │   ├── nodes.ts                  # Quản lý vòng đời và trạng thái vận hành của Worker Nodes
-│       │   └── telemetry.ts              # Tiếp nhận và xác thực tải trọng Telemetry Beacon (O(1) Lookup)
-│       ├── services/                     # Khối xử lý logic nghiệp vụ cốt lõi
-│       │   ├── bastion.ts                # Bộ điều phối phiên dòng lệnh giả lập (PTY Bridge over WebSocket)
-│       │   ├── sweeper.ts                # Dịch vụ kiểm soát trạng thái Liveness và thanh lọc Dead Tuples
-│       │   ├── telegram.ts               # Dịch vụ phát tán cảnh báo On-Call tích hợp xác thực OTP
-│       │   └── db.ts                     # Quản lý Connection Pool đến cơ sở dữ liệu PostgreSQL
-│       └── middlewares/                  # Bộ lọc an ninh và phân quyền
-│           ├── auth.middleware.ts        # Kiểm soát truy cập dựa trên vai trò (RBAC)
-│           └── rate-limit.ts             # Cơ chế kiểm soát lưu lượng chống cạn kiệt tài nguyên
-│
-├── agent/                                # Mặt phẳng dữ liệu cục bộ (Endpoint Worker Daemon)
-│   ├── requirements.txt
-│   ├── install.sh                        # Kịch bản thiết lập Systemd Unit tự động trên Linux Host
-│   ├── Dockerfile                        # Đóng gói Distroless/Alpine tối ưu kích thước
-│   ├── tests/                            # Kiểm thử đơn vị cho module trích xuất tài nguyên (Pytest)
-│   │   └── test_collectors.py
-│   └── src/
-│       ├── main.py                       # Vòng lặp phát tín hiệu Liveness Beacon tích hợp Jitter
-│       ├── config.py                     # Quản lý nạp cấu hình hệ thống
-│       └── collectors/                   # Module trích xuất chỉ số tài nguyên hạt nhân (Kernel Metrics)
-│           ├── cpu.py                    # Phân tích trạng thái tải vi xử lý qua /proc/stat
-│           ├── memory.py                 # Đo lường phân bổ bộ nhớ vật lý qua /proc/meminfo
-│           ├── disk.py                   # Giám sát dung lượng phân vùng lưu trữ
-│           └── network.py                # Đo lường thông lượng I/O giao diện mạng
-│
-├── dashboard/                            # Bảng điều khiển quản trị tập trung (Web Console Interface)
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── src/
-│       ├── App.tsx                       # Cấu trúc định tuyến Single Page Application
-│       ├── components/                   # Khối giao diện hiển thị tái sử dụng
-│       │   ├── NodeCard.tsx              # Thẻ hiển thị trạng thái Liveness và thông số tóm tắt
-│       │   ├── MetricsChart.tsx          # Biểu đồ diễn biến tài nguyên thời gian thực
-│       │   └── TerminalModal.tsx         # Khung nhúng PTY tương tác dòng lệnh tích hợp xterm.js
-│       └── services/                     # Lớp giao thức kết nối phía Client
-│           ├── api.ts                    # Tương tác RESTful Client
-│           └── terminalSocket.ts         # Điều phối luồng dữ liệu nhị phân hai chiều qua WebSocket
-│
-└── tests/                                # Kiểm thử tổng hợp hệ thống
-    └── e2e/
-        └── smoke-test.sh                 # Kịch bản kiểm thử luồng tích hợp tự động toàn diện
+Từ thư mục repository:
+
+```sh
+python3 deploy/scripts/demo.py up
+python3 deploy/scripts/demo.py check
+python3 deploy/scripts/demo.py status
 ```
+
+Mở **https://localhost**. Caddy dùng chứng chỉ CA nội bộ cho demo: trình duyệt cần
+chấp nhận chứng chỉ cục bộ hoặc tin cậy CA này. Tài khoản **`demo-admin`** và
+**`demo-viewer`**, mật khẩu được sinh ngẫu nhiên trong `keys/demo-login.env`
+(quyền 600). Xem tệp này cục bộ; không đưa vào ảnh, slide hoặc Git.
+
+`up` tạo `keys/demo.env`, khóa và cấu hình nếu chưa có, build, migrate DB, cấp
+role DB, tạo hai tài khoản/node rồi chạy worker. Lặp lại không đổi mật khẩu,
+khóa hoặc UUID. Nếu định danh đã có cấu hình khác, CLI dừng và giữ dữ liệu.
+
+Cụm có tên `zt_demo` và volumes riêng. `.env`, khóa đã có và DB của bản Round 4
+được giữ nguyên. Dừng cụm **không xóa volume**:
+
+```sh
+python3 deploy/scripts/demo.py down
+```
+
+`make up`, `make e2e`, `make status`, `make down` tương ứng các lệnh trên.
+`make test` chạy unit test Agent và Gateway trong Docker; DB/fetch của test
+Gateway là giả lập. `make e2e` kiểm tra hệ thống thật và cảnh báo bằng payload
+kiểm thử trong DB tạm riêng. Không dùng `make clean` để dọn dữ liệu kiểm chứng.
+
+## Mô hình đang chạy
+
+```mermaid
+flowchart LR
+    Browser[Trình duyệt localhost HTTPS] --> Caddy
+    Caddy --> React
+    Caddy --> Gateway[Fastify Gateway + Bastion]
+    Gateway --> DB[(PostgreSQL)]
+    Worker[Mini-Agent + OpenSSH] <-->|WireGuard UDP 51820| WG[WireGuard helper]
+    WG ---|Chung network namespace| Gateway
+```
+
+- Gateway chỉ publish **UDP 51820** ra NIC ngoài. HTTP/HTTPS của demo bind
+  **127.0.0.1**; PostgreSQL và Fastify không publish port.
+- Worker không publish port. SSH chỉ nghe `10.100.0.2:22`; firewall trong
+  namespace worker chặn kết nối qua NIC transport. Agent gửi tới
+  `http://10.100.0.1:3000` qua WireGuard. Helper chỉ cấu hình mạng của container,
+  không sửa firewall host.
+- Bastion dùng Ed25519, private key quyền **400**, kiểm tra fingerprint host key.
+  Tài khoản SSH demo là `ztuser`; ADMIN là quyền ứng dụng, không có nghĩa shell
+  chạy root. Viewer đọc số liệu và bị từ chối cấp vé SSH tại backend.
+- Heartbeat mặc định **3 giây**. Nhãn `Online/Stale/Offline` tương ứng giá trị DB
+  `HEALTHY/WARNING/OFFLINE`. Stale từ 15s, Offline từ 30s, chu kỳ quét 5s.
+  CPU vượt ngưỡng là incident riêng, không làm node thành Stale.
+- Telegram mặc định **`TELEGRAM_MODE=dry-run`**: ghi log có nhãn GIẢ LẬP,
+  không polling và không gửi ra ngoài, kể cả khi có token. Kết nối Bot thật
+  được hoãn theo chủ dự án; chưa được kiểm chứng.
+
+## Cấu hình cần biết
+
+Chỉnh **`keys/demo.env`** cho cụm demo, không chỉnh `.env` cũ theo phỏng đoán.
+
+| Biến | Mặc định demo | Mục đích |
+|---|---|---|
+| `HTTP_PORT`, `HTTPS_PORT` | 80, 443 | Đổi nếu host đang dùng cổng này |
+| `PROXY_BIND_IP` | 127.0.0.1 | Web console cục bộ; không mở Internet |
+| `BASTION_DEFAULT_USER` | ztuser | Tài khoản SSH trên máy con |
+| `NODE_STALE_THRESHOLD_SECONDS` | 15 | Mất nhịp sang Stale |
+| `NODE_OFFLINE_THRESHOLD_SECONDS` | 30 | Mất nhịp sang Offline, giới hạn 15–45s |
+| `SWEEPER_INTERVAL_MS` | 5000 | Chu kỳ kiểm tra trạng thái |
+| `CPU_ALERT_THRESHOLD_PERCENT` | 85 | Ngưỡng incident CPU |
+| `TELEGRAM_MODE` | dry-run | Giả lập; chưa bật live |
+| `NODE_TOKEN_01` | Sinh ngẫu nhiên | Khớp hash node đã đăng ký |
+
+Toàn bộ mẫu biến trong [.env.example](.env.example). Khóa và mật khẩu nằm trong
+`keys/` được Git/Docker build context loại trừ. Đổi môi trường demo khác bằng
+`--env-file PATH --project TEN` ở mọi lệnh `demo.py`; phải chọn cổng host khác
+nếu chạy đồng thời. Khi đổi Gateway container, dùng `up` cho cả cụm để helper
+WireGuard dùng đúng namespace, không recreate riêng Gateway.
+
+## Đối chiếu và kiểm chứng
+
+| Yêu cầu | Hiện trạng | Bằng chứng | Việc còn thiếu |
+|---|---|---|---|
+| WireGuard M2M, Zero Inbound worker | Có VPN kernel, SSH chỉ qua VPN, không publish worker | `network-resources.txt`, runtime SSH | Chưa thử từ Internet/VM riêng |
+| ADMIN/VIEWER, Web SSH/PTY | Viewer nhận403; Admin chạy lệnh, resize, đóng; logout thu hồi phiên | 16 kiểm tra `runtime.txt`, ảnh terminal | Không |
+| CPU/RAM/disk/network/uptime, dashboard | Collector thật, API và biểu đồ cập nhật | Browser desktop/tablet/mobile | RAM Agent chưa đạt mốc khoảng10MB |
+| Heartbeat3s, Online/Stale/Offline | Ngưỡng15/30s, quét5s | Stale17,80s, Offline32,82s; tự phục hồi | Không trong cấu hình demo |
+| Cảnh báo CPU/offline | Lưu incident/audit, resolve và tránh lặp | Payload/timestamp giả lập + PostgreSQL thật trong DB test riêng | Telegram thật hoãn |
+| PostgreSQL, chuẩn hóa dữ liệu | Migration008 bỏ tỷ lệ RAM/disk lưu dư; API tính từ bytes | Test nâng007→008 giữ UUID/FK/lịch sử; fresh DB cũng chạy | Không đổi migration cũ |
+| VM và Docker | Cụm Docker đã chạy thật | `VM_SETUP.md` có hướng dẫn | Cần môi trường VMware/VirtualBox để kiểm chứng |
+
+Các bằng chứng trong `docs/verification/`: `build-start.txt`, `unit.txt`
+(11 Agent + 11 Gateway; DB/fetch của Gateway được mock), `runtime.txt`
+(16 luồng trên cụm thật, cảnh báo với dữ liệu kiểm thử, nâng cấp DB cô lập),
+`browser.txt`, `liveness.txt` và `network-resources.txt`.
+
+Các bài Python dò chuỗi source và test nâng cấp Round4 cũ được giữ nguyên;
+chúng có kỳ vọng cũ như khóa600, timeout10s, tỷ lệ RAM/disk lưu trong schema007.
+Chúng không được dùng để gán PASS cho chức năng hiện tại. Riêng test nâng cấp
+008 dùng `tests/runtime-schema.cjs`; không sửa test cũ để che lỗi.
+
+Build còn ghi nhận **4 cảnh báo phụ thuộc** (1 moderate, 2 high, 1 critical).
+Chưa thực hiện nâng major framework trong phạm vi phiên này; đây là giới hạn
+an toàn cần biết, không coi bản demo là đã vượt audit production.
+
+## Tài liệu và giới hạn
+
+- [Kịch bản demo và xử lý lỗi](docs/DEMO.md).
+- [Log và ảnh kiểm chứng](docs/verification/).
+- [Mô hình hai VM](docs/VM_SETUP.md): hướng dẫn, **chưa kiểm chứng hypervisor**.
+- [API](contracts/openapi.yaml): các endpoint đang hỗ trợ được ghi trong đặc tả.
+
+Các luồng chính đã chạy thật trong cụm Docker; xem log và ảnh trong `docs/verification/`.
+Mini-Agent đo khoảng **23 MiB RSS**, chưa đạt mục tiêu khoảng 10 MB trong phiếu.
+Cụm đo khoảng **112 MiB** tại tải demo; đây là snapshot, không phải benchmark.
+Mô hình VM và thử inbound từ Internet thật còn cần xác nhận. Telegram live
+được hoãn theo chủ dự án. Slide và báo cáo môn học nằm ngoài công việc phiên này. Không nhận bản này là hệ thống production.
+Các báo cáo Round 1–4 là lịch sử tham khảo, không thay thế bằng chứng hiện tại.

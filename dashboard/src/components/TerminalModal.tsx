@@ -43,6 +43,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
     if (!isOpen) return;
 
     let isSubscribed = true;
+    let isReady = false;
     setConnectionStatus('CONNECTING');
     setErrorMessage(null);
 
@@ -113,13 +114,17 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
                 term.write(frame.data);
                 return;
               } else if (frame.type === 'READY') {
+                isReady = true;
                 setConnectionStatus('CONNECTED');
+                term.focus();
                 term.writeln(`\r\n\x1b[32m✔ ${frame.message}\x1b[0m\r\n`);
                 // Gửi gói tin RESIZE ban đầu
                 fitAddon.fit();
                 socket.send(JSON.stringify({ type: 'RESIZE', rows: term.rows, cols: term.cols }));
                 return;
               } else if (frame.type === 'ERROR') {
+                setConnectionStatus('ERROR');
+                setErrorMessage(frame.message || 'Gateway không thể mở phiên SSH.');
                 term.writeln(`\r\n\x1b[31m❌ [LỖI] ${frame.message}\x1b[0m\r\n`);
                 return;
               }
@@ -139,13 +144,14 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
 
         socket.onclose = (event) => {
           if (!isSubscribed) return;
-          setConnectionStatus('DISCONNECTED');
+          isReady = false;
+          setConnectionStatus((status) => status === 'ERROR' ? 'ERROR' : 'DISCONNECTED');
           term.writeln(`\r\n\x1b[33m🔌 Phiên làm việc đã kết thúc (Mã: ${event.code}).\x1b[0m`);
         };
 
         // Gửi ký tự người dùng nhập vào SSH stream (Raw Stream siêu tốc không độ trễ)
         term.onData((data) => {
-          if (socket.readyState === WebSocket.OPEN) {
+          if (isReady && socket.readyState === WebSocket.OPEN) {
             socket.send(data);
           }
         });
@@ -171,12 +177,13 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
       }
     };
 
-    window.addEventListener('resize', handleResize);
+    const observer = new ResizeObserver(handleResize);
+    if (terminalRef.current) observer.observe(terminalRef.current);
 
     // 4. CLEANUP FUNCTION: Triệt tiêu 100% rò rỉ bộ nhớ
     return () => {
       isSubscribed = false;
-      window.removeEventListener('resize', handleResize);
+      observer.disconnect();
       if (socketRef.current) {
         socketRef.current.close(1000, 'Component Unmounted');
         socketRef.current = null;
@@ -188,38 +195,24 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
     };
   }, [isOpen, node]);
 
-  // Điều chỉnh kích thước khi toggle Full Screen
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (fitAddonRef.current && termRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
-        fitAddonRef.current.fit();
-        socketRef.current.send(JSON.stringify({
-          type: 'RESIZE',
-          rows: termRef.current.rows,
-          cols: termRef.current.cols,
-        }));
-      }
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [isFullScreen]);
-
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 sm:p-6 animate-fadeIn">
       <div
-        className={`flex flex-col rounded-2xl border border-neutral-800 bg-[#090d16] shadow-2xl transition-all duration-200 overflow-hidden ${
+        role="dialog" aria-modal="true" aria-label={`Terminal ${node.name}`}
+        className={`flex min-w-0 flex-col rounded-2xl border border-neutral-800 bg-[#090d16] shadow-2xl transition-all duration-200 overflow-hidden ${
           isFullScreen ? 'h-full w-full' : 'h-[85vh] w-full max-w-5xl'
         }`}
       >
         {/* Header Terminal Modal */}
-        <div className="flex h-14 items-center justify-between border-b border-neutral-800 bg-neutral-900/80 px-4">
-          <div className="flex items-center space-x-3">
+        <div className="flex shrink-0 flex-wrap gap-2 py-2 items-center justify-between border-b border-neutral-800 bg-neutral-900/80 px-4">
+          <div className="flex min-w-0 items-center space-x-3">
             <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-400">
               <TerminalIcon className="h-4 w-4" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap gap-2 items-center">
                 <span className="font-semibold text-sm text-neutral-100">{node.name}</span>
                 <span className="font-mono text-xs text-neutral-400">({node.ip_address})</span>
                 <span className="inline-flex items-center text-[10px] font-mono rounded bg-neutral-800 px-1.5 py-0.5 text-neutral-300">
@@ -272,7 +265,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
         )}
 
         {/* Khung Terminal Canvas */}
-        <div className="relative flex-1 p-3 bg-[#090d16] overflow-hidden">
+        <div className="relative min-h-0 flex-1 p-3 bg-[#090d16] overflow-hidden">
           <div ref={terminalRef} className="h-full w-full" />
         </div>
       </div>

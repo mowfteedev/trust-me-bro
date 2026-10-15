@@ -10,15 +10,16 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Nạp package.json và cài đặt toàn bộ dependencies phục vụ build
-COPY package.json tsconfig.json ./
-RUN npm install
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci
 
 # Sao chép mã nguồn và biên dịch TypeScript sang JavaScript
 COPY src/ ./src/
 RUN npm run build
 
-# Loại bỏ devDependencies để thu gọn kích thước ảnh đóng gói
-RUN npm prune --production
+# Giữ builder cho unit tests; runtime chỉ mang production dependencies.
+FROM builder AS production-deps
+RUN npm prune --omit=dev
 
 # --- TẦNG 2: MÔI TRƯỜNG THỰC THI TỐI GIẢN (PRODUCTION RUNTIME) ---
 FROM node:20-alpine AS runner
@@ -32,7 +33,7 @@ ENV NODE_ENV=production
 RUN mkdir -p /app/logs/audit /app/keys && chown -R node:node /app/logs /app/keys
 
 # Sao chép các tệp đã biên dịch, thư mục migrations và node_modules tối giản từ tầng builder
-COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/package.json ./package.json
 COPY --chown=node:node migrations/ ./migrations/

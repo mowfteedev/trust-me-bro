@@ -63,6 +63,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 3. Đăng ký JWT Plugin phục vụ ký số và thẩm định danh tính HMAC-SHA256
   await fastify.register(jwt, {
     secret: config.JWT_SECRET,
+    sign: { algorithm: 'HS256' },
+    verify: { algorithms: ['HS256'] },
   });
 
   // 4. Đăng ký WebSocket Plugin phục vụ luồng Web SSH PTY Bastion Bridge

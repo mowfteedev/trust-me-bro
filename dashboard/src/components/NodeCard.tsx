@@ -30,6 +30,15 @@ export const NodeCard: React.FC<NodeCardProps> = ({
   const isHealthy = node.status === 'HEALTHY';
   const isWarning = node.status === 'WARNING';
   const isOffline = node.status === 'OFFLINE';
+  const statusLabel = isHealthy ? 'Online' : isWarning ? 'Stale' : 'Offline';
+  const formatBytes = (value?: number) => {
+    if (value === undefined) return '--';
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    const index = value > 0 ? Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024))) : 0;
+    return `${(value / 1024 ** index).toFixed(1)} ${units[index]}`;
+  };
+  const uptime = latestMetric?.uptime_seconds;
+  const uptimeLabel = uptime === undefined ? '--' : `${Math.floor(uptime / 86400)}d ${Math.floor(uptime % 86400 / 3600)}h ${Math.floor(uptime % 3600 / 60)}m`;
 
   const cpuPercent = latestMetric ? latestMetric.cpu_percent.toFixed(1) : '--';
   const memPercent = latestMetric && latestMetric.memory_total_bytes > 0
@@ -50,8 +59,8 @@ export const NodeCard: React.FC<NodeCardProps> = ({
     >
       {/* 1. Phần tiêu đề và định danh Node */}
       <div>
-        <div className="flex items-start justify-between">
-          <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap gap-2 items-start justify-between">
+          <div className="flex min-w-0 items-center space-x-3">
             <div className={`rounded-xl p-2.5 transition-colors ${
               isHealthy ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' :
               isWarning ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400' :
@@ -59,8 +68,8 @@ export const NodeCard: React.FC<NodeCardProps> = ({
             }`}>
               <Server className="h-5 w-5" />
             </div>
-            <div>
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+            <div className="min-w-0">
+              <h3 className="break-words font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
                 {node.name}
               </h3>
               <p className="font-mono text-xs text-slate-500 dark:text-slate-400 flex items-center mt-0.5">
@@ -82,9 +91,15 @@ export const NodeCard: React.FC<NodeCardProps> = ({
               isHealthy ? 'bg-emerald-500 animate-pulse' :
               isWarning ? 'bg-amber-500' : 'bg-rose-500'
             }`} />
-            {node.status}
+            {statusLabel}
           </span>
         </div>
+        <dl className="mt-4 space-y-1 text-xs font-mono text-slate-500 dark:text-slate-400">
+          <div className="flex flex-wrap justify-between gap-x-2"><dt>Network RX / TX</dt><dd>{formatBytes(latestMetric?.network_rx_bytes)} / {formatBytes(latestMetric?.network_tx_bytes)}</dd></div>
+          <div className="flex justify-between"><dt>Uptime</dt><dd>{uptimeLabel}</dd></div>
+        </dl>
+        <p className="mt-2 text-[10px] text-slate-400">RX/TX: tổng byte từ lúc khởi động. {node.last_seen ? `Heartbeat: ${new Date(node.last_seen).toLocaleTimeString('vi-VN')}` : 'Chưa nhận heartbeat.'}</p>
+        {!isHealthy && latestMetric && <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">Số liệu lần cuối; chưa có heartbeat mới.</p>}
 
         {/* 2. Chỉ số phần cứng thu nhỏ (Mini Resource Bars - Phong cách DirectAdmin mỏng & thanh lịch) */}
         <div className="mt-5 space-y-3">

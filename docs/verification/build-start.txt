@@ -1,0 +1,340 @@
+Preserved existing env: /home/mowftee/Projects/trust-me-bro/keys/demo.env
+Keys and WireGuard demo configs ready in keys/. Private SSH keys: chmod 400.
+time="2026-10-16T01:11:35+07:00" level=warning msg="buildx Docker CLI plugin not found: falling back to the classic builder. BuildKit-only build features (multi-arch, secrets, ssh, additional contexts, ...) will not be available"
+ Image zt_demo-dashboard Building 
+ Image zt_demo-migrator Building 
+ Image zt_demo-dashboard Building 
+ Image zt_demo-migrator Building 
+Sending build context to Docker daemon  46.12kB
+Sending build context to Docker daemon  84.84kB
+Step 1/14 : FROM node:22-alpine AS builder
+Step 1/20 : FROM node:20-alpine AS builder
+ ---> 0a7108bf6c7b
+Step 2/14 : WORKDIR /app
+ ---> fb4cd12c85ee
+Step 2/20 : WORKDIR /app
+ ---> Using cache
+ ---> e987ebce6899
+Step 3/14 : COPY package.json package-lock.json ./
+ ---> Using cache
+ ---> a660e97647f0
+Step 4/14 : RUN npm ci
+ ---> Using cache
+ ---> 59b535e79ce4
+Step 3/20 : COPY package.json package-lock.json tsconfig.json ./
+ ---> Using cache
+ ---> ca0ac99c082d
+Step 5/14 : COPY . .
+ ---> Using cache
+ ---> acc652caafed
+Step 6/14 : RUN npm run build
+ ---> Using cache
+ ---> 35041fc44f75
+Step 4/20 : RUN npm ci
+ ---> Using cache
+ ---> bf990a2d3b38
+Step 7/14 : FROM nginx:alpine AS runner
+ ---> Using cache
+ ---> ae1e1beefb1b
+Step 5/20 : COPY src/ ./src/
+ ---> df221db836e1
+Step 8/14 : WORKDIR /usr/share/nginx/html
+ ---> Using cache
+ ---> 20517c25a262
+Step 9/14 : RUN rm -rf ./*
+ ---> Using cache
+ ---> 9671f8bbabcb
+Step 10/14 : COPY --from=builder /app/dist .
+ ---> Using cache
+ ---> f076f82a97e0
+Step 11/14 : COPY nginx.conf /etc/nginx/conf.d/default.conf
+ ---> Using cache
+ ---> c2fef2168bf9
+Step 12/14 : EXPOSE 80
+ ---> Using cache
+ ---> d6295c86b268
+Step 13/14 : CMD ["nginx", "-g", "daemon off;"]
+ ---> Using cache
+ ---> a9eebbf5dc29
+Step 14/14 : LABEL com.docker.compose.image.builder=classic
+ ---> Using cache
+ ---> e435ebc82e3e
+Successfully built e435ebc82e3e
+Successfully tagged zt_demo-dashboard:latest
+ Image zt_demo-dashboard Built 
+ Image zt_demo-dashboard Built 
+ ---> 83e64c4a2daf
+Step 6/20 : RUN npm run build
+ ---> Running in f234237b93cf
+
+> zt-serverops-gateway@1.0.0 build
+> tsc
+
+ ---> Removed intermediate container f234237b93cf
+ ---> 74715b210044
+Step 7/20 : FROM builder AS production-deps
+ ---> 74715b210044
+Step 8/20 : RUN npm prune --omit=dev
+ ---> Running in 85aa5b2370ec
+
+up to date, audited 98 packages in 3s
+
+8 packages are looking for funding
+  run `npm fund` for details
+
+4 vulnerabilities (1 moderate, 2 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+ ---> Removed intermediate container 85aa5b2370ec
+ ---> f1cbe7184d17
+Step 9/20 : FROM node:20-alpine AS runner
+ ---> fb4cd12c85ee
+Step 10/20 : WORKDIR /app
+ ---> Using cache
+ ---> 59b535e79ce4
+Step 11/20 : ENV NODE_ENV=production
+ ---> Using cache
+ ---> b4faee7a9642
+Step 12/20 : RUN mkdir -p /app/logs/audit /app/keys && chown -R node:node /app/logs /app/keys
+ ---> Using cache
+ ---> cc7f7c29f5af
+Step 13/20 : COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
+ ---> Using cache
+ ---> b481770d4070
+Step 14/20 : COPY --from=builder --chown=node:node /app/dist ./dist
+ ---> 499dd3aedb02
+Step 15/20 : COPY --from=builder --chown=node:node /app/package.json ./package.json
+ ---> df1bf78be34c
+Step 16/20 : COPY --chown=node:node migrations/ ./migrations/
+ ---> 7ea22c6d8965
+Step 17/20 : USER node
+ ---> Running in 49e43dd16601
+ ---> Removed intermediate container 49e43dd16601
+ ---> 576923d690e6
+Step 18/20 : EXPOSE 3000
+ ---> Running in 2382e68a20eb
+ ---> Removed intermediate container 2382e68a20eb
+ ---> e86bc3cab5e2
+Step 19/20 : CMD ["node", "dist/server.js"]
+ ---> Running in 672773ce2115
+ ---> Removed intermediate container 672773ce2115
+ ---> 0702ec8f4873
+Step 20/20 : LABEL com.docker.compose.image.builder=classic
+ ---> Running in af598dc6ef03
+ ---> Removed intermediate container af598dc6ef03
+ ---> 4cdad0c590dc
+Successfully built 4cdad0c590dc
+Successfully tagged zt_demo-migrator:latest
+ Image zt_demo-migrator Built 
+ Image zt_demo-migrator Built 
+ Image zt_demo-provisioner Building 
+ Image zt_demo-provisioner Building 
+Sending build context to Docker daemon  84.84kB
+Step 1/20 : FROM node:20-alpine AS builder
+ ---> fb4cd12c85ee
+Step 2/20 : WORKDIR /app
+ ---> Using cache
+ ---> 59b535e79ce4
+Step 3/20 : COPY package.json package-lock.json tsconfig.json ./
+ ---> Using cache
+ ---> 35041fc44f75
+Step 4/20 : RUN npm ci
+ ---> Using cache
+ ---> ae1e1beefb1b
+Step 5/20 : COPY src/ ./src/
+ ---> Using cache
+ ---> 83e64c4a2daf
+Step 6/20 : RUN npm run build
+ ---> Using cache
+ ---> 74715b210044
+Step 7/20 : FROM builder AS production-deps
+ ---> 74715b210044
+Step 8/20 : RUN npm prune --omit=dev
+ ---> Using cache
+ ---> f1cbe7184d17
+Step 9/20 : FROM node:20-alpine AS runner
+ ---> fb4cd12c85ee
+Step 10/20 : WORKDIR /app
+ ---> Using cache
+ ---> 59b535e79ce4
+Step 11/20 : ENV NODE_ENV=production
+ ---> Using cache
+ ---> b4faee7a9642
+Step 12/20 : RUN mkdir -p /app/logs/audit /app/keys && chown -R node:node /app/logs /app/keys
+ ---> Using cache
+ ---> cc7f7c29f5af
+Step 13/20 : COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
+ ---> Using cache
+ ---> b481770d4070
+Step 14/20 : COPY --from=builder --chown=node:node /app/dist ./dist
+ ---> Using cache
+ ---> 499dd3aedb02
+Step 15/20 : COPY --from=builder --chown=node:node /app/package.json ./package.json
+ ---> Using cache
+ ---> df1bf78be34c
+Step 16/20 : COPY --chown=node:node migrations/ ./migrations/
+ ---> Using cache
+ ---> 7ea22c6d8965
+Step 17/20 : USER node
+ ---> Using cache
+ ---> 576923d690e6
+Step 18/20 : EXPOSE 3000
+ ---> Using cache
+ ---> e86bc3cab5e2
+Step 19/20 : CMD ["node", "dist/server.js"]
+ ---> Using cache
+ ---> 0702ec8f4873
+Step 20/20 : LABEL com.docker.compose.image.builder=classic
+ ---> Using cache
+ ---> 4cdad0c590dc
+Successfully built 4cdad0c590dc
+Successfully tagged zt_demo-provisioner:latest
+ Image zt_demo-provisioner Built 
+ Image zt_demo-provisioner Built 
+ Image zt_demo-gateway Building 
+ Image zt_demo-gateway Building 
+Sending build context to Docker daemon  84.84kB
+Step 1/20 : FROM node:20-alpine AS builder
+ ---> fb4cd12c85ee
+Step 2/20 : WORKDIR /app
+ ---> Using cache
+ ---> 59b535e79ce4
+Step 3/20 : COPY package.json package-lock.json tsconfig.json ./
+ ---> Using cache
+ ---> 35041fc44f75
+Step 4/20 : RUN npm ci
+ ---> Using cache
+ ---> ae1e1beefb1b
+Step 5/20 : COPY src/ ./src/
+ ---> Using cache
+ ---> 83e64c4a2daf
+Step 6/20 : RUN npm run build
+ ---> Using cache
+ ---> 74715b210044
+Step 7/20 : FROM builder AS production-deps
+ ---> 74715b210044
+Step 8/20 : RUN npm prune --omit=dev
+ ---> Using cache
+ ---> f1cbe7184d17
+Step 9/20 : FROM node:20-alpine AS runner
+ ---> fb4cd12c85ee
+Step 10/20 : WORKDIR /app
+ ---> Using cache
+ ---> 59b535e79ce4
+Step 11/20 : ENV NODE_ENV=production
+ ---> Using cache
+ ---> b4faee7a9642
+Step 12/20 : RUN mkdir -p /app/logs/audit /app/keys && chown -R node:node /app/logs /app/keys
+ ---> Using cache
+ ---> cc7f7c29f5af
+Step 13/20 : COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
+ ---> Using cache
+ ---> b481770d4070
+Step 14/20 : COPY --from=builder --chown=node:node /app/dist ./dist
+ ---> Using cache
+ ---> 499dd3aedb02
+Step 15/20 : COPY --from=builder --chown=node:node /app/package.json ./package.json
+ ---> Using cache
+ ---> df1bf78be34c
+Step 16/20 : COPY --chown=node:node migrations/ ./migrations/
+ ---> Using cache
+ ---> 7ea22c6d8965
+Step 17/20 : USER node
+ ---> Using cache
+ ---> 576923d690e6
+Step 18/20 : EXPOSE 3000
+ ---> Using cache
+ ---> e86bc3cab5e2
+Step 19/20 : CMD ["node", "dist/server.js"]
+ ---> Using cache
+ ---> 0702ec8f4873
+Step 20/20 : LABEL com.docker.compose.image.builder=classic
+ ---> Using cache
+ ---> 4cdad0c590dc
+Successfully built 4cdad0c590dc
+Successfully tagged zt_demo-gateway:latest
+ Image zt_demo-gateway Built 
+ Image zt_demo-gateway Built 
+ Image zt_demo-wireguard_gateway Building 
+ Image zt_demo-wireguard_gateway Building 
+Sending build context to Docker daemon  1.671kB
+Step 1/5 : FROM alpine:3.21
+ ---> ce64758a109e
+Step 2/5 : RUN apk add --no-cache wireguard-tools iproute2 iptables
+ ---> Using cache
+ ---> 880a2711f004
+Step 3/5 : COPY entrypoint.sh /usr/local/bin/zt-wireguard
+ ---> Using cache
+ ---> 3be933df9ea6
+Step 4/5 : ENTRYPOINT ["sh", "/usr/local/bin/zt-wireguard"]
+ ---> Using cache
+ ---> 05c2d7dc0e62
+Step 5/5 : LABEL com.docker.compose.image.builder=classic
+ ---> Using cache
+ ---> 529533c5ad81
+Successfully built 529533c5ad81
+Successfully tagged zt_demo-wireguard_gateway:latest
+ Image zt_demo-wireguard_gateway Built 
+ Image zt_demo-wireguard_gateway Built 
+ Container zt_demo-postgres-1 Running 
+ Container zt_demo-proxy-1 Running 
+ Container zt_demo-dashboard-1 Running 
+ Container zt_demo-migrator-1 Recreate 
+ Container zt_demo-migrator-1 Recreated 
+ Container zt_demo-provisioner-1 Recreate 
+ Container zt_demo-provisioner-1 Recreated 
+ Container zt_demo-gateway-1 Recreate 
+ Container zt_demo-gateway-1 Recreated 
+ Container zt_demo-wireguard_gateway-1 Recreate 
+ Container zt_demo-wireguard_gateway-1 Recreated 
+ Container zt_demo-postgres-1 Waiting 
+ Container zt_demo-postgres-1 Healthy 
+ Container zt_demo-migrator-1 Starting 
+ Container zt_demo-migrator-1 Started 
+ Container zt_demo-postgres-1 Waiting 
+ Container zt_demo-migrator-1 Waiting 
+ Container zt_demo-postgres-1 Healthy 
+ Container zt_demo-migrator-1 Exited 
+ Container zt_demo-provisioner-1 Starting 
+ Container zt_demo-provisioner-1 Started 
+ Container zt_demo-postgres-1 Waiting 
+ Container zt_demo-migrator-1 Waiting 
+ Container zt_demo-provisioner-1 Waiting 
+ Container zt_demo-migrator-1 Exited 
+ Container zt_demo-provisioner-1 Exited 
+ Container zt_demo-postgres-1 Healthy 
+ Container zt_demo-gateway-1 Starting 
+ Container zt_demo-gateway-1 Started 
+ Container zt_demo-wireguard_gateway-1 Starting 
+ Container zt_demo-wireguard_gateway-1 Started 
+Đã chuẩn bị demo-admin (ADMIN), demo-viewer (VIEWER) và node. Không ghi đè định danh có sẵn.
+🔌 [DATABASE POOL] Đang đóng toàn bộ kết nối PostgreSQL an toàn...
+✔ [DATABASE POOL] Đã đóng Connection Pool thành công.
+ Container zt_demo-wireguard_gateway-1 Running 
+ Container zt_demo-node_worker_01-1 Running 
+ Container zt_demo-gateway-1 Running 
+ Container zt_demo-postgres-1 Running 
+ Container zt_demo-postgres-1 Waiting 
+ Container zt_demo-postgres-1 Healthy 
+ Container zt_demo-migrator-1 Starting 
+ Container zt_demo-migrator-1 Started 
+ Container zt_demo-postgres-1 Waiting 
+ Container zt_demo-migrator-1 Waiting 
+ Container zt_demo-postgres-1 Healthy 
+ Container zt_demo-migrator-1 Exited 
+ Container zt_demo-provisioner-1 Starting 
+ Container zt_demo-provisioner-1 Started 
+ Container zt_demo-postgres-1 Waiting 
+ Container zt_demo-migrator-1 Waiting 
+ Container zt_demo-provisioner-1 Waiting 
+ Container zt_demo-provisioner-1 Exited 
+ Container zt_demo-postgres-1 Healthy 
+ Container zt_demo-migrator-1 Exited 
+ Container zt_demo-wireguard_gateway-1 Waiting 
+ Container zt_demo-wireguard_gateway-1 Healthy 
+Dashboard: https://localhost:443
+Tài khoản: demo-admin / demo-viewer; mật khẩu riêng trong keys/demo-login.env (0600).
+Telegram: dry-run mặc định. Cụm riêng, không sửa .env hay DB cũ.
