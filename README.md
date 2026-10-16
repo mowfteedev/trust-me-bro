@@ -91,8 +91,8 @@ flowchart LR
   Bộ đếm mạng có thể reset khi giao diện được tạo lại. Lỗi collector bỏ beacon
   và ghi nguyên nhân, không gửi số 0 giả; Offline chỉ biểu thị mất heartbeat.
 - Telegram mặc định **`TELEGRAM_MODE=dry-run`**: ghi log có nhãn GIẢ LẬP,
-  không polling và không gửi ra ngoài, kể cả khi có token. Kết nối Bot thật
-  được hoãn theo chủ dự án; chưa được kiểm chứng.
+  không polling và không gửi ra ngoài, kể cả khi có token. Bot thật chỉ bật khi
+  có token và đặt `TELEGRAM_MODE=live`; ghép nối theo hướng dẫn bên dưới.
 
 ## Cấu hình cần biết
 
@@ -108,8 +108,41 @@ Chỉnh **`keys/demo.env`** cho cụm demo, không chỉnh `.env` cũ theo phỏ
 | `NODE_OFFLINE_THRESHOLD_SECONDS` | 30 | Mất nhịp sang Offline, giới hạn 15–45s |
 | `SWEEPER_INTERVAL_MS` | 5000 | Chu kỳ kiểm tra trạng thái |
 | `CPU_ALERT_THRESHOLD_PERCENT` | 85 | Ngưỡng incident CPU |
-| `TELEGRAM_MODE` | dry-run | Giả lập; chưa bật live |
+| `TELEGRAM_MODE` | dry-run | Mặc định giả lập; đặt live khi có token và chat ghép nối |
 | `NODE_TOKEN_01` | Sinh ngẫu nhiên | Khớp hash node đã đăng ký |
+
+### Telegram thật
+
+Đặt `TELEGRAM_BOT_TOKEN` từ BotFather và `TELEGRAM_MODE=live` trong
+`keys/demo.env` (quyền600, được Git loại trừ). Tên bot phải khớp kết quả
+[`getMe`](https://core.telegram.org/bots/api#getme); bot của mô hình hiện tại là
+[@da_mmt_bot](https://t.me/da_mmt_bot). Không đưa token vào URL trình duyệt,
+ảnh minh họa hoặc repository.
+
+Áp dụng cấu hình bằng lệnh đã kiểm tra:
+
+```sh
+docker compose --env-file keys/demo.env -p zt_demo --profile demo up -d --no-deps --force-recreate gateway wireguard_gateway node_worker_01
+```
+
+Mở chat riêng với bot, bấm Start, rồi gửi `/pair <TELEGRAM_PAIR_OTP>` với mã
+trong cấu hình cục bộ. Gateway lưu chat đã ghép nối trong PostgreSQL; `/status`
+cho biết trạng thái nhận cảnh báo. Không tự chọn người nhắn đầu tiên, không
+ghi đè chat đã ghép nối với người khác. Khi cần thử giả lập, dùng `dry-run`;
+các bài `demo.py check` và `check-cpu` vẫn giữ Telegram giả lập trong DB test riêng.
+
+Kiểm tra gửi thật bằng payload CPU có nhãn thử nghiệm trong DB tạm riêng:
+
+```sh
+python3 deploy/scripts/demo.py check-telegram
+```
+
+Lệnh này gửi **một tin Telegram thật** tới chat đã ghép nối, với node
+`TEST_GIA_LAP_CPU`; không tạo node/số liệu giả trong dashboard. Hai beacon CPU99%
+chỉ tạo một incident, một audit và một lần gửi; CPU10% resolve incident. Không
+coi payload này là tải CPU vật lý. Bằng chứng cấu hình live, ghép nối giữ qua
+restart, CPU giả lập/gửi thật và Offline thật nằm trong
+[telegram-live.txt](docs/verification/telegram-live.txt).
 
 Toàn bộ mẫu biến trong [.env.example](.env.example). Khóa và mật khẩu nằm trong
 `keys/` được Git/Docker build context loại trừ. Đổi môi trường demo khác bằng
@@ -157,7 +190,7 @@ Không sửa ngưỡng hoặc dữ liệu của Gateway đang chạy, không g�
 | ADMIN/VIEWER, Web SSH/PTY | Viewer nhận403; Admin chạy lệnh, resize, đóng; logout thu hồi phiên | 16 kiểm tra `runtime.txt`, ảnh terminal | Không |
 | CPU/RAM/disk/network/uptime, dashboard | Collector Go thật, RX/TX một giao diện, giải thích phạm vi đo | Runtime thật + browser | Xem số đo RAM bên dưới |
 | Heartbeat3s, Online/Stale/Offline | Ngưỡng15/30s, quét5s | Stale17,80s, Offline32,82s; tự phục hồi | Không trong cấu hình demo |
-| Cảnh báo CPU/offline | Lưu incident/audit, resolve và tránh lặp | Payload/timestamp giả lập + PostgreSQL thật trong DB test riêng | Telegram thật hoãn |
+| Cảnh báo CPU/offline, Telegram | Live đã ghép nối; incident/audit, resolve và tránh lặp | CPU giả lập trong DB riêng gửi thật; Worker Offline thật31,89s và Telegram API xác nhận gửi | Mạng/VM bên ngoài vẫn cần kiểm chứng |
 | PostgreSQL, chuẩn hóa dữ liệu | Migration008 bỏ tỷ lệ RAM/disk lưu dư; API tính từ bytes | Test nâng007→008 giữ UUID/FK/lịch sử; fresh DB cũng chạy | Không đổi migration cũ |
 | VM và Docker | Cụm Docker đã chạy thật | `VM_SETUP.md` có hướng dẫn | Cần môi trường VMware/VirtualBox để kiểm chứng |
 
@@ -195,6 +228,7 @@ Worker Docker thật và nhánh retry503 dùng cùng Go runtime/ngân sách mề
 Đã giảm về gần mục tiêu khoảng10MB, không cam kết luôn dưới10MB. RSS/PSS khác
 VmSize (không gian địa chỉ ảo) và Docker stats. Snapshot container mới khoảng115MiB;
 không tính OS/Docker daemon/hypervisor và không phải benchmark.
-Mô hình VM và thử inbound từ Internet thật còn cần xác nhận. Telegram live
-được hoãn theo chủ dự án. Slide và báo cáo môn học nằm ngoài công việc phiên này. Không nhận bản này là hệ thống production.
+Mô hình VM và thử inbound từ Internet thật còn cần xác nhận. Telegram live đã
+ghép nối và thử gửi; môi trường mới vẫn mặc định dry-run. Slide và báo cáo môn học
+nằm ngoài công việc phiên này. Không nhận bản này là hệ thống production.
 Các báo cáo Round 1–4 là lịch sử tham khảo, không thay thế bằng chứng hiện tại.

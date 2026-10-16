@@ -23,10 +23,10 @@ trình duyệt và terminal máy chủ.
 | 4 | Logout, login `demo-admin`, mở Web SSH | Terminal CONNECTED; nhập `id`, `hostname`, `stty size`, tương tác shell thật với user `ztuser` |
 | 5 | Phóng to/thu nhỏ, đóng terminal; mở Nhật ký hoạt động | PTY resize, socket đóng; START/END cùng session_id và IP request; lọc thêm đăng nhập thất bại |
 | 6 | Xem handshake/transfer WireGuard | Có peer handshake và lưu lượng; không xuất private key |
-| 7 | Tạm dừng worker theo lệnh dưới | Stale khoảng 15–20s, Offline khoảng 30–35s, log cảnh báo ghi rõ DRY-RUN |
+| 7 | Tạm dừng worker theo lệnh dưới | Stale khoảng15–20s, Offline khoảng30–35s; live gửi Telegram, dry-run ghi log giả lập |
 | 8 | Khôi phục worker | Tự về Online; incident offline resolved, không cần reset DB |
 | 9 | Trình bày test CPU | Payload CPU 99% trong **DB test riêng**, incident một lần, về 10% thì resolve; không giả thành tải CPU vật lý |
-| 10 | Logout và giải thích giới hạn | JWT cũ bị từ chối, phiên SSH bị thu hồi; VM/RAM/Telegram thật chưa xác nhận đầy đủ |
+| 10 | Logout và giải thích giới hạn | JWT cũ bị từ chối, phiên SSH bị thu hồi; nêu phạm vi RAM/VM và cách thử Telegram |
 
 Lệnh mạng đã dùng trong kiểm chứng:
 
@@ -59,8 +59,15 @@ python3 deploy/scripts/demo.py logs
 
 `demo.py check` gồm hai phần: 16 kiểm tra trên cụm đang chạy, sau đó các DB tạm
 với Fastify inject để thử payload CPU và timestamp biên. DB tạm được xóa sau
-test; node kiểm thử không được chèn vào dashboard demo. Telegram chỉ ghi log
+test; node kiểm thử không được chèn vào dashboard demo. Telegram trong các DB test chỉ ghi log
 `GIẢ LẬP — KHÔNG GỬI`. Không cần và không sử dụng token Bot thật.
+
+Bot live hiện tại là `@da_mmt_bot`, ghép nối bằng OTP và lưu chat trong DB.
+`python3 deploy/scripts/demo.py check-telegram` gửi một cảnh báo CPU giả lập
+có nhãn `TEST_GIA_LAP_CPU` tới chat đã ghép nối; fixtures nằm trong DB tạm và
+được xóa sau thử. Bài này dùng Telegram thật, không gọi là tải CPU vật lý.
+Đã thử Worker Offline thật sau31,89s, Telegram API xác nhận gửi, rồi Worker
+Online và incident resolved. Xem `docs/verification/telegram-live.txt`.
 
 ## Khi có lỗi
 

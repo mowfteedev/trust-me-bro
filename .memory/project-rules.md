@@ -73,3 +73,11 @@
 - Giao diện đã được chủ dự án chấp nhận. Chỉ bổ sung giải thích phạm vi số liệu
   và sự kiện LOGIN_FAILED; không mở vòng thiết kế lại hoặc thêm dịch vụ/cache.
 - Giữ Telegram dry-run; không soạn slide/báo cáo môn học; vẫn chỉ minh-thanh.
+
+## Telegram được cho triển khai thật — 2026-10-16
+
+- Chủ dự án đã cấp token và xác nhận bot đúng là @da_mmt_bot (hai chữ m).
+- Được bật live, ghép nối OTP và gửi cảnh báo kiểm thử tới chat đã ghép nối.
+  Chỉ đạo này thay việc hoãn Telegram trước đây; môi trường mới vẫn mặc định dry-run.
+- Token chỉ ở keys/demo.env0600, không đưa token/OTP/chat ID vào Git hoặc báo cáo.
+- Không thêm dịch vụ, thư viện hoặc trang cài đặt ngoài phạm vi đồ án.

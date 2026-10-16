@@ -166,3 +166,23 @@ Commit bàn giao xem `git log -1 --oneline`.
   khảdụng. HaiVM/systemd/Internet vẫnCHƯAKIỂMCHỨNG; Telegram thật vẫnhoãn.
 - KhôngmergeMain (1926d4e), khôngproduction. Bàn giao bằngcommit trênminh-thanh;
   xemgitlog. Chưa push thayđổi mới. Sáu báo cáo untracked cũ giữnguyên.
+
+## Push và Telegram live — 2026-10-16
+
+- d255616 đã push origin/minh-thanh; remote main vẫn1926d4e.
+- Người dùng cung cấp token, xác nhận @da_mmt_bot. getMe thật trên host/Gateway
+  đúng bot; không có webhook. Token lưu env cục bộ0600 được Git loại trừ.
+- Đã bật live, người dùng /pair thành công; DB giữ chat sau Gateway restart.
+- Thêm log kết quả gửi gồm node/severity/message_id, không có token/chat ID.
+- check-telegram là lệnh gửi thật riêng: CPU99% mang nhãn TEST_GIA_LAP_CPU,
+  DB tạm thật, sendAlert/API thật message_id4, hai beacon chỉ một incident/audit/
+  lần gửi, CPU10% resolve; không tạo fixture trong DB dashboard, không poll Bot
+  từ tiến trình test. DB tạm đã xóa. Các lệnh check/check-cpu vẫn dry-run.
+- Worker pause thật: Stale16.64s, Offline31.89s, một incident; Telegram xác nhận
+  message_id5; finally unpause, Online/resolve, HTTPS200, không login/logoutadmin.
+- Gateway build và49Vitest hiện có đạt; unit mock DB/fetch. CLI setup hiển thị
+  mode live đúng; không nâng phạm vi hoặc gửi thông điệp tới chat khác.
+- Bằng chứng đã lọc token/OTP/chat ID: docs/verification/telegram-live.txt.
+  README/DEMO hướng dẫn setup và phân biệt payload CPU giả lập với gửi Telegram thật.
+- VM/systemd/Internet vẫn chưa kiểm chứng; không merge main/production, sáu báo cáo
+  untracked cũ giữ nguyên.

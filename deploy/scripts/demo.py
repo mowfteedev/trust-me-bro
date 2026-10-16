@@ -39,7 +39,7 @@ def credentials():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['up', 'setup', 'check', 'check-cpu', 'down', 'status', 'logs'])
+    parser.add_argument('action', choices=['up', 'setup', 'check', 'check-cpu', 'check-telegram', 'down', 'status', 'logs'])
     parser.add_argument('--env-file', type=Path, default=KEYS / 'demo.env')
     parser.add_argument('--project', default='zt_demo')
     args = parser.parse_args()
@@ -79,8 +79,10 @@ def main():
             run(compose + ['up', '-d', 'node_worker_01'])
         print(f'Dashboard: https://localhost:{env.get("HTTPS_PORT", "443")}')
         print('Tài khoản: demo-admin / demo-viewer; mật khẩu riêng trong keys/demo-login.env (0600).')
-        print('Telegram: dry-run mặc định. Cụm riêng, không sửa .env hay DB cũ.')
-    elif args.action in ('check', 'check-cpu'):
+        print(f'Telegram: {env.get("TELEGRAM_MODE", "dry-run")}. Cụm riêng, không sửa .env hay DB cũ.')
+    elif args.action in ('check', 'check-cpu', 'check-telegram'):
+        if args.action == 'check-telegram' and (env.get('TELEGRAM_MODE') != 'live' or not env.get('TELEGRAM_BOT_TOKEN')):
+            parser.error('check-telegram cần TELEGRAM_MODE=live, token và chat đã ghép nối; bài này gửi một cảnh báo thử thật.')
         login = credentials()
         test_input = {'admin_password': login['DEMO_ADMIN_PASSWORD'], 'viewer_password': login['DEMO_VIEWER_PASSWORD'],
                       'migration_url': env['MIGRATION_DATABASE_URL'], 'app_url': env['DATABASE_URL']}
@@ -92,6 +94,8 @@ def main():
                 write = 'require("node:fs").writeFileSync(process.argv[1],require("node:fs").readFileSync(0),{mode:0o700})'
                 run(compose + ['exec', '-T', 'gateway', 'node', '-e', write, binary_path], input=binary)
                 tests = ('runtime-cpu-live.cjs',)
+            elif args.action == 'check-telegram':
+                tests = ('runtime-telegram-live.cjs',)
             else:
                 tests = ('demo-runtime.cjs', 'runtime-alerts.cjs', 'runtime-schema.cjs', 'runtime-audit.cjs')
             for test in tests:

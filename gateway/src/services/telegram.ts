@@ -139,7 +139,12 @@ export class TelegramService {
           signal: AbortSignal.timeout(config.TELEGRAM_REQUEST_TIMEOUT_MS),
         });
         const data: any = await res.json();
-        if (res.ok && data.ok === true) return true;
+        if (res.ok && data.ok === true) {
+          console.info('[TELEGRAM SENT]', JSON.stringify({
+            node: nodeName, severity, message_id: data.result?.message_id ?? null,
+          }));
+          return true;
+        }
         // Invalid configuration/recipient is permanent; retry only rate limits and server errors.
         if (res.status >= 400 && res.status < 500 && res.status !== 429) break;
       } catch {
