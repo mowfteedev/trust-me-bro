@@ -1,0 +1,45 @@
+Final Go Docker worker: real WireGuard telemetry, default soft managed budget6MiB, GOMAXPROCS1.
+Snapshot process memory, not benchmark; RSS/PSS are not VmSize or Docker cgroup memory.
+Sample elapsed seconds: 0.0
+Name:	zt-agent
+Uid:	1000	1000	1000	1000
+VmSize:	 1266052 kB
+VmRSS:	   10752 kB
+Rss:               10752 kB
+Pss:               10738 kB
+Sample elapsed seconds: 30.32
+Name:	zt-agent
+Uid:	1000	1000	1000	1000
+VmSize:	 1266052 kB
+VmRSS:	   10576 kB
+Rss:               10576 kB
+Pss:               10562 kB
+Sample elapsed seconds: 60.54
+Name:	zt-agent
+Uid:	1000	1000	1000	1000
+VmSize:	 1266052 kB
+VmRSS:	   10572 kB
+Rss:               10572 kB
+Pss:               10558 kB
+WireGuard handshake/transfer and worker sockets:
+latest-handshakes 1792148608
+transfer 2024744 1348168
+State  Recv-Q Send-Q Local Address:Port  Peer Address:Port
+LISTEN 0      4096      127.0.0.11:43285      0.0.0.0:*   
+LISTEN 0      128       10.100.0.2:22         0.0.0.0:*   
+Docker stats: single snapshot excludes OS, Docker daemon, browser, hypervisor.
+zt_fresh_check-dashboard-1 13.05MiB / 15.24GiB
+zt_fresh_check-gateway-1 29.1MiB / 15.24GiB
+zt_fresh_check-node_worker_01-1 8.109MiB / 15.24GiB
+zt_fresh_check-postgres-1 43.74MiB / 15.24GiB
+zt_fresh_check-proxy-1 19.55MiB / 15.24GiB
+zt_fresh_check-wireguard_gateway-1 1.246MiB / 15.24GiB
+
+ISOLATED HTTP503 RETRY — official Docker binary, explicit GOMEMLIMIT6MiB; same budget as final default
+Binary: static Go Mini-Agent; real Linux collectors + local HTTP receiver; not VPN/DB proof.
+Config: heartbeat3s, GOMAXPROCS1, interface lo selected only for this isolated check.
+HTTP results: [200, 200, 200, 503, 503, 503]
+Observed request intervals (s): [3.0, 3.0, 3.01, 6.01, 12.01]
+healthy samples 12 RSS MiB 10.5 .. 10.52 PSS MiB 10.49 .. 10.51
+503-retry samples 36 RSS MiB 10.55 .. 10.59 PSS MiB 10.54 .. 10.57
+Agent exit on SIGTERM: 0

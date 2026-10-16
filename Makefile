@@ -34,7 +34,8 @@ down:
 	@python3 deploy/scripts/demo.py down
 
 test:
-	@python3 agent/tests/test_unit_agent.py
+	@docker build --target builder -t zt_agent_tests agent
+	@docker run --rm zt_agent_tests go test ./...
 	@docker build --target builder -t zt_course_tests gateway
 	@docker run --rm -v "$(CURDIR)/gateway/tests:/app/tests:ro" zt_course_tests npm test
 	@echo "Unit tests dùng mock DB/fetch; chạy make e2e để kiểm chứng cụm thật."

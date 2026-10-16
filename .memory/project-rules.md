@@ -50,3 +50,26 @@
   offline và CPU, UDP 51820 tại Gateway, Ed25519 chmod 400, heartbeat 3s,
   phát hiện mất tín hiệu 15–45s, RAM agent khoảng 10MB và cụm 500MB–1GB,
   trạng thái Online/Stale/Offline; Fastify/TypeScript/PostgreSQL/Linux/Compose.
+
+## Chỉ đạo UI — 2026-10-16
+
+- Công việc hiện tại chỉ sửa giao diện. Chủ dự án yêu cầu thiết kế lại vì bản UI
+  đầu chưa ưng ý; giao diện chuyên nghiệp về an ninh/giám sát, vừa tầm đồ án.
+- Giữ ngôn ngữ/công nghệ đúng phiếu: Dashboard React, code TypeScript/TSX.
+  Không tự chuyển agent sang Go theo đề xuất trước trong phiên làm UI.
+
+## Bổ sung sau phiên UI — 2026-10-16
+
+- Chủ dự án yêu cầu thêm module ghi log: được bổ sung API đọc audit và UI ADMIN
+  trên nền audit_logs sẵn có, giữ phạm vi đồ án và stack TypeScript/React/PostgreSQL.
+- Ý tưởng thêm DBcache mới chỉ được hỏi để nhận xét; chưa triển khai cache.
+
+## Phạm vi được duyệt sau phản biện — 2026-10-16
+
+- Chủ dự án duyệt phương án sửa telemetry/log/RAM và kiểm chứng an ninh, rồi
+  xác nhận Agent có thể dùng ngôn ngữ khác nếu phiếu giao không cố định.
+- Đã đọc lại phụ lục: chỉ cố định Fastify/TypeScript, React, PostgreSQL; không
+  cố định ngôn ngữ Mini-Agent. Chuyển Agent sang Go stdlib được phép; giữ backend/UI.
+- Giao diện đã được chủ dự án chấp nhận. Chỉ bổ sung giải thích phạm vi số liệu
+  và sự kiện LOGIN_FAILED; không mở vòng thiết kế lại hoặc thêm dịch vụ/cache.
+- Giữ Telegram dry-run; không soạn slide/báo cáo môn học; vẫn chỉ minh-thanh.

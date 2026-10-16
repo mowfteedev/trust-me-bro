@@ -59,3 +59,110 @@
 Tài khoản demo-admin/demo-viewer, mật khẩu cục bộ trong keys/demo-login.env0600.
 `down` giữ volumes. Cụm đang chạy để chủ dự án dùng demo; không dừng dịch vụ khác.
 Commit bàn giao xem `git log -1 --oneline`.
+
+## Giao diện — thiết kế lại theo phản hồi chủ dự án (2026-10-16)
+
+- Phạm vi phiên này chỉ UI, giữ React + TypeScript/TSX, CSS và các thư viện đã có;
+  không đổi backend, DB, agent hoặc cấu hình hạ tầng. Nhánh vẫn `minh-thanh`.
+- Thay bố cục DirectAdmin bằng console navy/cyan, một sidebar, danh sách node
+  và vùng chi tiết tài nguyên. Màn đăng nhập, trạng thái loading/empty/error,
+  biểu đồ có thời gian thật, số liệu mạng/uptime cùng dùng theme sáng/tối.
+- Bỏ role switch giả; thông tin quyền theo session thật. Node selectable bằng
+  button; drawer có focus cycle, Escape, phục hồi focus và khóa cuộn nền.
+- Build TypeScript/Vite đạt trong Docker; chỉ recreate dashboard của `zt_demo`.
+- Firefox thật (geckodriver tạm ngoài repository): viewport 1920,1440,768,375,320px
+  không tràn ngang; đăng nhập sai/đúng, đổi theme, tìm kiếm/clear, Admin SSH chạy
+  lệnh + đóng, logout, Viewer không có nút SSH, không có page error trong lượt thử.
+- Mất kết nối và danh sách rỗng thử bằng fetch giả lập trong browser, không đổi
+  PostgreSQL. Phục hồi về API thật sau thử. Stress100.0% là sửa DOM tạm để đo layout,
+  không coi là telemetry thật và không lưu vào dashboard/DB.
+- Tương phản token chữ/nền chính đo bằng sRGB từ canvas browser: dark thấp nhất
+  5.69:1; light thấp nhất5.04:1 trong các cặp đã đo (không là chứng nhận WCAG toàn bộ).
+- Ảnh và log kiểm tra phiên này: `/tmp/zt-ui-preview-v2/`, build log
+  `/tmp/zt-ui-browser/build-final.txt`; không đè ảnh bằng chứng bàn giao cũ.
+- Cập nhật selector NetworkRX/TX trong browser-smoke hiện có; có thể chọn thư mục
+  ảnh qua ZT_UI_OUTPUT_DIR. Lượt hiện tại dùng Firefox/WebDriver, không chạy Playwright.
+- Thay đổi UI đang chưa commit/push; sáu báo cáo untracked cũ vẫn giữ nguyên.
+
+## Module nhật ký — chủ dự án yêu cầu bổ sung (2026-10-16)
+
+- Yêu cầu mới cho phép thêm module log sau phiên UI; reuse audit_logs hiện có,
+  không thêm DB/cache, migration hoặc thư viện. Tất cả còn trên minh-thanh,
+  HEAD968581e; chưa commit/push các thay đổi UI và audit.
+- API GET/api/audit/logs chỉ ADMIN qua quyền DB hiện tại; Viewer403, unauth401.
+  Lọc7loại sự kiện, tìm literal tài khoản/tên/IPVPN node/IPghi nhận/target;
+  phân trang25, sắp created_at+id, no-store. Không có API sửa/xóa.
+- Nối được node_id từ FK và JSON cũ, không ép JSON tùy ý sangUUID. Chỉ chiếu
+  8trường details có giới hạn/kiểu; không trả token/password/user_agent/rawJSON.
+  Chi tiết CPU/ngưỡng và offline/IP/heartbeat được giữ để giải thích sự cố.
+- Dashboard có màn Nhật ký hoạt động, table/card responsive, tìm/lọc/phân trang,
+  xem ID phiên SSH, loading/error/empty, refresh thủ công. Viewer không có menu.
+  Chỉ log vòng đời SSH và auth thành công đang có; không thu nội dung lệnh hoặc
+  tự thêm log đăng nhập thất bại. README và OpenAPI đã mô tả phạm vi này.
+- Build Gateway tsc, Dashboard tsc/Vite đạt.31 Gateway Vitest (20audit+11cũ) đạt,
+  PostgreSQL được mock ở unit; không coi đây là bằng chứng DB thật.
+- demo.py check đạt16luồng cụm thật +alerts/schema +runtime-audit mới. Audit test
+  tạo/xóa DB riêng: SQLpagination/tieUUID, escapedLIKE/injection, legacyJSON,
+  CPU/offline details, no-store, auth/RBAC/revokeJWT và không có writeAPI đều đạt.
+- Firefox HTTPS thật: audit/searchVPN/filter/details/pagination, SSH chạy lệnh
+  và END mới xuất hiện, ViewerUI không menu +API403; viewport768/375/320 không
+  tràn ngang, không pageerrors. Empty/error là fetch giả lập trong browser và
+  đã khôi phục API thật. Không chèn fixture audit vào DB demo.
+- Bằng chứng bền: docs/verification/audit-runtime.txt và audit-browser.json.
+  Ảnh /tmp/zt-audit-preview; build logs /tmp/zt-audit-*.txt. Browser smoke sẵn có
+  cập nhật kiểm tra audit; lượt thực tế này dùng Firefox/WebDriver, không Playwright.
+- Chủ dự án hỏi ý tưởng DB làmcache để đạt500MB–1GB. Đã đối chiếu trực tiếp phiếu:
+  'toàn bộ cụm dịch vụ vận hành tối ưu trong phạm vi500MB–1GB RAM, đáp ứng môi
+  trường tài nguyên giới hạn'. Nhận xét: đây là ngân sách vận hành, không cần
+  tăng RAM để lấp khoảng; cache thêm footprint và chưa giải quyết RSSagent.
+  Chưa triển khai cache; giữ mô hình hiện có, chỉ cân nhắc khi có nút thắt đo được.
+
+## Chỉnh form đăng nhập theo ảnh phản hồi (2026-10-16)
+
+- Khung vuông quanh input do global :focus-visible thắng outline:none của input;
+  sửa selector riêng cho input trong form-input/fleet-search, giữ focus-within trên
+  vỏ ô để bàn phím vẫn có chỉ báo rõ. Không tắt focus của button.
+- Gom icon + tiêu đề form thành một hàng, bỏ eyebrow lặp, rút ghi chú thành một
+  dòng. Form desktop cao445.5px bình thường,510.5px khi lỗi; cột giới thiệu509.7px.
+- Build Dashboard đạt, HTTPS200. Firefox sáng/tối1920px, mobile375/320 không tràn,
+  input outline none nhưng viền/shadow của wrapper vẫn hiện. Đã xem ảnh thực.
+- Chỉ thử đăng nhập bị từ chối cho tài khoản không tồn tại ui-layout-check;
+  không login/logout demo-admin/demo-viewer trong lượt này để tránh thu hồi phiên
+  đang dùng của chủ dự án. Ảnh/checks tại /tmp/zt-login-preview.
+
+## Hoàn thiện theo phương án đã duyệt — 2026-10-16
+
+- Xác nhận phiếu không cố định ngôn ngữ Agent; thay Python bằng Go stdlib, giữ
+  JSON/env định danh/heartbeat3s. Collector Linux host, RX/TX một interface wg0,
+  disk theo mount; lỗi bỏ beacon thay vì gửi số0. UI giải thích phạm vi đo.
+- HTTP có timeout/giới hạn đọc, không redirect/proxy để lộ token; SIGTERM hủy
+  request/retry. Ngân sách mềm Go6MiB khi không có GOMEMLIMIT; không là capRSS.
+- Đúng image Docker cuối: RSS10572–10752kB (~10.3–10.5MiB), retry503 cô lập
+  với cùng Go runtime/budget tới10.59MiB. Python cũ23.03MiB. Gần mốc khoảng10MB,
+  không cam kết cứng dưới10MB; snapshot container ~115MiB chưa gồmOS/daemon/VM.
+- Caddy có IP ingress cụ thể; Gateway chỉ trustIP đó. LOGIN_FAILED an toàn,
+  giới hạn10login/IP/phút trướcDB/audit. IPSSH START/END cả lateEND theo request;
+  reconciler lấy IP START cùnguser/session hoặcnull, không dựnglocalhost.
+- VéSSH chặn replay/saiNode/deadline/JWTexpiry. AuditAPI/UI có8events và
+  attempted_username; chỉADMIN. Không thu nội dung lệnhSSH.
+- make test:14Go tests (kèm21invalidconfigcases),49GatewayVitest đạt; mockDB/fetch
+  trongunit. BuildGateway/Dashboard/GoWorker đạt; OpenAPI8refs +syntax/diff sạch.
+- Bootstrap mới zt_fresh_check từ DB/volumes riêng đạt;16luồngthật +alerts/schema/
+  auditSQL thật, grantdenyUPDATE/DELETE/TRUNCATE, headertrust/rate/reconciler đạt.
+- GoWorker thật:Stale17.20s,Offline31.74s,1incident rồiOnline/resolve. CPU thật
+  quaGo->HTTP->DBlab cóngưỡngbaseline+4.5,2thread10s,1incident/audit vàcooldown;
+  không giả thànhvượt85%. CLIcheck-cpu đã chạy; không sửaGatewaydemo/DB chính.
+- FirefoxHTTPS thật1440/375/320px:scope/footer/logfailed khôngtràn; actor/IP đúng;
+  XFFgiả192.0.2.99 bịCaddy bỏqua (IP thực172.30.89.1). Ảnh/tmp/zt-hardening-browser.
+- Bằng chứng mới gọn: hardening-unit.txt,hardening-runtime.txt,
+  agent-go-resources.txt,hardening-browser.json trongdocs/verification.
+- Bỏ nhãn151/151/chứngnhậncứng của smoke-test.sh cũ; entrypoint này giờ gọi
+  check runtime thật. Giữ cácPython source-string tests/báo cáo cũ làm lịch sử,
+  không đổi chúng để làm xanh. Installer build đã thử; systemd chỉmock.
+- Đã down/up zt_demo để đổi ingressnetwork, giữvolumes: checksumenv/login/key
+  configs không đổi; users/nodes/roles/sessionversions giữnguyên, metric8148->8250,
+  audit113->113; HTTPS200, nodeOnline/heartbeatmới. Khônglogin/logoutadmin lúcrollout.
+- VM:KVM kernel dùngđược nhưng khôngVMware/VirtualBox/guestimage, sudo-n không
+  khảdụng. HaiVM/systemd/Internet vẫnCHƯAKIỂMCHỨNG; Telegram thật vẫnhoãn.
+- KhôngmergeMain (1926d4e), khôngproduction. Bàn giao bằngcommit trênminh-thanh;
+  xemgitlog. Chưa push thayđổi mới. Sáu báo cáo untracked cũ giữnguyên.

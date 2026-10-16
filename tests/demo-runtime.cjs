@@ -22,7 +22,7 @@ async function login(username, password) {
 }
 async function terminal(nodeId, ticket, command, expected) {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(`ws://127.0.0.1:3000/ws/terminal/${nodeId}`);
+    const socket = new WebSocket(`ws://10.100.0.1:3000/ws/terminal/${nodeId}`, { localAddress: '10.100.0.1', headers: { 'X-Forwarded-For': '192.0.2.99' } });
     const timeout = setTimeout(() => { socket.terminate(); reject(new Error('Terminal timeout')); }, 10000);
     let output = '';
     let complete = false;
@@ -90,12 +90,12 @@ async function main() {
       `SELECT details->>'session_id' AS session_id FROM audit_logs
        WHERE details->>'node_id' = $1 AND created_at >= $2::timestamptz
          AND action IN ('BASTION_SESSION_START','BASTION_SESSION_END')
-       GROUP BY details->>'session_id' HAVING count(DISTINCT action) = 2;`,
+       GROUP BY details->>'session_id' HAVING count(DISTINCT action) = 2 AND bool_and(ip_address = '10.100.0.1'::inet);`,
       [node.id, auditSince],
     );
     return events.rows.some((row) => row.session_id);
   });
-  check(true, 'Audit có START + END sau đóng terminal');
+  check(true, 'Audit START + END cùng phiên và IP socket VPN thật; XFF giả bị bỏ qua');
   const revocationTicket = await api('/api/bastion/ticket', admin, { node_id: node.id });
   await new Promise((resolve, reject) => {
     const socket = new WebSocket(`ws://127.0.0.1:3000/ws/terminal/${node.id}`);

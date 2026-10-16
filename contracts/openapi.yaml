@@ -36,6 +36,7 @@ paths:
                   user: {$ref: '#/components/schemas/User'}
         '401': {description: Sai thông tin đăng nhập}
         '403': {description: Tài khoản bị khóa}
+        '429': {description: Vượt 10 lần đăng nhập mỗi phút trên một IP}
         '503': {description: Không lưu được audit}
   /api/auth/me:
     get:
@@ -198,11 +199,77 @@ paths:
           schema: {type: string}
       responses:
         '101': {description: Upgrade; xác thực ứng dụng tiếp tục bằng AUTH frame}
+  /api/audit/logs:
+    get:
+      summary: Nhật ký hoạt động chỉ đọc, chỉ ADMIN
+      description: |
+        Đọc audit_logs có sẵn; VIEWER bị từ chối. Mới nhất trước, sắp theo created_at
+        và id giảm dần, tối đa 25 bản ghi/trang. Tìm kiếm literal trên tài khoản,
+        tên/IP node, IP ghi nhận và target. Không trả raw JSON hoặc thông tin bí mật.
+      security: [{BearerAuth: []}]
+      parameters:
+        - name: page
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 10000, default: 1}
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 100}
+        - name: action
+          in: query
+          schema:
+            type: string
+            enum: [LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, BASTION_TICKET_ISSUED, BASTION_SESSION_START, BASTION_SESSION_END, CPU_HIGH, NODE_OFFLINE]
+      responses:
+        '200':
+          description: Trang nhật ký, has_more cho biết còn trang tiếp
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuditLogPage'}
+        '400': {description: Bộ lọc không hợp lệ}
+        '401': {description: Chưa xác thực hoặc phiên đã hết hiệu lực}
+        '403': {description: Chỉ ADMIN được xem nhật ký}
+        '503': {description: Không thể đọc DB hoặc xác thực phiên}
 components:
   securitySchemes:
     BearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
     NodeTokenAuth: {type: apiKey, in: header, name: X-Node-Token}
   schemas:
+    AuditLogPage:
+      type: object
+      required: [success, data, page, page_size, has_more]
+      properties:
+        success: {type: boolean}
+        page: {type: integer}
+        page_size: {type: integer, enum: [25]}
+        has_more: {type: boolean}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/AuditLogItem'}
+    AuditLogItem:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+        action: {type: string}
+        user_id: {type: string, format: uuid, nullable: true}
+        username: {type: string, nullable: true}
+        node_id: {type: string, format: uuid, nullable: true}
+        node_name: {type: string, nullable: true}
+        ip_address: {type: string, nullable: true}
+        target: {type: string, nullable: true}
+        details:
+          type: object
+          additionalProperties: false
+          properties:
+            attempted_username: {type: string, maxLength: 50}
+            session_id: {type: string, maxLength: 96}
+            reason: {type: string, maxLength: 160}
+            target_ip: {type: string, maxLength: 64}
+            message: {type: string, maxLength: 500}
+            cpu_percent: {type: number, minimum: 0, maximum: 100}
+            threshold: {type: number, minimum: 0, maximum: 100}
+            ip: {type: string, maxLength: 64}
+            last_seen: {type: string, format: date-time, nullable: true, maxLength: 64}
     User:
       type: object
       properties:

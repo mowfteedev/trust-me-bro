@@ -1,14 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { api } from './services/api.js';
-import { UserSession, NodeItem } from './types/index.js';
-import { ClusterOverview } from './components/ClusterOverview.js';
-import { TerminalModal } from './components/TerminalModal.js';
+import React, { useEffect, useState } from "react";
+import { api } from "./services/api.js";
+import { UserSession, NodeItem } from "./types/index.js";
+import { ClusterOverview } from "./components/ClusterOverview.js";
+import { AuditLog } from "./components/AuditLog.js";
+import { TerminalModal } from "./components/TerminalModal.js";
 import {
   Shield,
   ShieldAlert,
   LogOut,
-  Lock,
-  User,
+  LockKeyhole,
+  UserRound,
   ArrowRight,
   LayoutDashboard,
   Server,
@@ -18,30 +19,42 @@ import {
   Sun,
   Moon,
   ChevronRight,
-  AlertTriangle
-} from 'lucide-react';
+  AlertTriangle,
+  Activity,
+  Terminal,
+  Eye,
+  EyeOff,
+  ClipboardList,
+} from "lucide-react";
 
-/**
- * ==============================================================================
- * KHUNG ỨNG DỤNG BẢNG ĐIỀU KHIỂN CHÍNH (App.tsx)
- * Dự án: ZT-ServerOps (do-an-co-so-nganh)
- * Phong cách: DirectAdmin Evolution Modern (Light & Dark Responsive)
- * Phụ trách: frontend (chủ trì), designer, tech-lead
- * ==============================================================================
- */
+const Brand = () => (
+  <div className="brand">
+    <span className="brand-symbol">
+      <Shield size={23} strokeWidth={1.7} />
+    </span>
+    <div>
+      <strong>
+        ZT<span> / </span>ServerOps
+      </strong>
+      <small>INFRASTRUCTURE CONSOLE</small>
+    </div>
+  </div>
+);
 
 export const App: React.FC = () => {
-  const [currentUser, setCurrentUser] = useState<UserSession | null>(api.getCurrentUser());
-  const [selectedTerminalNode, setSelectedTerminalNode] = useState<NodeItem | null>(null);
-
-  // Chế độ Theme (Mặc định Light Mode phong cách DirectAdmin Evolution)
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserSession | null>(
+    api.getCurrentUser(),
+  );
+  const [selectedTerminalNode, setSelectedTerminalNode] =
+    useState<NodeItem | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'fleet'>('dashboard');
-
-  // Form đăng nhập
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [activeTab, setActiveTab] = useState<"dashboard" | "fleet" | "audit">(
+    "dashboard",
+  );
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [logoutWarning, setLogoutWarning] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -50,16 +63,56 @@ export const App: React.FC = () => {
     const onExpired = () => {
       setCurrentUser(null);
       setSelectedTerminalNode(null);
-      setLoginError('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+      setLoginError("Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.");
     };
-    window.addEventListener('zt-session-expired', onExpired);
-    return () => window.removeEventListener('zt-session-expired', onExpired);
+    window.addEventListener("zt-session-expired", onExpired);
+    return () => window.removeEventListener("zt-session-expired", onExpired);
   }, []);
 
-  const selectTab = (tab: 'dashboard' | 'fleet') => {
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const sidebar = document.querySelector<HTMLElement>(".sidebar");
+    const buttons = Array.from(
+      sidebar?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+    );
+    const mobile = window.matchMedia("(max-width: 860px)");
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onViewportChange = () => {
+      if (!mobile.matches) setIsMobileMenuOpen(false);
+    };
+    mobile.addEventListener("change", onViewportChange);
+    buttons[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!mobile.matches) return;
+      if (event.key === "Escape") setIsMobileMenuOpen(false);
+      if (event.key === "Tab") {
+        const first = buttons[0];
+        const last = buttons[buttons.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      mobile.removeEventListener("change", onViewportChange);
+      document.body.style.overflow = previousOverflow;
+      document
+        .querySelector<HTMLButtonElement>(".menu-trigger")
+        ?.focus({ preventScroll: true });
+    };
+  }, [isMobileMenuOpen]);
+
+  const selectTab = (tab: "dashboard" | "fleet" | "audit") => {
     setActiveTab(tab);
     setIsMobileMenuOpen(false);
-    document.getElementById(tab === 'fleet' ? 'server-fleet' : 'cluster-overview')?.scrollIntoView({ behavior: 'smooth' });
+    document.getElementById(tab === "fleet" ? "server-fleet" : "cluster-overview")?.scrollIntoView({ behavior: "smooth" });
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -67,14 +120,16 @@ export const App: React.FC = () => {
     setLoginError(null);
     setLogoutWarning(null);
     setIsSubmitting(true);
-
     try {
       const user = await api.login(username, password);
       setCurrentUser(user);
-      setPassword('');
-      setActiveTab('dashboard');
+      setPassword("");
+      setShowPassword(false);
+      setActiveTab("dashboard");
     } catch (err: any) {
-      setLoginError(err.message || 'Tên đăng nhập hoặc mật khẩu không chính xác');
+      setLoginError(
+        err.message || "Tên đăng nhập hoặc mật khẩu không chính xác",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -83,446 +138,336 @@ export const App: React.FC = () => {
   const handleLogout = async () => {
     try {
       const res = await api.logout();
-      if (!res.serverRevoked) {
-        console.warn('⚠️ [LOGOUT WARNING] Máy chủ chưa xác nhận thu hồi phiên do sự cố mạng hoặc 503.');
-        setLogoutWarning('Đã xóa phiên trên trình duyệt. Gateway chưa xác nhận thu hồi phiên: lỗi kết nối hoặc máy chủ. Token có thể còn hiệu lực đến khi hết hạn.');
-      } else {
-        setLogoutWarning(null);
-      }
+      setLogoutWarning(
+        res.serverRevoked
+          ? null
+          : "Đã xóa phiên trên trình duyệt. Gateway chưa xác nhận thu hồi phiên do lỗi kết nối hoặc máy chủ. Token có thể còn hiệu lực đến khi hết hạn.",
+      );
     } catch {
-      setLogoutWarning('Không thể kết nối đến máy chủ Gateway. Bạn đã được đăng xuất an toàn trên trình duyệt.');
+      setLogoutWarning(
+        "Không thể kết nối đến Gateway. Phiên trên trình duyệt đã được xóa; máy chủ chưa xác nhận thu hồi phiên.",
+      );
     }
     setCurrentUser(null);
     setSelectedTerminalNode(null);
     setIsMobileMenuOpen(false);
   };
 
-  // --------------------------------------------------------------------------
-  // MÀN HÌNH ĐĂNG NHẬP (KHI CHƯA XÁC THỰC DANH TÍNH)
-  // --------------------------------------------------------------------------
+  const themeButton = (
+    <button
+      className="icon-button"
+      onClick={() => setIsDarkMode(!isDarkMode)}
+      title={
+        isDarkMode ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"
+      }
+    >
+      {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+    </button>
+  );
+
   if (!currentUser) {
     return (
-      <div className={`flex min-h-screen items-center justify-center px-4 py-12 relative overflow-hidden transition-colors ${
-        isDarkMode ? 'dark bg-[#090d16]' : 'bg-[#f8fafc]'
-      }`}>
-        {/* Nền hiệu ứng lưới mạng không gian ngầm */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#0284c70a_1px,transparent_1px),linear-gradient(to_bottom,#0284c70a_1px,transparent_1px)] bg-[size:24px_24px]" />
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className={`relative w-full max-w-md rounded-3xl border p-8 shadow-2xl backdrop-blur-xl transition-all ${
-          isDarkMode
-            ? 'border-neutral-800 bg-neutral-900/90 text-neutral-100'
-            : 'border-slate-200 bg-white/95 text-slate-800 shadow-sky-500/5'
-        }`}>
-          {/* Logo & Tiêu đề */}
-          <div className="text-center">
-            <div className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-500 text-white shadow-lg shadow-sky-500/30">
-              <Shield className="h-7 w-7" />
-            </div>
-            <h1 className="mt-4 text-2xl font-bold tracking-tight">
-              ZT-ServerOps
+      <div className={`ops-app login-page ${isDarkMode ? "dark" : ""}`}>
+        <header className="login-top">
+          <Brand />
+          {themeButton}
+        </header>
+        <main className="login-layout">
+          <section className="login-story">
+            <span className="eyebrow">
+              <span className="accent-dash" /> ZERO TRUST. CLEAR VISIBILITY.
+            </span>
+            <h1>
+              Mọi máy chủ.
+              <br />
+              <span>Trong tầm kiểm soát.</span>
             </h1>
-            <p className="mt-1 text-xs font-mono text-slate-500 dark:text-neutral-400">
-              DirectAdmin Evolution Console • Zero-Trust Gateway
+            <p>
+              Một góc nhìn rõ ràng về hạ tầng của bạn.
+              <br />
+              Giám sát tài nguyên, kết nối và truy cập SSH từ một nơi.
             </p>
-          </div>
-
-          {/* Form */}
-          <form onSubmit={handleLogin} className="mt-8 space-y-4">
-            {logoutWarning && (
-              <div className="rounded-xl border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-amber-800 dark:text-amber-300 font-mono flex items-start space-x-2">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-                <span>{logoutWarning}</span>
+            <div className="network-illustration" aria-hidden="true">
+              <div className="network-label">
+                <Network size={14} /> MÔ HÌNH KẾT NỐI
               </div>
-            )}
-
-            {loginError && (
-              <div className="rounded-xl border border-rose-300 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-950/30 p-3 text-xs text-rose-600 dark:text-rose-400 font-mono flex items-center space-x-2">
-                <ShieldAlert className="h-4 w-4 shrink-0" />
-                <span>{loginError}</span>
+              <div className="network-flow">
+                <div className="network-device">
+                  <Shield size={26} />
+                  <strong>Gateway</strong>
+                  <small>Access control</small>
+                </div>
+                <div className="network-link">
+                  <span>WireGuard</span>
+                  <i />
+                  <small>VPN M2M</small>
+                </div>
+                <div className="network-device">
+                  <Server size={26} />
+                  <strong>Worker</strong>
+                  <small>Mini-Agent · SSH</small>
+                </div>
               </div>
-            )}
-
-            <div>
-              <label htmlFor="username" className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1.5">Tên tài khoản</label>
-              <div className="relative">
-                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <div className="network-caption">
+                <LockKeyhole size={13} /> Truy cập qua VPN, phân quyền tại
+                Gateway
+              </div>
+            </div>
+            <div className="login-features">
+              <span>
+                <Activity size={16} /> Giám sát tài nguyên
+              </span>
+              <span>
+                <Shield size={16} /> Admin / Viewer
+              </span>
+              <span>
+                <Terminal size={16} /> Web SSH
+              </span>
+            </div>
+          </section>
+          <section className="login-form-panel" aria-labelledby="login-title">
+            <div className="login-form-heading">
+              <span className="login-form-icon">
+                <LockKeyhole size={21} />
+              </span>
+              <div>
+                <h2 id="login-title">Đăng nhập</h2>
+                <p>Truy cập bảng điều khiển máy chủ.</p>
+              </div>
+            </div>
+            <form onSubmit={handleLogin}>
+              {logoutWarning && (
+                <div className="notice warning" role="status">
+                  <AlertTriangle size={17} />
+                  <span>{logoutWarning}</span>
+                </div>
+              )}
+              {loginError && (
+                <div className="notice danger" role="alert">
+                  <ShieldAlert size={17} />
+                  <span>{loginError}</span>
+                </div>
+              )}
+              <label htmlFor="username">Tên tài khoản</label>
+              <div className="form-input">
+                <UserRound size={17} />
                 <input
                   id="username"
                   autoComplete="username"
-                  type="text"
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="admin hoặc viewer"
-                  className="w-full rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50/50 dark:bg-neutral-950 pl-10 pr-4 py-2.5 text-sm text-slate-900 dark:text-neutral-100 placeholder-slate-400 focus:border-sky-500 focus:bg-white focus:outline-none transition-colors"
+                  placeholder="Nhập tên tài khoản"
                 />
               </div>
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1.5">Mật khẩu xác thực</label>
-              <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <label htmlFor="password">Mật khẩu xác thực</label>
+              <div className="form-input">
+                <LockKeyhole size={17} />
                 <input
                   id="password"
                   autoComplete="current-password"
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  className="w-full rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50/50 dark:bg-neutral-950 pl-10 pr-4 py-2.5 text-sm text-slate-900 dark:text-neutral-100 placeholder-slate-400 focus:border-sky-500 focus:bg-white focus:outline-none transition-colors"
+                  placeholder="Nhập mật khẩu"
                 />
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                >
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
               </div>
+              <button
+                type="submit"
+                className="button primary login-submit"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Đang xác thực..." : "Đăng nhập vào Hệ thống"}
+                <ArrowRight size={17} />
+              </button>
+            </form>
+            <div className="login-form-note">
+              <Shield size={15} />
+              <span>
+                Tài khoản được cấp bởi quản trị viên.
+              </span>
             </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="mt-6 w-full min-h-[44px] inline-flex items-center justify-center space-x-2 rounded-xl bg-sky-600 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50 transition-all shadow-md shadow-sky-600/20"
-            >
-              <span>{isSubmitting ? 'Đang xác thực...' : 'Đăng nhập vào Hệ thống'}</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          </form>
-
-          <div className="mt-6 border-t border-slate-100 dark:border-neutral-800 pt-4 flex items-center justify-between text-[11px] font-mono text-slate-400 dark:text-neutral-500">
-            <span>WireGuard • SSH Ed25519</span>
-            <button
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="hover:text-sky-600 transition-colors"
-            >
-              {isDarkMode ? '☀️ Light' : '🌙 Dark'}
-            </button>
-          </div>
-        </div>
+          </section>
+        </main>
+        <footer className="login-bottom">
+          <span>
+            ZT-ServerOps <b> / </b> Security & monitoring
+          </span>
+          <span>WireGuard · SSH Ed25519</span>
+        </footer>
       </div>
     );
   }
 
-  // --------------------------------------------------------------------------
-  // GIAO DIỆN CHÍNH DASHBOARD (DIRECTADMIN EVOLUTION MODERN LAYOUT)
-  // --------------------------------------------------------------------------
   return (
-    <div className={`min-h-screen flex flex-col md:flex-row transition-colors ${
-      isDarkMode ? 'dark bg-[#090d16] text-neutral-100' : 'bg-[#f8fafc] text-slate-800'
-    }`}>
-      {/* 1. THANH ICON DOCK BÊN TRÁI (Chuẩn DirectAdmin Ảnh 1 - Desktop Only) */}
-      <aside className="hidden md:flex flex-col w-16 bg-[#0284c7] text-white py-4 items-center justify-between shrink-0 shadow-md z-30 select-none">
-        {/* Top: Logo thương hiệu */}
-        <div className="flex flex-col items-center space-y-6">
-          <div
-            className="h-10 w-10 rounded-xl bg-white/20 flex items-center justify-center shadow-inner hover:scale-105 transition-transform cursor-pointer"
-            title="ZT-ServerOps Control Panel (DirectAdmin Evolution Skin)"
-          >
-            <Shield className="h-6 w-6 text-white" />
-          </div>
-
-          {/* Cụm Icons điều hướng nhanh */}
-          <div className="flex flex-col space-y-2">
-            <button
-              onClick={() => selectTab('dashboard')}
-              className={`p-2.5 rounded-xl transition-all ${
-                activeTab === 'dashboard'
-                  ? 'bg-white text-sky-700 shadow-md'
-                  : 'text-sky-100 hover:bg-white/15'
-              }`}
-              title="Tổng quan Cụm (Dashboard)"
-            >
-              <LayoutDashboard className="h-5 w-5" />
-            </button>
-
-            <button
-              onClick={() => selectTab('fleet')}
-              className={`p-2.5 rounded-xl transition-all ${
-                activeTab === 'fleet'
-                  ? 'bg-white text-sky-700 shadow-md'
-                  : 'text-sky-100 hover:bg-white/15'
-              }`}
-              title="Danh sách Máy chủ (Server Fleet)"
-            >
-              <Server className="h-5 w-5" />
-            </button>
-
-          </div>
-        </div>
-
-        {/* Bottom: Theme toggle và Đăng xuất */}
-        <div className="flex flex-col items-center space-y-3">
-          <button
-            onClick={() => setIsDarkMode(!isDarkMode)}
-            className="p-2.5 rounded-xl text-sky-100 hover:bg-white/15 transition-all"
-            title={isDarkMode ? 'Chuyển sang Light Mode (DirectAdmin)' : 'Chuyển sang Dark Mode'}
-          >
-            {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          </button>
-
-          <button
-            onClick={handleLogout}
-            className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl text-sky-100 hover:bg-rose-600 hover:text-white transition-all"
-            title="Đăng xuất khỏi hệ thống"
-          >
-            <LogOut className="h-5 w-5" />
-          </button>
-        </div>
-      </aside>
-
-      {/* 2. SUB-SIDEBAR NAVIGATION (Cột trắng ngà chuẩn DirectAdmin Ảnh 1 - Desktop Only) */}
-      <aside className="hidden lg:flex flex-col w-60 border-r border-slate-200/90 dark:border-slate-800 bg-[#f8fafc] dark:bg-slate-900/90 p-4 shrink-0 justify-between select-none">
-        <div>
-          {/* Header Sub-Sidebar */}
-          <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-800">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">Control Panel</h2>
-              <span className="text-[11px] font-mono text-slate-400">Navigation</span>
-            </div>
-            <Shield className="h-4 w-4 text-sky-600" aria-label="Bảng điều khiển" />
-          </div>
-
-          {/* Segmented Switch: Admin vs User (RBAC Visual - Chuẩn DirectAdmin) */}
-          <div className="mt-4 p-1 rounded-xl bg-slate-200/70 dark:bg-slate-800 flex items-center text-xs font-semibold">
-            <div
-              className={`flex-1 py-1.5 text-center rounded-lg transition-all ${
-                currentUser.role === 'ADMIN'
-                  ? 'bg-white dark:bg-slate-700 text-sky-700 dark:text-sky-300 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Admin
-            </div>
-            <div
-              className={`flex-1 py-1.5 text-center rounded-lg transition-all ${
-                currentUser.role === 'VIEWER'
-                  ? 'bg-white dark:bg-slate-700 text-sky-700 dark:text-sky-300 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              User
-            </div>
-          </div>
-
-          {/* Danh mục tính năng */}
-          <nav className="mt-5 space-y-1 text-xs">
-            <button
-              onClick={() => selectTab('dashboard')}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-colors ${
-                activeTab === 'dashboard'
-                  ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-semibold'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              <span className="flex items-center">
-                <LayoutDashboard className="h-4 w-4 mr-2.5 text-sky-600" />
-                Tổng quan (Dashboard)
-              </span>
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            </button>
-
-            <button
-              onClick={() => selectTab('fleet')}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-colors ${
-                activeTab === 'fleet'
-                  ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-semibold'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              <span className="flex items-center">
-                <Server className="h-4 w-4 mr-2.5 text-slate-400" />
-                Danh sách Máy chủ
-              </span>
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            </button>
-
-          </nav>
-        </div>
-
-        {/* Khối thẻ Mini Banner ở đáy (Tương tự ô 'Pro Pack' trong DirectAdmin Ảnh 1) */}
-        <div className="rounded-2xl border border-sky-200/80 dark:border-sky-800/50 bg-gradient-to-br from-sky-600 to-indigo-700 p-3.5 text-white shadow-sm">
-          <div className="flex items-center space-x-2">
-            <Shield className="h-4 w-4 text-sky-200" />
-            <span className="text-xs font-bold">Zero-Trust Shield</span>
-          </div>
-          <p className="mt-1.5 text-[11px] text-sky-100 leading-snug">
-            SSH qua mạng WireGuard. Quyền mở terminal được kiểm tra tại Gateway.
-          </p>
-          <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-sky-200 border-t border-white/10 pt-2">
-            <span>Overlay Mesh</span>
-            <span className="text-emerald-300">10.8.0.0/24</span>
-          </div>
-        </div>
-      </aside>
-
-      {/* 3. MOBILE HEADER & DRAWER (Hiển thị mượt mà trên Điện thoại < 768px) */}
-      <header className="md:hidden sticky top-0 z-40 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 py-2.5 flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <button
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Mở menu điều hướng"
-          >
-            <Menu className="h-6 w-6" />
-          </button>
-
-          <div className="flex items-center space-x-2">
-            <div className="h-8 w-8 rounded-lg bg-sky-600 flex items-center justify-center text-white">
-              <Shield className="h-4 w-4" />
-            </div>
-            <span className="font-bold text-sm text-slate-900 dark:text-slate-100">ZT-ServerOps</span>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-            currentUser.role === 'ADMIN'
-              ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-400'
-              : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-          }`}>
-            {currentUser.role}
-          </span>
-
-          <button
-            onClick={handleLogout}
-            className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-600 transition-colors"
-            title="Đăng xuất"
-          >
-            <LogOut className="h-5 w-5" />
-          </button>
-        </div>
-      </header>
-
-      {/* Mobile Drawer Backdrop & Panel */}
+    <div className={`ops-app console-layout ${isDarkMode ? "dark" : ""}`}>
       {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-50 flex">
-          <div
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity"
+        <button
+          className="sidebar-backdrop"
+          aria-label="Đóng menu"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+      <aside
+        className={`sidebar ${isMobileMenuOpen ? "is-open" : ""}`}
+        aria-label="Điều hướng chính"
+        role={isMobileMenuOpen ? "dialog" : undefined}
+        aria-modal={isMobileMenuOpen || undefined}
+      >
+        <div className="sidebar-brand">
+          <Brand />
+          <button
+            className="icon-button mobile-only sidebar-close"
+            aria-label="Đóng menu điều hướng"
             onClick={() => setIsMobileMenuOpen(false)}
-          />
-          <div className="relative w-72 max-w-[80vw] bg-white dark:bg-slate-900 h-full p-5 flex flex-col justify-between shadow-2xl z-10">
-            <div>
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center space-x-2.5">
-                  <div className="h-8 w-8 rounded-lg bg-sky-600 flex items-center justify-center text-white">
-                    <Shield className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">DirectAdmin Panel</h3>
-                    <p className="text-[10px] font-mono text-slate-400">{currentUser.username} ({currentUser.role})</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              {/* Navigation items trên điện thoại */}
-              <nav className="mt-5 space-y-1.5 text-xs font-medium">
-                <button
-                  onClick={() => selectTab('dashboard')}
-                  className="w-full min-h-[44px] flex items-center px-3 rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-semibold"
-                >
-                  <LayoutDashboard className="h-4 w-4 mr-3 text-sky-600" />
-                  Tổng quan (Dashboard)
-                </button>
-                <button
-                  onClick={() => selectTab('fleet')}
-                  className="w-full min-h-[44px] flex items-center px-3 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                >
-                  <Server className="h-4 w-4 mr-3 text-slate-400" />
-                  Danh sách Máy chủ
-                </button>
-
-              </nav>
-            </div>
-
-            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
-              <button
-                onClick={() => setIsDarkMode(!isDarkMode)}
-                className="w-full min-h-[44px] flex items-center justify-between px-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300"
-              >
-                <span>Chế độ hiển thị</span>
-                <span>{isDarkMode ? '☀️ Light Mode' : '🌙 Dark Mode'}</span>
-              </button>
-              <button
-                onClick={handleLogout}
-                className="w-full min-h-[44px] flex items-center justify-center space-x-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-xs font-semibold"
-              >
-                <LogOut className="h-4 w-4" />
-                <span>Đăng xuất tài khoản</span>
-              </button>
-            </div>
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="workspace-label">
+          <span className="workspace-avatar">ZT</span>
+          <div>
+            <strong>Server workspace</strong>
+            <small>Giám sát & điều khiển</small>
           </div>
         </div>
-      )}
-
-      {/* 4. WORKSPACE CHÍNH (Nền Slate-50 sang trọng, thoáng đãng) */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Top Header thanh thoát trên Desktop */}
-        <header className="hidden md:flex h-16 border-b border-slate-200/90 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-6 items-center justify-between sticky top-0 z-20">
-          <div className="flex items-center space-x-3">
-            <h1 className="text-base font-bold text-slate-900 dark:text-slate-100">
-              Dashboard
-            </h1>
-            <span className="text-xs text-slate-400 font-mono">
-              / Cluster Overview
+        <span className="nav-label">WORKSPACE</span>
+        <nav>
+          <button
+            className={`nav-item ${activeTab === "dashboard" ? "active" : ""}`}
+            aria-current={activeTab === "dashboard" ? "page" : undefined}
+            onClick={() => selectTab("dashboard")}
+          >
+            <LayoutDashboard size={18} />
+            <span>Tổng quan</span>
+            <ChevronRight size={14} />
+          </button>
+          <button
+            className={`nav-item ${activeTab === "fleet" ? "active" : ""}`}
+            aria-current={activeTab === "fleet" ? "page" : undefined}
+            onClick={() => selectTab("fleet")}
+          >
+            <Server size={18} />
+            <span>Máy chủ</span>
+            <ChevronRight size={14} />
+          </button>
+          {currentUser.role === "ADMIN" && (
+            <button
+              className={`nav-item ${activeTab === "audit" ? "active" : ""}`}
+              aria-current={activeTab === "audit" ? "page" : undefined}
+              onClick={() => selectTab("audit")}
+            >
+              <ClipboardList size={18} />
+              <span>Nhật ký hoạt động</span>
+              <ChevronRight size={14} />
+            </button>
+          )}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="access-note">
+            <span className="access-note-icon">
+              <Shield size={20} />
+            </span>
+            <strong>Truy cập có kiểm soát</strong>
+            <p>
+              Kết nối qua WireGuard.
+              <br />
+              Quyền SSH được kiểm tra tại Gateway.
+            </p>
+            <span className="protocol-label">
+              VPN M2M <i /> SSH ED25519
             </span>
           </div>
-
-          <div className="flex items-center space-x-4">
-            {/* Status WireGuard Mesh */}
-            <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-              <Network className="h-3.5 w-3.5" />
-              <span>WireGuard • UDP 51820</span>
-            </div>
-
-            {/* Thông tin tài khoản & Role */}
-            <div className="flex items-center space-x-2 text-xs font-mono border-l border-slate-200 dark:border-slate-800 pl-4">
-              <span className="text-slate-600 dark:text-slate-400 font-semibold">{currentUser.username}</span>
-              <span
-                className={`px-2 py-0.5 rounded font-bold ${
-                  currentUser.role === 'ADMIN'
-                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-400'
-                    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                }`}
-              >
-                {currentUser.role}
-              </span>
-            </div>
-
-            {/* Nút Đăng xuất */}
+          <div className="sidebar-foot">
+            <span className="brand-mini">ZT</span>
+            <span>
+              Đồ án cơ sở ngành
+              <br />
+              <strong>An ninh mạng · Nhóm 9</strong>
+            </span>
+          </div>
+        </div>
+      </aside>
+      <div className="console-workspace">
+        <header className="topbar">
+          <div className="topbar-path">
             <button
-              onClick={handleLogout}
-              className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 text-slate-500 hover:border-rose-300 hover:text-rose-600 transition-colors shadow-xs"
-              title="Đăng xuất"
+              className="icon-button mobile-only menu-trigger"
+              title="Mở menu điều hướng"
+              aria-expanded={isMobileMenuOpen}
+              onClick={() => setIsMobileMenuOpen(true)}
             >
-              <LogOut className="h-4 w-4" />
+              <Menu size={21} />
+            </button>
+            <span className="desktop-label">Workspace</span>
+            <ChevronRight size={13} className="desktop-label" />
+            <strong>
+              {activeTab === "audit"
+                ? "Nhật ký hoạt động"
+                : activeTab === "fleet"
+                  ? "Máy chủ"
+                  : "Tổng quan"}
+            </strong>
+          </div>
+          <div className="topbar-actions">
+            {themeButton}
+            <span className="topbar-divider" />
+            <div className="user-profile">
+              <span className="user-avatar">
+                {currentUser.username.slice(0, 2).toUpperCase()}
+              </span>
+              <div>
+                <strong>{currentUser.username}</strong>
+                <span>
+                  {currentUser.role === "ADMIN"
+                    ? "Administrator"
+                    : "Viewer · Chỉ đọc"}
+                </span>
+              </div>
+            </div>
+            <button
+              className="icon-button logout-button"
+              onClick={handleLogout}
+              title="Đăng xuất khỏi hệ thống"
+            >
+              <LogOut size={18} />
             </button>
           </div>
         </header>
-
-        {/* Nội dung chính màn hình */}
-        <main id="cluster-overview" className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <ClusterOverview currentUser={currentUser} onOpenTerminal={(node) => setSelectedTerminalNode(node)} />
+        <main id="cluster-overview" className="console-main">
+          {activeTab === "audit" && currentUser.role === "ADMIN" ? (
+            <AuditLog />
+          ) : (
+            <ClusterOverview
+              currentUser={currentUser}
+              onOpenTerminal={setSelectedTerminalNode}
+              focusSection={activeTab === "fleet" ? "fleet" : "dashboard"}
+            />
+          )}
         </main>
-
-        {/* Footer tối giản */}
-        <footer className="border-t border-slate-200/80 dark:border-slate-800/60 py-5 text-center text-xs font-mono text-slate-400 dark:text-slate-500">
-          <p>ZT-ServerOps Control Plane • DirectAdmin Evolution Light Archetype • Do-an-co-so-nganh (HaUI, TS. Nguyễn Đắc Hải, Nhóm 9)</p>
+        <footer className="console-footer">
+          <span>
+            ZT-ServerOps <b>/</b> Infrastructure monitoring
+          </span>
+          <span>React · WireGuard · PostgreSQL</span>
         </footer>
       </div>
-
-      {/* 5. CỬA SỔ DÒNG LỆNH TERMINAL MODAL */}
       {selectedTerminalNode && (
         <TerminalModal
           node={selectedTerminalNode}
-          isOpen={!!selectedTerminalNode}
+          isOpen
           onClose={() => setSelectedTerminalNode(null)}
         />
       )}
     </div>
   );
 };
-

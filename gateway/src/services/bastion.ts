@@ -6,6 +6,7 @@ import type { WebSocket } from 'ws';
 import { config } from '../config/env.js';
 import { query } from './db.js';
 import { generateSecureToken } from '../utils/crypto.js';
+import { normalizeClientIp } from '../utils/client-ip.js';
 
 /**
  * ==============================================================================
@@ -218,7 +219,7 @@ export function verifyAndConsumeTicket(ticket: string, nodeId: string): { valid:
   // Tiêu hủy vé ngay lập tức (Single-Use Guard)
   ticketStore.delete(ticket);
 
-  if (ticketData.expiresAt < Date.now()) {
+  if (ticketData.expiresAt <= Date.now() || ticketData.authExpiresAt <= Date.now()) {
     return { valid: false };
   }
 
@@ -248,8 +249,10 @@ export function clampPtyDimensions(rawRows: any, rawCols: any): { rows: number; 
 export async function attachBastionSession(
   socket: WebSocket,
   nodeIdentifier: string,
-  initialTicket: string
+  initialTicket: string,
+  clientIp?: string,
 ): Promise<void> {
+  const auditClientIp = normalizeClientIp(clientIp);
   const sessionId = crypto.randomUUID();
   let sessionState: 'INIT' | 'PROBING' | 'CONNECTING' | 'READY' | 'CLOSING' | 'CLOSED' = 'INIT';
   let isCancelled = false;
@@ -356,8 +359,8 @@ export async function attachBastionSession(
       if (existingSession) existingSession.isAuditStarted = false;
       query(
         `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
-         VALUES ($1, 'BASTION_SESSION_END', 'bastion', $2, '127.0.0.1'::inet);`,
-        [auditUserId, JSON.stringify({ session_id: sessionId, node_id: nodeIdentifier, reason })]
+         VALUES ($1, 'BASTION_SESSION_END', 'bastion', $2, $3::inet);`,
+        [auditUserId, JSON.stringify({ session_id: sessionId, node_id: nodeIdentifier, reason }), auditClientIp]
       ).catch((err) => {
         console.warn('⚠️ [BASTION AUDIT END ERROR] Lỗi ghi audit log khi kết thúc phiên:', err.message);
       });
@@ -532,7 +535,7 @@ export async function attachBastionSession(
     await query(
       `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
        VALUES ($1, 'BASTION_SESSION_START', 'bastion', $2, $3::inet);`,
-      [dbUser.id, JSON.stringify({ session_id: sessionId, node_id: nodeIdentifier, target_ip: targetIp }), '127.0.0.1']
+      [dbUser.id, JSON.stringify({ session_id: sessionId, node_id: nodeIdentifier, target_ip: targetIp }), auditClientIp]
     );
     isAuditStarted = true;
     sessionRecord.isAuditStarted = true;
@@ -558,8 +561,8 @@ export async function attachBastionSession(
       pendingEndAuditAfterStart = false;
       query(
         `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
-         VALUES ($1, 'BASTION_SESSION_END', 'bastion', $2, '127.0.0.1'::inet);`,
-        [dbUser.id, JSON.stringify({ session_id: sessionId, node_id: nodeIdentifier, reason: closeReasonForEndAudit })]
+         VALUES ($1, 'BASTION_SESSION_END', 'bastion', $2, $3::inet);`,
+        [dbUser.id, JSON.stringify({ session_id: sessionId, node_id: nodeIdentifier, reason: closeReasonForEndAudit }), auditClientIp]
       ).catch((err) => {
         console.warn('⚠️ [BASTION AUDIT END ERROR] Lỗi ghi audit log khi kết thúc phiên (late resolve):', err.message);
       });

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, authorize, AuthUserPayload } from '../middlewares/auth.middleware.js';
 import { createBastionTicket, attachBastionSession } from '../services/bastion.js';
 import { query } from '../services/db.js';
+import { normalizeClientIp } from '../utils/client-ip.js';
 
 /**
  * ==============================================================================
@@ -58,7 +59,7 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const ticket = createBastionTicket(node_id, user.id, user.session_version, ttlSeconds, authExpiresAt);
 
       // Ghi nhận sự kiện cấp vé Bastion vào audit_logs - BẮT BUỘC THÀNH CÔNG (FAIL-CLOSED)
-      const clientIp = (req.ip || '127.0.0.1').replace(/^::ffff:/, '');
+      const clientIp = normalizeClientIp(req.ip);
       try {
         await query(
           `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
@@ -114,7 +115,7 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         const payload = JSON.parse(firstMessage.toString('utf-8'));
         if (payload.type === 'AUTH' && typeof payload.ticket === 'string') {
           // Bắt đầu gán luồng phiên Bastion
-          attachBastionSession(socket, node_id, payload.ticket);
+          attachBastionSession(socket, node_id, payload.ticket, req.ip);
         } else {
           socket.send(JSON.stringify({ type: 'ERROR', message: 'Gói tin đầu tiên bắt buộc phải là vé AUTH' }));
           socket.close(4401, 'Unauthorized');

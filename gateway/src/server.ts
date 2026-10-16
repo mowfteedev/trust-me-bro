@@ -9,6 +9,7 @@ import { checkDatabaseHealth, closeDatabasePool, ensureSeedData } from './servic
 import { authRoutes } from './routes/auth.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { bastionRoutes } from './routes/bastion.js';
+import { auditRoutes } from './routes/audit.js';
 import { shutdownAllBastionSessions } from './services/bastion.js';
 import { startSweeper, stopSweeper } from './services/sweeper.js';
 import { telegramService } from './services/telegram.js';
@@ -21,10 +22,9 @@ import { telegramService } from './services/telegram.js';
  * ==============================================================================
  *
  * LÝ DO PHI TRỰC GIÁC (RATIONALE):
- * 1. trustProxy: true bắt buộc phải bật để Fastify nhận diện chính xác địa chỉ IP
- *    nguyên thủy của máy khách được Caddy chuyển tiếp qua tiêu đề X-Forwarded-For.
- *    Nếu không bật, bộ đếm Rate Limit sẽ tính toàn bộ request có IP của Caddy (172.x.x.x)
- *    và vô tình khóa toàn bộ cụm máy chủ!
+ * 1. Chỉ tin X-Forwarded-For từ địa chỉ Caddy cấu hình trong TRUSTED_PROXY_IP.
+ *    Kết nối trực tiếp từ VPN/transport không được tự khai IP qua header để né
+ *    rate limit hoặc giả mạo nhật ký. Không cấu hình proxy thì dùng IP socket.
  * 2. Cung cấp hai điểm kiểm tra sức khỏe độc lập:
  *    - /healthz (Liveness Probe): Kiểm tra tiến trình Node.js còn sống.
  *    - /readyz (Readiness Probe): Kiểm tra kết nối CSDL PostgreSQL trước khi cho phép Caddy đẩy lưu lượng vào.
@@ -36,8 +36,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     logger: process.env.NODE_ENV === 'test' ? false : {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
     },
-    // Bắt buộc bật trustProxy khi chạy sau Caddy Reverse Proxy
-    trustProxy: true,
+    trustProxy: config.TRUSTED_PROXY_IP || false,
   });
 
   // 1. Đăng ký plugin CORS cho phép Web Console tương tác an toàn
@@ -106,6 +105,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(telemetryRoutes, { prefix: '/api' }); // Hỗ trợ /api/nodes và /api/nodes/:node_id/history theo openapi.yaml
   await fastify.register(bastionRoutes, { prefix: '/api/bastion' });
   await fastify.register(bastionRoutes); // Hỗ trợ cả đường dẫn trực tiếp /ws/terminal/:node_id
+  await fastify.register(auditRoutes, { prefix: '/api/audit' });
 
   // 7. Bắt lỗi toàn cục định dạng theo chuẩn RFC-7807 Problem Details
   fastify.setErrorHandler((error, req, reply) => {
@@ -169,7 +169,7 @@ async function start() {
     });
 
     console.log(`🚀 [GATEWAY ENGINE] Control Plane đang hoạt động tại: ${address}`);
-    console.log(`🛡️ [SECURITY ACTIVE] Zero Trust Mode | trustProxy: true | Port: ${config.GATEWAY_PORT}`);
+    console.log(`🛡️ [SECURITY ACTIVE] Trusted proxy: ${config.TRUSTED_PROXY_IP || 'none'} | Port: ${config.GATEWAY_PORT}`);
 
     // Thiết lập Graceful Shutdown khi nhận tín hiệu từ OS/Docker
     const shutdown = async (signal: string) => {

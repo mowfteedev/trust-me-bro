@@ -1,11 +1,11 @@
 # Mô hình hai VM để kiểm chứng trước khi nộp
 
-**CHƯA KIỂM CHỨNG trên hypervisor.** Máy làm việc hiện không có VirtualBox,
-VMware, QEMU hoặc KVM. Cụm Docker đã chạy WireGuard/SSH thật, nhưng không thay
+**CHƯA KIỂM CHỨNG trên hypervisor.** Máy làm việc có KVM kernel khả dụng nhưng
+chưa có VirtualBox/VMware, chương trình chạy VM hoặc guest image. Cụm Docker đã chạy WireGuard/SSH thật, nhưng không thay
 thế bằng chứng hai VM hoặc kiểm tra inbound từ Internet.
 
 Mô hình giữ nguyên ứng dụng: VM Gateway chạy PostgreSQL, Fastify, React/Caddy và
-WireGuard helper trong Compose; VM Worker chạy WireGuard, OpenSSH và Mini-Agent.
+WireGuard helper trong Compose; VM Worker chạy WireGuard, OpenSSH và Mini-Agent Go.
 Gateway VPN là `10.100.0.1`, Worker VPN là `10.100.0.2`. Worker chủ động kết nối
 UDP51820 tới địa chỉ Gateway mà nó truy cập được. Không dùng hai peer cùng khóa
 hoặc cùng địa chỉ VPN đồng thời.
@@ -13,7 +13,8 @@ hoặc cùng địa chỉ VPN đồng thời.
 ## Chuẩn bị thủ công
 
 1. Tạo hai VM Linux. Gateway cần Docker Engine/Compose, Python3, OpenSSL và
-   OpenSSH client; Worker cần Python3, OpenSSH server và wireguard-tools. Kernel
+   OpenSSH client; Worker cần OpenSSH server và wireguard-tools. Mini-Agent dùng
+   binary Go được build trước cho Linux/kiến trúc CPU của Worker. Kernel
    cần hỗ trợ WireGuard. Cài theo hướng dẫn của bản Linux đang dùng; lệnh cài đặt
    package/hypervisor chưa được chạy trong phiên này.
 2. Trên Gateway, dùng bootstrap của dự án để tạo env/khóa riêng và khởi động các

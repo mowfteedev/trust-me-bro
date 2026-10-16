@@ -1,0 +1,147 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  83.97kB
+Step 1/4 : FROM golang:1.27-alpine AS builder
+ ---> f92b6ef800e4
+Step 2/4 : WORKDIR /src
+ ---> Using cache
+ ---> 36b72159c1f3
+Step 3/4 : COPY go.mod *.go ./
+ ---> 71dc31dd9d91
+Step 4/4 : RUN CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/zt-agent .
+ ---> Running in 2e28b97fa403
+ok  	zt-serverops/agent	1.062s
+ ---> Removed intermediate container 2e28b97fa403
+ ---> 93490bf8d8a2
+Successfully built 93490bf8d8a2
+Successfully tagged zt_agent_tests:latest
+ok  	zt-serverops/agent	(cached)
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon    364kB
+Step 1/6 : FROM node:20-alpine AS builder
+ ---> fb4cd12c85ee
+Step 2/6 : WORKDIR /app
+ ---> Using cache
+ ---> 59b535e79ce4
+Step 3/6 : COPY package.json package-lock.json tsconfig.json ./
+ ---> Using cache
+ ---> 35041fc44f75
+Step 4/6 : RUN npm ci
+ ---> Using cache
+ ---> ae1e1beefb1b
+Step 5/6 : COPY src/ ./src/
+ ---> Using cache
+ ---> 97df06782ad0
+Step 6/6 : RUN npm run build
+ ---> Using cache
+ ---> 24c83cc1c6fe
+Successfully built 24c83cc1c6fe
+Successfully tagged zt_course_tests:latest
+
+> zt-serverops-gateway@1.0.0 test
+> vitest run
+
+
+ RUN  v1.6.1 /app
+
+stdout | new TelegramService (/app/src/services/telegram.ts:41:15)
+[TELEGRAM] Chế độ dry-run; dry-run chỉ ghi log giả lập, không gửi ra ngoài.
+
+stderr | tests/telemetry-alerts.test.ts > Liveness (mock DB) > marks stale at 15s, records offline event atomically and notifies once
+🚨 [LIVENESS ALERT] Đã chuyển máy chủ worker-test sang trạng thái OFFLINE.
+
+stderr | tests/telemetry-alerts.test.ts > Liveness (mock DB) > rolls back offline status if audit persistence fails, leaving it retryable
+❌ [SWEEPER ERROR] Sự cố trong vòng lặp Sweeper: audit failed
+
+stderr | tests/telemetry-alerts.test.ts > orphan SSH audit reconciliation (mock DB) > links the END IP to the original START for the same session and user, with no fabricated fallback
+🧹 [AUDIT RECONCILER] Đã đối soát và bù đắp END log cho phiên session_id: e44d9c38-9d6e-450f-b7d1-c253c5293c31 (Lý do: Client Closed)
+
+stderr | tests/telemetry-alerts.test.ts > orphan SSH audit reconciliation (mock DB) > leaves the lease retryable when the reconciled END audit cannot be inserted
+⚠️ [SWEEPER RECONCILE] Lỗi kiểm tra đối soát audit log lease: isolated-audit-write-failure
+
+stdout | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > dry-run reports simulation without any fetch even with a token
+[TELEGRAM] Chế độ dry-run; dry-run chỉ ghi log giả lập, không gửi ra ngoài.
+[TELEGRAM DRY-RUN / GIẢ LẬP — KHÔNG GỬI] [ZT-ServerOps WARNING] test
+simulation
+2026-10-16T11:02:49.090Z
+
+stdout | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > disabled mode performs no fetch and reports not sent
+[TELEGRAM] Chế độ disabled; dry-run chỉ ghi log giả lập, không gửi ra ngoài.
+
+stdout | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > live transport retries a transient failure, bounds timeout and uses plain text
+🤖 [TELEGRAM BOT] Đã kích hoạt dịch vụ thông báo On-Call.
+🔐 [TELEGRAM OTP] Mã ghép nối quản trị viên (Pairing OTP): [33m123456[0m
+💬 [TELEGRAM HƯỚNG DẪN] Gửi tin nhắn: /pair 123456 tới Bot để nhận cảnh báo.
+✔ [TELEGRAM BOT] Ghép nối thành công và đã lưu DB với Chat ID: test-chat
+
+stdout | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > checks Telegram payload.ok and stops after three unsuccessful attempts
+🤖 [TELEGRAM BOT] Đã kích hoạt dịch vụ thông báo On-Call.
+🔐 [TELEGRAM OTP] Mã ghép nối quản trị viên (Pairing OTP): [33m123456[0m
+💬 [TELEGRAM HƯỚNG DẪN] Gửi tin nhắn: /pair 123456 tới Bot để nhận cảnh báo.
+✔ [TELEGRAM BOT] Ghép nối thành công và đã lưu DB với Chat ID: test-chat
+
+stdout | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > checks Telegram payload.ok and stops after three unsuccessful attempts
+<empty line>
+stderr | tests/telemetry-alerts.test.ts > Telegram (mock fetch only) > checks Telegram payload.ok and stops after three unsuccessful attempts
+[TELEGRAM] Gửi thất bại sau retry giới hạn; cảnh báo vẫn được lưu trong DB.
+
+ ✓ tests/telemetry-alerts.test.ts  (13 tests) 229ms
+ ✓ tests/audit.test.ts  (22 tests) 434ms
+stdout | tests/security-audit.test.ts > bounded failed-login audit and trusted proxy > returns the same generic 401 for missing users and bad passwords without serializing secrets
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > bounded failed-login audit and trusted proxy > keeps the disabled-account response and audits it only after verifying the password
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > bounded failed-login audit and trusted proxy > rejects malformed credentials before audit and strips control characters from the attempted username
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > bounded failed-login audit and trusted proxy > never grants a login or leaks the database failure when failed-audit persistence fails
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > bounded failed-login audit and trusted proxy > ignores forged forwarded headers from direct VPN/transport connections
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > bounded failed-login audit and trusted proxy > trusts only the configured Caddy IP, including mapped IPv4, and stops at the nearest untrusted hop
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > bounded failed-login audit and trusted proxy > uses only the socket address when no trusted proxy is configured
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > bounded failed-login audit and trusted proxy > caps login at ten requests per IP/minute before password lookup or audit, despite forged XFF
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > bounded failed-login audit and trusted proxy > checks the current database role before issuing SSH tickets, ignoring an Admin JWT claim
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > one-time SSH ticket negative paths > consumes a valid ticket once and rejects replay
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > one-time SSH ticket negative paths > rejects a ticket for the wrong node and burns it rather than permitting another attempt
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stderr | tests/security-audit.test.ts > SSH request IP remains consistent through audit lifecycle (mock connection) > writes the actual request IP for START and ordinary END with the same session id
+❌ [BASTION ERROR] Không thể đọc khóa riêng SSH: isolated-test-key-missing
+
+stdout | tests/security-audit.test.ts > one-time SSH ticket negative paths > rejects a ticket exactly at its deadline and when its JWT has already expired
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > SSH request IP remains consistent through audit lifecycle (mock connection) > writes the actual request IP for START and ordinary END with the same session id
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+stdout | tests/security-audit.test.ts > SSH request IP remains consistent through audit lifecycle (mock connection) > preserves the IP when the browser disconnects while START is still pending
+🛑 [BASTION SHUTDOWN] Đang đóng an toàn 0 phiên Web SSH...
+
+ ✓ tests/security-audit.test.ts  (14 tests) 2819ms
+
+ Test Files  3 passed (3)
+      Tests  49 passed (49)
+   Start at  11:02:46
+   Duration  5.98s (transform 1.28s, setup 0ms, collect 3.10s, tests 3.48s, environment 2ms, prepare 1.05s)
+
+Unit tests dùng mock DB/fetch; chạy make e2e để kiểm chứng cụm thật.

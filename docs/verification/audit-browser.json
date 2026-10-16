@@ -1,0 +1,23 @@
+{
+  "source": "real demo PostgreSQL via authenticated HTTPS",
+  "rows_on_page": 25,
+  "filter_and_details": "real SSH audit; VPN IP search, action filter, legacy node join and session details",
+  "pagination": "real next/previous page passed",
+  "tablet": {
+    "overflow": false,
+    "width": 768
+  },
+  "mobile": {
+    "overflow": false,
+    "width": 375
+  },
+  "small-mobile": {
+    "overflow": false,
+    "width": 320
+  },
+  "error_empty": "browser fetch simulation only; real API restored and Retry succeeded",
+  "ssh_lifecycle": "real terminal command; new END event appeared in activity page within30s",
+  "viewer": "real Viewer: menu absent and direct API403",
+  "javascript_errors": [],
+  "navigation": "reselect audit scrolls to top; audit→fleet visible after data load (scroll clamped at natural page end)"
+}

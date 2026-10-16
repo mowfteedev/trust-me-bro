@@ -4,6 +4,7 @@ import { verifyPassword } from '../utils/crypto.js';
 import { query } from '../services/db.js';
 import { config } from '../config/env.js';
 import { authenticate, AuthUserPayload } from '../middlewares/auth.middleware.js';
+import { normalizeClientIp } from '../utils/client-ip.js';
 
 /**
  * ==============================================================================
@@ -25,7 +26,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
    * POST /api/auth/login
    * Đăng nhập và phát hành JSON Web Token (HMAC-SHA256) kèm session_version
    */
-  fastify.post('/login', async (req, reply) => {
+  fastify.post('/login', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
     const parseResult = LoginRequestSchema.safeParse(req.body);
     if (!parseResult.success) {
       return reply.status(400).send({
@@ -39,6 +40,22 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     }
 
     const { username, password } = parseResult.data;
+    const clientIp = normalizeClientIp(req.ip);
+    // Runs only after the rate limiter and validation. No passwords/tokens/raw body.
+    // A failed audit write must never convert invalid credentials into a login.
+    const recordLoginFailure = async (userId: string | null, reason: 'invalid_credentials' | 'account_disabled') => {
+      try {
+        await query(
+          `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
+           VALUES ($1, 'LOGIN_FAILED', 'auth', $2, $3::inet);`,
+          [userId, JSON.stringify({
+            attempted_username: username.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 50), reason,
+          }), clientIp]
+        );
+      } catch (auditErr) {
+        req.log.error({ auditErr }, 'Không thể ghi nhật ký đăng nhập thất bại');
+      }
+    };
 
     try {
       // 1. Tìm người dùng trong CSDL kèm session_version
@@ -49,6 +66,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
 
       if (userRes.rows.length === 0) {
         verifyPassword(password, DUMMY_HASH);
+        await recordLoginFailure(null, 'invalid_credentials');
         return reply.status(401).send({
           type: 'https://tools.ietf.org/html/rfc7807',
           title: 'Đăng nhập thất bại',
@@ -63,6 +81,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
       // 2. Kiểm tra mật khẩu an toàn với Scrypt và timingSafeEqual
       const isPasswordValid = verifyPassword(password, user.password_hash);
       if (!isPasswordValid) {
+        await recordLoginFailure(user.id, 'invalid_credentials');
         return reply.status(401).send({
           type: 'https://tools.ietf.org/html/rfc7807',
           title: 'Đăng nhập thất bại',
@@ -74,6 +93,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
 
       // 3. Chỉ sau khi mật khẩu hợp lệ mới kiểm tra trạng thái tài khoản
       if (!user.is_active) {
+        await recordLoginFailure(user.id, 'account_disabled');
         return reply.status(403).send({
           type: 'https://tools.ietf.org/html/rfc7807',
           title: 'Tài khoản bị khóa',
@@ -96,14 +116,11 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
       });
 
       // 5. Ghi nhận log kiểm toán bất biến - FAIL-CLOSED (R07 Remediation)
-      const clientIp = req.ip || '127.0.0.1';
-      const normalizedIp = clientIp === '::1' ? '127.0.0.1' : clientIp.replace(/^::ffff:/, '');
-
       try {
         await query(
           `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
            VALUES ($1, 'LOGIN_SUCCESS', 'auth', $2, $3::inet);`,
-          [user.id, JSON.stringify({ user_agent: req.headers['user-agent'] || 'unknown' }), normalizedIp]
+          [user.id, JSON.stringify({ user_agent: req.headers['user-agent'] || 'unknown' }), clientIp]
         );
       } catch (auditErr: any) {
         req.log.error({ auditErr }, 'Lỗi ghi audit log khi đăng nhập - Fail-Closed kích hoạt');
@@ -150,7 +167,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         [user.id]
       );
 
-      const clientIp = (req.ip || '127.0.0.1').replace(/^::ffff:/, '');
+      const clientIp = normalizeClientIp(req.ip);
       try {
         await query(
           `INSERT INTO audit_logs (user_id, action, target, details, ip_address)

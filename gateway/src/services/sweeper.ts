@@ -146,9 +146,17 @@ export async function runSweeperCycle(): Promise<{
           : 'Lease Expired (Heartbeat lost / Gateway instance crash)';
 
         // Ghi nhận Audit Log BASTION_SESSION_END với điều kiện Idempotent (ngăn ngừa duplicate từ nhiều instance)
+        // Reuse the matching START peer IP. A missing START/IP stays NULL.
         await query(
           `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
-           SELECT $1, 'BASTION_SESSION_END', 'bastion', $2, '127.0.0.1'::inet
+           SELECT $1, 'BASTION_SESSION_END', 'bastion', $2, (
+             SELECT start_log.ip_address FROM audit_logs start_log
+             WHERE start_log.action = 'BASTION_SESSION_START'
+               AND start_log.details->>'session_id' = $3
+               AND start_log.user_id = $1
+             ORDER BY start_log.created_at ASC, start_log.id ASC
+             LIMIT 1
+           )
            WHERE NOT EXISTS (
              SELECT 1 FROM audit_logs
              WHERE action = 'BASTION_SESSION_END'

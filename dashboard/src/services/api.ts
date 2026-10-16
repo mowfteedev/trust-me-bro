@@ -1,4 +1,4 @@
-import { NodeItem, MetricSnapshot, UserSession } from '../types/index.js';
+import { NodeItem, MetricSnapshot, UserSession, AuditLogPage } from '../types/index.js';
 
 /**
  * ==============================================================================
@@ -136,6 +136,13 @@ class ApiService {
   public async getNodeHistory(nodeId: string): Promise<MetricSnapshot[]> {
     const res = await this.request<{ success: boolean; data: MetricSnapshot[] }>(`/api/telemetry/nodes/${nodeId}/history`);
     return res.data;
+  }
+
+  public async getAuditLogs(filters: { page: number; action: string; q: string }): Promise<AuditLogPage> {
+    const params = new URLSearchParams({ page: String(filters.page) });
+    if (filters.action) params.set('action', filters.action);
+    if (filters.q) params.set('q', filters.q);
+    return this.request<AuditLogPage>(`/api/audit/logs?${params}`);
   }
 
   /**

@@ -1,110 +1,139 @@
-import React from 'react';
-import { MetricSnapshot } from '../types/index.js';
+import React, { useId } from "react";
+import { Activity } from "lucide-react";
+import { MetricSnapshot } from "../types/index.js";
+import { formatTime } from "../utils/format.js";
 
 interface MetricsChartProps {
   metrics: MetricSnapshot[];
   title?: string;
 }
 
-/**
- * ==============================================================================
- * BIỂU ĐỒ CHỈ SỐ TÀI NGUYÊN THỜI GIAN THỰC (components/MetricsChart.tsx)
- * Dự án: ZT-ServerOps (do-an-co-so-nganh)
- * Phụ trách: frontend (chủ trì), designer
- * ==============================================================================
- *
- * LÝ DO PHI TRỰC GIÁC (RATIONALE):
- * Xây dựng biểu đồ thuần túy qua phần tử SVG tối ưu hóa, không nhồi nhét các thư viện
- * charting cồng kềnh (> 300KB) như Recharts hay Chart.js, giúp giảm tối đa kích thước bundle
- * và đạt điểm hiệu năng Lighthouse > 90.
- */
-
-export const MetricsChart: React.FC<MetricsChartProps> = ({ metrics, title = 'CPU & RAM (30 mẫu gần nhất)' }) => {
-  if (!metrics || metrics.length === 0) {
+// SVG keeps the chart small; every point represents a metric received from the API.
+export const MetricsChart: React.FC<MetricsChartProps> = ({
+  metrics,
+  title,
+}) => {
+  const gradientId = useId().replace(/:/g, "");
+  if (!metrics.length)
     return (
-      <div className="flex h-48 w-full items-center justify-center rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900/40 text-slate-400 dark:text-neutral-500">
-        <p className="text-sm">Chưa có đủ số liệu đo xa để hiển thị biểu đồ</p>
+      <div className="chart-empty">
+        <Activity size={26} />
+        <span>Chưa có số liệu để hiển thị biểu đồ.</span>
       </div>
     );
-  }
 
-  // Lấy tối đa 30 điểm đo gần nhất và đảo ngược theo thứ tự thời gian tăng dần
   const points = [...metrics].slice(0, 30).reverse();
   const width = 600;
   const height = 180;
-  const padding = 28;
-
-  const innerW = width - padding * 2;
-  const innerH = height - padding * 2;
-
-  // Tính toán tọa độ các điểm cho CPU %
-  const cpuPoints = points.map((p, idx) => {
-    const x = padding + (idx / Math.max(1, points.length - 1)) * innerW;
-    const y = padding + innerH - (Math.min(100, Math.max(0, p.cpu_percent)) / 100) * innerH;
-    return { x, y, val: p.cpu_percent };
+  const padding = 6;
+  const position = (value: number, index: number) => ({
+    x:
+      padding +
+      (index / Math.max(1, points.length - 1)) * (width - padding * 2),
+    y:
+      padding +
+      (1 - Math.min(100, Math.max(0, value)) / 100) * (height - padding * 2),
   });
-
-  // Tính toán tọa độ các điểm cho RAM %
-  const ramPoints = points.map((p, idx) => {
-    const memPercent = p.memory_total_bytes > 0 ? (p.memory_used_bytes / p.memory_total_bytes) * 100 : 0;
-    const x = padding + (idx / Math.max(1, points.length - 1)) * innerW;
-    const y = padding + innerH - (Math.min(100, Math.max(0, memPercent)) / 100) * innerH;
-    return { x, y, val: memPercent };
-  });
-
-  const cpuPath = cpuPoints.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x},${pt.y}`, '');
-  const ramPath = ramPoints.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x},${pt.y}`, '');
-
-  const latestCpu = points[points.length - 1]?.cpu_percent.toFixed(1) || '0.0';
-  const latestRam = points[points.length - 1]
-    ? ((points[points.length - 1].memory_used_bytes / Math.max(1, points[points.length - 1].memory_total_bytes)) * 100).toFixed(1)
-    : '0.0';
+  const cpu = points.map((point, index) => position(point.cpu_percent, index));
+  const ramPercent = (point: MetricSnapshot) =>
+    point.memory_total_bytes > 0
+      ? (point.memory_used_bytes / point.memory_total_bytes) * 100
+      : 0;
+  const ram = points.map((point, index) => position(ramPercent(point), index));
+  const path = (values: { x: number; y: number }[]) =>
+    values
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x},${point.y}`)
+      .join(" ");
+  const latest = points[points.length - 1];
+  const latestCpu = latest.cpu_percent.toFixed(1);
+  const latestRam = ramPercent(latest).toFixed(1);
+  const cpuEnd = cpu[cpu.length - 1];
+  const ramEnd = ram[ram.length - 1];
 
   return (
-    <div className="rounded-xl border border-slate-200/90 dark:border-neutral-800 bg-slate-50/60 dark:bg-neutral-900/60 p-4 shadow-xs">
-      <div className="mb-2 flex flex-wrap gap-2 items-center justify-between">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-neutral-400">{title}</h4>
-        <div className="flex items-center space-x-4 text-xs font-mono">
-          <span className="flex items-center text-sky-600 dark:text-cyan-400">
-            <span className="mr-1.5 h-2 w-2 rounded-full bg-sky-500 dark:bg-cyan-400" />
-            CPU: {latestCpu}%
-          </span>
-          <span className="flex items-center text-emerald-600 dark:text-emerald-400">
-            <span className="mr-1.5 h-2 w-2 rounded-full bg-emerald-500 dark:bg-emerald-400" />
-            RAM: {latestRam}%
-          </span>
-        </div>
+    <div className="metrics-chart">
+      {title && <h4>{title}</h4>}
+      <div className="chart-legend">
+        <span>
+          <i className="cpu" />
+          CPU <b>{latestCpu}%</b>
+        </span>
+        <span>
+          <i className="memory" />
+          RAM <b>{latestRam}%</b>
+        </span>
+        <small>{points.length} mẫu đo</small>
       </div>
-
-      <div className="relative w-full overflow-hidden">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
-          {/* Lưới tọa độ ngang */}
-          {[0, 25, 50, 75, 100].map((level) => {
-            const y = padding + innerH - (level / 100) * innerH;
-            return (
-              <g key={level}>
-                <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="#1f2937" strokeDasharray="3 3" />
-                <text x={padding - 6} y={y + 3} textAnchor="end" fontSize="9" fill="#6b7280" fontFamily="monospace">
-                  {level}%
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Đường biểu diễn RAM */}
-          <path d={ramPath} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" />
-
-          {/* Đường biểu diễn CPU */}
-          <path d={cpuPath} fill="none" stroke="#06b6d4" strokeWidth="2.5" strokeLinecap="round" />
-
-          {/* Điểm nhấn mới nhất */}
-          {cpuPoints.length > 0 && (
-            <circle cx={cpuPoints[cpuPoints.length - 1].x} cy={cpuPoints[cpuPoints.length - 1].y} r="3.5" fill="#06b6d4" />
-          )}
-          {ramPoints.length > 0 && (
-            <circle cx={ramPoints[ramPoints.length - 1].x} cy={ramPoints[ramPoints.length - 1].y} r="3.5" fill="#10b981" />
-          )}
+      <div className="chart-plot">
+        <div className="chart-scale" aria-hidden="true">
+          {[100, 75, 50, 25, 0].map((level) => (
+            <span key={level}>{level}%</span>
+          ))}
+        </div>
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={`Biểu đồ CPU và RAM, ${points.length} mẫu đo. Mẫu cuối: CPU ${latestCpu}%, RAM ${latestRam}%.`}
+        >
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop
+                offset="0%"
+                stopColor="var(--chart-cpu)"
+                stopOpacity="0.18"
+              />
+              <stop
+                offset="100%"
+                stopColor="var(--chart-cpu)"
+                stopOpacity="0.01"
+              />
+            </linearGradient>
+          </defs>
+          {[0, 25, 50, 75, 100].map((level) => (
+            <line
+              key={level}
+              x1={padding}
+              x2={width - padding}
+              y1={position(level, 0).y}
+              y2={position(level, 0).y}
+              stroke="var(--chart-grid)"
+              strokeDasharray="3 5"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          <path
+            d={`${path(cpu)} L ${cpuEnd.x},${height - padding} L ${cpu[0].x},${height - padding} Z`}
+            fill={`url(#${gradientId})`}
+          />
+          <path
+            d={path(ram)}
+            fill="none"
+            stroke="var(--chart-ram)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+          <path
+            d={path(cpu)}
+            fill="none"
+            stroke="var(--chart-cpu)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+          <circle cx={cpuEnd.x} cy={cpuEnd.y} r="3.5" fill="var(--chart-cpu)" />
+          <circle cx={ramEnd.x} cy={ramEnd.y} r="3" fill="var(--chart-ram)" />
         </svg>
+      </div>
+      <div className="chart-time">
+        <span>{formatTime(points[0].recorded_at)}</span>
+        <span>
+          {formatTime(points[Math.floor((points.length - 1) / 2)].recorded_at)}
+        </span>
+        <span>{formatTime(latest.recorded_at)}</span>
       </div>
     </div>
   );

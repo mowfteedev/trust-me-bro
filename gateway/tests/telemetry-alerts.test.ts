@@ -127,6 +127,45 @@ describe('Liveness (mock DB)', () => {
   });
 });
 
+describe('orphan SSH audit reconciliation (mock DB)', () => {
+  const lease = { session_id: 'e44d9c38-9d6e-450f-b7d1-c253c5293c31',
+    user_id: '956947db-c94f-453a-8798-908e6a197a3e', node_id: node.id,
+    instance_id: 'isolated-test-gateway', status: 'CLOSED', close_reason: 'Client Closed',
+    lease_expires_at: new Date('2026-10-16T00:00:00Z') };
+  beforeEach(() => {
+    mock.query.mockImplementation(async (sql: string) => ({
+      rows: sql.includes('FROM bastion_session_leases l') ? [lease] : [], rowCount: 1,
+    }));
+  });
+  it('links the END IP to the original START for the same session and user, with no fabricated fallback', async () => {
+    await runSweeperCycle();
+    const insert = mock.query.mock.calls.find(([sql]) => sql.includes("SELECT $1, 'BASTION_SESSION_END'"));
+    expect(insert).toBeDefined();
+    const [sql, params] = insert!;
+    expect(sql).toContain('SELECT start_log.ip_address FROM audit_logs start_log');
+    expect(sql).toContain("start_log.action = 'BASTION_SESSION_START'");
+    expect(sql).toContain("start_log.details->>'session_id' = $3");
+    expect(sql).toContain('start_log.user_id = $1');
+    expect(sql).toContain('ORDER BY start_log.created_at ASC, start_log.id ASC');
+    expect(sql).toContain('LIMIT 1');
+    expect(sql).not.toContain('127.0.0.1');
+    expect(sql).not.toContain('COALESCE');
+    expect(params[0]).toBe(lease.user_id);
+    expect(params[2]).toBe(lease.session_id);
+    expect(JSON.parse(params[1])).toMatchObject({ session_id: lease.session_id, reason: lease.close_reason });
+    expect(mock.query).toHaveBeenCalledWith(expect.stringContaining("SET status = 'RECONCILED'"),
+      [lease.session_id, lease.close_reason]);
+  });
+  it('leaves the lease retryable when the reconciled END audit cannot be inserted', async () => {
+    mock.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("SELECT $1, 'BASTION_SESSION_END'")) throw new Error('isolated-audit-write-failure');
+      return { rows: sql.includes('FROM bastion_session_leases l') ? [lease] : [], rowCount: 1 };
+    });
+    await runSweeperCycle();
+    expect(mock.query.mock.calls.some(([sql]) => sql.includes("SET status = 'RECONCILED'"))).toBe(false);
+  });
+});
+
 describe('Telegram (mock fetch only)', () => {
   it('dry-run reports simulation without any fetch even with a token', async () => {
     const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);

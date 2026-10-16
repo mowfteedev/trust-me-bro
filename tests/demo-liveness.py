@@ -1,13 +1,18 @@
 from pathlib import Path
-import json,subprocess,time,threading,ssl,urllib.request
+import argparse,json,subprocess,time,threading,ssl,urllib.request
 root=Path(__file__).resolve().parents[1]
+parser=argparse.ArgumentParser(description='Pause/unpause a demo worker; preserves volumes and restores it in finally.')
+parser.add_argument('--env-file',type=Path,default=root/'keys/demo.env')
+parser.add_argument('--project',default='zt_demo')
+args=parser.parse_args()
+env=dict(x.split('=',1) for x in args.env_file.read_text().splitlines() if '=' in x and not x.lstrip().startswith('#'))
 login=dict(x.split('=',1) for x in (root/'keys/demo-login.env').read_text().splitlines())
-compose=['docker','compose','--env-file',str(root/'keys/demo.env'),'-p','zt_demo','--profile','demo']
+compose=['docker','compose','--env-file',str(args.env_file.resolve()),'-p',args.project,'--profile','demo']
 ctx=ssl._create_unverified_context()
 def request(path,body=None,token=None):
  headers={'content-type':'application/json'}
  if token:headers['Authorization']='Bearer '+token
- req=urllib.request.Request('https://localhost'+path,data=None if body is None else json.dumps(body).encode(),headers=headers)
+ req=urllib.request.Request('https://localhost:'+env.get('HTTPS_PORT','443')+path,data=None if body is None else json.dumps(body).encode(),headers=headers)
  with urllib.request.urlopen(req,context=ctx,timeout=5) as response:return json.load(response)
 token=request('/api/auth/login',{'username':'demo-admin','password':login['DEMO_ADMIN_PASSWORD']})['token']
 def state():

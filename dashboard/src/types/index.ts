@@ -48,3 +48,34 @@ export interface ClusterSummary {
   avgCpu: number;
   avgMemory: number;
 }
+
+export interface AuditLogItem {
+  id: string;
+  created_at: string;
+  action: string;
+  user_id: string | null;
+  username: string | null;
+  node_id: string | null;
+  node_name: string | null;
+  ip_address: string | null;
+  target: string | null;
+  details: {
+    attempted_username?: string;
+    session_id?: string;
+    reason?: string;
+    target_ip?: string;
+    message?: string;
+    cpu_percent?: number;
+    threshold?: number;
+    ip?: string;
+    last_seen?: string | null;
+  };
+}
+
+export interface AuditLogPage {
+  success: boolean;
+  data: AuditLogItem[];
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}

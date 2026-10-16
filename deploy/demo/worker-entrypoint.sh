@@ -17,7 +17,7 @@ chmod 644 /etc/ssh/authorized_keys/ztuser
 /usr/sbin/sshd -t
 /usr/sbin/sshd -D -e &
 ssh_pid=$!
-su-exec ztuser:ztgroup python3 /app/main.py &
+su-exec ztuser:ztgroup /usr/local/bin/zt-agent &
 agent_pid=$!
 trap 'kill "$ssh_pid" "$agent_pid" 2>/dev/null || true; wait; exit 0' TERM INT
 # Fail the fixture if SSH or telemetry exits, so Compose can restart it.

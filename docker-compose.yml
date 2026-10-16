@@ -112,6 +112,8 @@ services:
       # Danh tính và Xác thực
       JWT_SECRET: "${JWT_SECRET:?LỖI: JWT_SECRET bắt buộc phải được thiết lập trong .env}"
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      # Only the designated Caddy peer may supply forwarded client addresses.
+      TRUSTED_PROXY_IP: ${PROXY_INTERNAL_IP:-172.30.88.254}
       # Kết nối CSDL: CHỈ SỬ DỤNG VAI TRÒ ÍT QUYỀN zt_app (N02 & R3-01 REMEDIATION)
       DATABASE_URL: "${DATABASE_URL:?LỖI: DATABASE_URL bắt buộc phải được thiết lập trong .env}"
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-20}
@@ -147,7 +149,7 @@ services:
       - zt_internal_net
       - zt_wg_transport
     ports:
-      - "${WG_BIND_IP:-0.0.0.0}:51820:51820/udp"
+      - "${WG_BIND_IP:-0.0.0.0}:${WG_HOST_PORT:-51820}:51820/udp"
     expose:
       - "3000"
 
@@ -181,7 +183,8 @@ services:
       - gateway
       - dashboard
     networks:
-      - zt_ingress_net
+      zt_ingress_net:
+        ipv4_address: ${PROXY_INTERNAL_IP:-172.30.88.254}
 
   # ----------------------------------------------------------------------------
   # 5. MÁY CHỦ CON MÔ PHỎNG PHÁT SÓNG THỰC TẾ (WORKER DAEMON AGENT)
@@ -218,6 +221,8 @@ services:
       GATEWAY_URL: http://10.100.0.1:3000
       BEACON_INTERVAL_SECONDS: "3.0"
       JITTER_RATIO: "0.0"
+      NETWORK_INTERFACE: wg0
+      DISK_MOUNT_POINT: /
     volumes:
       - ./keys/wg0-node.conf:/etc/wireguard/wg0.conf:ro
       - ./keys/bastion_id_ed25519.pub:/run/zt/authorized_keys:ro
@@ -238,6 +243,9 @@ networks:
   # Mạng biên tiếp nhận lưu lượng từ Caddy chuyển tiếp vào Gateway & Dashboard
   zt_ingress_net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: ${INGRESS_SUBNET:-172.30.88.0/24}
 
   # Mạng nội bộ tuyệt mật nối Gateway với CSDL PostgreSQL (Cấm truy cập Internet)
   zt_internal_net:

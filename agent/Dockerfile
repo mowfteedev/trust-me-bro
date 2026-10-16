@@ -1,24 +1,13 @@
-# ==============================================================================
-# DOCKERFILE ĐÓNG GÓI ENDPOINT WORKER DAEMON SIÊU NHẸ (< 45MB)
-# Dự án: ZT-ServerOps (do-an-co-so-nganh)
-# Phụ trách: devops (chủ trì), agent, tester
-# ==============================================================================
+# Only the builder contains Go. Runtime has one static Linux binary and CA roots.
+FROM golang:1.27-alpine AS builder
+WORKDIR /src
+COPY go.mod *.go ./
+RUN CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/zt-agent .
 
-FROM python:3.12-alpine
-
-WORKDIR /app
-
-ENV PYTHONUNBUFFERED=1
-
-# Tạo người dùng và nhóm không đặc quyền để tăng cường phòng thủ
-RUN addgroup -S ztgroup && adduser -S ztuser -G ztgroup
-
-# Sao chép toàn bộ mã nguồn của Agent
-COPY src/ /app/
-
-# Chuyển quyền sở hữu cho người dùng không đặc quyền
-RUN chown -R ztuser:ztgroup /app
-
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S ztgroup && adduser -S ztuser -G ztgroup
+COPY --from=builder /out/zt-agent /usr/local/bin/zt-agent
+ENV GOMAXPROCS=1
 USER ztuser
-
-CMD ["python3", "/app/main.py"]
+ENTRYPOINT ["/usr/local/bin/zt-agent"]

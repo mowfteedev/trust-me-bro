@@ -17,6 +17,12 @@ const envSchema = z.object({
   GATEWAY_PORT: z.coerce.number().int().min(1024).max(65535).default(3000),
   GATEWAY_HOST: z.string().default('0.0.0.0'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // Only the known Caddy socket may supply forwarded client addresses.
+  // Omit for direct access; arbitrary peers on VPN/transport remain untrusted.
+  TRUSTED_PROXY_IP: z.preprocess(
+    (value) => value === '' ? undefined : value,
+    z.string().ip().optional(),
+  ),
 
   // Ràng buộc bảo mật danh tính (HMAC-SHA256)
   // CHÚ THÍCH BẢO MẬT: Độ dài tối thiểu 32 ký tự để triệt tiêu nguy cơ brute-force chữ ký JWT

@@ -1,6 +1,7 @@
-import React from 'react';
-import { NodeItem, MetricSnapshot, UserSession } from '../types/index.js';
-import { Server, Terminal, Activity, HardDrive, Cpu, Radio } from 'lucide-react';
+import React from "react";
+import { NodeItem, MetricSnapshot, UserSession } from "../types/index.js";
+import { Server, Terminal, ChevronRight } from "lucide-react";
+import { StatusBadge } from "./StatusBadge.js";
 
 interface NodeCardProps {
   node: NodeItem;
@@ -11,14 +12,6 @@ interface NodeCardProps {
   isSelected?: boolean;
 }
 
-/**
- * ==============================================================================
- * THẺ HIỂN THỊ TRẠNG THÁI MÁY CHỦ CON (components/NodeCard.tsx)
- * Dự án: ZT-ServerOps (do-an-co-so-nganh)
- * Phụ trách: frontend (chủ trì), designer
- * ==============================================================================
- */
-
 export const NodeCard: React.FC<NodeCardProps> = ({
   node,
   latestMetric,
@@ -27,163 +20,76 @@ export const NodeCard: React.FC<NodeCardProps> = ({
   onSelectNode,
   isSelected = false,
 }) => {
-  const isHealthy = node.status === 'HEALTHY';
-  const isWarning = node.status === 'WARNING';
-  const isOffline = node.status === 'OFFLINE';
-  const statusLabel = isHealthy ? 'Online' : isWarning ? 'Stale' : 'Offline';
-  const formatBytes = (value?: number) => {
-    if (value === undefined) return '--';
-    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-    const index = value > 0 ? Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024))) : 0;
-    return `${(value / 1024 ** index).toFixed(1)} ${units[index]}`;
-  };
-  const uptime = latestMetric?.uptime_seconds;
-  const uptimeLabel = uptime === undefined ? '--' : `${Math.floor(uptime / 86400)}d ${Math.floor(uptime % 86400 / 3600)}h ${Math.floor(uptime % 3600 / 60)}m`;
-
-  const cpuPercent = latestMetric ? latestMetric.cpu_percent.toFixed(1) : '--';
-  const memPercent = latestMetric && latestMetric.memory_total_bytes > 0
-    ? ((latestMetric.memory_used_bytes / latestMetric.memory_total_bytes) * 100).toFixed(1)
-    : '--';
-  const diskPercent = latestMetric && latestMetric.disk_total_bytes > 0
-    ? ((latestMetric.disk_used_bytes / latestMetric.disk_total_bytes) * 100).toFixed(1)
-    : '--';
-
+  const cpu = latestMetric?.cpu_percent;
+  const memory =
+    latestMetric && latestMetric.memory_total_bytes > 0
+      ? (latestMetric.memory_used_bytes / latestMetric.memory_total_bytes) * 100
+      : undefined;
   return (
-    <div
-      onClick={() => onSelectNode(node)}
-      className={`group relative flex flex-col justify-between rounded-2xl border p-5 transition-all duration-200 cursor-pointer shadow-xs ${
-        isSelected
-          ? 'border-sky-500 bg-sky-50/40 dark:bg-slate-900/90 dark:border-sky-500 ring-2 ring-sky-500/20 shadow-md'
-          : 'border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/70 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md'
-      }`}
-    >
-      {/* 1. Phần tiêu đề và định danh Node */}
-      <div>
-        <div className="flex flex-wrap gap-2 items-start justify-between">
-          <div className="flex min-w-0 items-center space-x-3">
-            <div className={`rounded-xl p-2.5 transition-colors ${
-              isHealthy ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' :
-              isWarning ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400' :
-              'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400'
-            }`}>
-              <Server className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="break-words font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
-                {node.name}
-              </h3>
-              <p className="font-mono text-xs text-slate-500 dark:text-slate-400 flex items-center mt-0.5">
-                <Radio className="h-3 w-3 mr-1 text-slate-400 dark:text-slate-500" />
-                {node.ip_address}
-              </p>
-            </div>
-          </div>
-
-          {/* Huy hiệu trạng thái Liveness */}
-          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium font-mono border ${
-            isHealthy
-              ? 'border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'
-              : isWarning
-              ? 'border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
-              : 'border-rose-200 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400'
-          }`}>
-            <span className={`mr-1.5 h-1.5 w-1.5 rounded-full ${
-              isHealthy ? 'bg-emerald-500 animate-pulse' :
-              isWarning ? 'bg-amber-500' : 'bg-rose-500'
-            }`} />
-            {statusLabel}
+    <article className={`node-card ${isSelected ? "selected" : ""}`}>
+      <button
+        className="node-select"
+        onClick={() => onSelectNode(node)}
+        aria-pressed={isSelected}
+        aria-label={`Xem tài nguyên ${node.name}`}
+      >
+        <div className="node-card-top">
+          <span className="node-icon">
+            <Server size={19} />
           </span>
+          <StatusBadge status={node.status} />
         </div>
-        <dl className="mt-4 space-y-1 text-xs font-mono text-slate-500 dark:text-slate-400">
-          <div className="flex flex-wrap justify-between gap-x-2"><dt>Network RX / TX</dt><dd>{formatBytes(latestMetric?.network_rx_bytes)} / {formatBytes(latestMetric?.network_tx_bytes)}</dd></div>
-          <div className="flex justify-between"><dt>Uptime</dt><dd>{uptimeLabel}</dd></div>
-        </dl>
-        <p className="mt-2 text-[10px] text-slate-400">RX/TX: tổng byte từ lúc khởi động. {node.last_seen ? `Heartbeat: ${new Date(node.last_seen).toLocaleTimeString('vi-VN')}` : 'Chưa nhận heartbeat.'}</p>
-        {!isHealthy && latestMetric && <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">Số liệu lần cuối; chưa có heartbeat mới.</p>}
-
-        {/* 2. Chỉ số phần cứng thu nhỏ (Mini Resource Bars - Phong cách DirectAdmin mỏng & thanh lịch) */}
-        <div className="mt-5 space-y-3">
-          {/* CPU */}
-          <div>
-            <div className="flex justify-between text-xs font-mono text-slate-500 dark:text-slate-400 mb-1">
-              <span className="flex items-center font-medium">
-                <Cpu className="h-3.5 w-3.5 mr-1 text-slate-400 dark:text-slate-500" /> CPU
-              </span>
-              <span className="text-slate-700 dark:text-slate-200 font-semibold">{cpuPercent}%</span>
-            </div>
-            <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 ${
-                  Number(cpuPercent) > 85 ? 'bg-rose-500' :
-                  Number(cpuPercent) > 60 ? 'bg-amber-500' : 'bg-sky-500'
-                }`}
-                style={{ width: `${Math.min(100, Math.max(0, Number(cpuPercent) || 0))}%` }}
-              />
-            </div>
-          </div>
-
-          {/* RAM */}
-          <div>
-            <div className="flex justify-between text-xs font-mono text-slate-500 dark:text-slate-400 mb-1">
-              <span className="flex items-center font-medium">
-                <Activity className="h-3.5 w-3.5 mr-1 text-slate-400 dark:text-slate-500" /> RAM
-              </span>
-              <span className="text-slate-700 dark:text-slate-200 font-semibold">{memPercent}%</span>
-            </div>
-            <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 ${
-                  Number(memPercent) > 85 ? 'bg-rose-500' :
-                  Number(memPercent) > 70 ? 'bg-amber-500' : 'bg-emerald-500'
-                }`}
-                style={{ width: `${Math.min(100, Math.max(0, Number(memPercent) || 0))}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Disk */}
-          <div>
-            <div className="flex justify-between text-xs font-mono text-slate-500 dark:text-slate-400 mb-1">
-              <span className="flex items-center font-medium">
-                <HardDrive className="h-3.5 w-3.5 mr-1 text-slate-400 dark:text-slate-500" /> Disk
-              </span>
-              <span className="text-slate-700 dark:text-slate-200 font-semibold">{diskPercent}%</span>
-            </div>
-            <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-              <div
-                className="h-full bg-indigo-500 dark:bg-indigo-400 transition-all duration-500"
-                style={{ width: `${Math.min(100, Math.max(0, Number(diskPercent) || 0))}%` }}
-              />
-            </div>
-          </div>
+        <div className="node-name">
+          <strong>{node.name}</strong>
+          <ChevronRight size={16} />
         </div>
-      </div>
-
-      {/* 3. Nút mở Web SSH Terminal (Chuẩn Touch Target >= 44x44px) */}
-      <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-        <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">
-          Loại: {node.node_type}
+        <span className="node-address">{node.ip_address}</span>
+        <div className="node-mini-metrics">
+          {[
+            { label: "CPU", value: cpu, color: "cpu" },
+            { label: "RAM", value: memory, color: "memory" },
+          ].map(({ label, value, color }) => (
+            <div key={label}>
+              <span>
+                {label}
+                <b>{value === undefined ? "—" : `${value.toFixed(1)}%`}</b>
+              </span>
+              <div className="meter">
+                <i
+                  className={color}
+                  style={{
+                    width: `${Math.min(100, Math.max(0, value ?? 0))}%`,
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </button>
+      <div className="node-card-footer">
+        <span>
+          {node.node_type === "DOCKER"
+            ? "Docker container"
+            : node.node_type === "VM"
+              ? "Virtual machine"
+              : "Bare metal"}
         </span>
-
-        {currentUser?.role === 'ADMIN' ? (
+        {currentUser?.role === "ADMIN" ? (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenTerminal(node);
-            }}
-            disabled={isOffline}
-            className="min-h-[44px] px-4 inline-flex items-center justify-center space-x-1.5 rounded-xl border border-sky-200 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/40 text-xs font-semibold text-sky-700 dark:text-sky-300 hover:bg-sky-600 hover:text-white dark:hover:bg-sky-500 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-xs"
-            title={isOffline ? 'Máy chủ đang Offline' : 'Mở phiên dòng lệnh an toàn Web SSH'}
+            className="node-ssh"
+            onClick={() => onOpenTerminal(node)}
+            disabled={node.status === "OFFLINE"}
+            title={
+              node.status === "OFFLINE" ? "Máy chủ đang Offline" : "Mở Web SSH"
+            }
           >
-            <Terminal className="h-4 w-4" />
-            <span>Web SSH</span>
+            <Terminal size={14} />
+            Web SSH
           </button>
         ) : (
-          <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 py-2">
-            Chỉ đọc (Viewer)
-          </span>
+          <span className="viewer-label">Chỉ đọc (Viewer)</span>
         )}
       </div>
-    </div>
+    </article>
   );
 };

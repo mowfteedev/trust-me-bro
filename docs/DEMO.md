@@ -21,7 +21,7 @@ trình duyệt và terminal máy chủ.
 | 2 | Login `demo-viewer` | Thấy CPU/RAM/disk, tổng RX/TX, uptime, biểu đồ và Online; không có nút SSH |
 | 3 | Giới thiệu `demo.py check` | Backend trả 403 nếu Viewer gọi cấp vé SSH trực tiếp; ẩn nút không phải lớp bảo vệ duy nhất |
 | 4 | Logout, login `demo-admin`, mở Web SSH | Terminal CONNECTED; nhập `id`, `hostname`, `stty size`, tương tác shell thật với user `ztuser` |
-| 5 | Phóng to/thu nhỏ, đóng terminal | PTY resize, socket đóng; DB có START/END cùng session_id |
+| 5 | Phóng to/thu nhỏ, đóng terminal; mở Nhật ký hoạt động | PTY resize, socket đóng; START/END cùng session_id và IP request; lọc thêm đăng nhập thất bại |
 | 6 | Xem handshake/transfer WireGuard | Có peer handshake và lưu lượng; không xuất private key |
 | 7 | Tạm dừng worker theo lệnh dưới | Stale khoảng 15–20s, Offline khoảng 30–35s, log cảnh báo ghi rõ DRY-RUN |
 | 8 | Khôi phục worker | Tự về Online; incident offline resolved, không cần reset DB |
@@ -82,7 +82,8 @@ test; node kiểm thử không được chèn vào dashboard demo. Telegram ch�
 WireGuard không thay thế RBAC; máy có VPN vẫn cần token, quyền ứng dụng và
 fingerprint SSH. Gateway giữ khóa SSH nên vẫn là điểm tin cậy quan trọng;
 không tuyên bố an toàn tuyệt đối. SSH shell demo không có root. Snapshot RAM
-Mini-Agent khoảng 23 MiB, chưa đạt mốc khoảng 10 MB. Docker worker có VPN/SSH
+Python trước đây khoảng23MiB; Agent Go mới khoảng10,3–10,6MiB RSS trong các lượt đo,
+gần mục tiêu khoảng10MB nhưng không cam kết dưới10MB mọi tải. Docker worker có VPN/SSH
 thật nhưng chưa phải bằng chứng VMware/VirtualBox; xem [VM_SETUP.md](VM_SETUP.md).
 Số liệu `/proc` trong container phản ánh kernel/namespace đang chạy, không nên
 gọi toàn bộ là tài nguyên của một VM riêng.

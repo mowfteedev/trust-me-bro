@@ -39,7 +39,7 @@ def credentials():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['up', 'setup', 'check', 'down', 'status', 'logs'])
+    parser.add_argument('action', choices=['up', 'setup', 'check', 'check-cpu', 'down', 'status', 'logs'])
     parser.add_argument('--env-file', type=Path, default=KEYS / 'demo.env')
     parser.add_argument('--project', default='zt_demo')
     args = parser.parse_args()
@@ -80,13 +80,29 @@ def main():
         print(f'Dashboard: https://localhost:{env.get("HTTPS_PORT", "443")}')
         print('Tài khoản: demo-admin / demo-viewer; mật khẩu riêng trong keys/demo-login.env (0600).')
         print('Telegram: dry-run mặc định. Cụm riêng, không sửa .env hay DB cũ.')
-    elif args.action == 'check':
+    elif args.action in ('check', 'check-cpu'):
         login = credentials()
         test_input = {'admin_password': login['DEMO_ADMIN_PASSWORD'], 'viewer_password': login['DEMO_VIEWER_PASSWORD'],
                       'migration_url': env['MIGRATION_DATABASE_URL'], 'app_url': env['DATABASE_URL']}
-        for test in ('demo-runtime.cjs', 'runtime-alerts.cjs', 'runtime-schema.cjs'):
-            script = 'const credentials = ' + json.dumps(test_input) + ';\n' + (ROOT / 'tests' / test).read_text()
-            run(compose + ['exec', '-T', 'gateway', 'node', '-'], input=script, text=True)
+        binary_path = None
+        try:
+            if args.action == 'check-cpu':
+                binary = run(compose + ['exec', '-T', 'node_worker_01', 'cat', '/usr/local/bin/zt-agent'], stdout=subprocess.PIPE).stdout
+                binary_path = '/tmp/zt-agent-cpu-' + secrets.token_hex(6)
+                write = 'require("node:fs").writeFileSync(process.argv[1],require("node:fs").readFileSync(0),{mode:0o700})'
+                run(compose + ['exec', '-T', 'gateway', 'node', '-e', write, binary_path], input=binary)
+                tests = ('runtime-cpu-live.cjs',)
+            else:
+                tests = ('demo-runtime.cjs', 'runtime-alerts.cjs', 'runtime-schema.cjs', 'runtime-audit.cjs')
+            for test in tests:
+                script = 'const credentials = ' + json.dumps(test_input) + ';\n'
+                if binary_path:
+                    script += 'process.env.ZT_AGENT_TEST_BINARY = ' + json.dumps(binary_path) + ';\n'
+                script += (ROOT / 'tests' / test).read_text()
+                run(compose + ['exec', '-T', 'gateway', 'node', '-'], input=script, text=True)
+        finally:
+            if binary_path:
+                run(compose + ['exec', '-T', 'gateway', 'rm', '-f', binary_path])
     elif args.action == 'down':
         # Bảo toàn volume và mật khẩu; không dùng -v.
         run(compose + ['down'])

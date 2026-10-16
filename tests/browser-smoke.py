@@ -1,16 +1,18 @@
 import json
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 root=Path(__file__).resolve().parents[1]
 creds=dict(x.split('=',1) for x in (root/'keys/demo-login.env').read_text().splitlines())
-output=root/'docs/verification'
+output=Path(os.environ.get('ZT_UI_OUTPUT_DIR', str(root/'docs/verification')))
+output.mkdir(parents=True, exist_ok=True)
 errors=[]
 with sync_playwright() as p:
  browser=p.chromium.launch()
  context=browser.new_context(ignore_https_errors=True,viewport={'width':1920,'height':1080})
  page=context.new_page()
  page.on('pageerror',lambda error:errors.append(str(error)))
- page.goto('https://localhost',wait_until='domcontentloaded')
+ page.goto(os.environ.get('ZT_UI_BASE_URL','https://localhost'),wait_until='domcontentloaded')
  assert not page.evaluate("document.documentElement.classList.contains('dark')"), 'HTML ép dark bất chấp theme ứng dụng'
  expect(page.get_by_role('button',name='Đăng nhập vào Hệ thống')).to_be_visible()
  page.get_by_label('Tên tài khoản').fill('demo-admin')
@@ -18,7 +20,8 @@ with sync_playwright() as p:
  page.get_by_role('button',name='Đăng nhập vào Hệ thống').click()
  expect(page.get_by_text('node-worker-01',exact=True).first).to_be_visible()
  expect(page.get_by_text('Online',exact=True).first).to_be_visible()
- expect(page.get_by_text('Network RX / TX',exact=True)).to_be_visible()
+ expect(page.get_by_text('Network RX',exact=True)).to_be_visible()
+ expect(page.get_by_text('Network TX',exact=True)).to_be_visible()
  page.screenshot(path=str(output/'desktop.png'),full_page=True)
  assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Desktop overflow'
  page.get_by_role('button',name='Web SSH',exact=True).click()
@@ -31,6 +34,15 @@ with sync_playwright() as p:
  page.screenshot(path=str(output/'terminal.png'),full_page=True)
  page.get_by_title('Đóng Terminal',exact=True).click()
  expect(page.get_by_role('dialog')).to_have_count(0)
+ page.get_by_role('button',name='Nhật ký hoạt động',exact=True).click()
+ expect(page.locator('.audit-table tbody tr').first).to_be_visible()
+ page.get_by_label('Tìm kiếm',exact=True).fill('node-worker-01')
+ page.get_by_label('Loại sự kiện',exact=True).select_option('BASTION_SESSION_START')
+ page.get_by_role('button',name='Áp dụng',exact=True).click()
+ expect(page.locator('.audit-action-code').first).to_have_text('BASTION_SESSION_START')
+ page.screenshot(path=str(output/'audit.png'),full_page=True)
+ page.get_by_role('button',name='Tổng quan',exact=True).click()
+ expect(page.get_by_text('Network RX',exact=True)).to_be_visible()
  for width,height,label in [(768,1024,'tablet'),(375,667,'mobile')]:
   page.set_viewport_size({'width':width,'height':height})
   expect(page.get_by_text('node-worker-01',exact=True).first).to_be_visible()
@@ -44,6 +56,7 @@ with sync_playwright() as p:
  page.get_by_role('button',name='Đăng nhập vào Hệ thống').click()
  expect(page.get_by_text('node-worker-01',exact=True).first).to_be_visible()
  expect(page.get_by_role('button',name='Web SSH',exact=True)).to_have_count(0)
+ expect(page.get_by_role('button',name='Nhật ký hoạt động',exact=True)).to_have_count(0)
  expect(page.get_by_text('Chỉ đọc (Viewer)',exact=True)).to_be_visible()
  page.screenshot(path=str(output/'viewer.png'),full_page=True)
  page.route('**/api/telemetry/nodes',lambda route:route.abort())
