@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { NodeItem, MetricSnapshot, UserSession } from "../types/index.js";
 import { NodeCard } from "./NodeCard.js";
 import { MetricsChart } from "./MetricsChart.js";
 import { StatusBadge } from "./StatusBadge.js";
 import { api } from "../services/api.js";
-import { formatBytes, formatUptime, formatTime } from "../utils/format.js";
+import { formatBytes, formatUptime, formatTime, formatAge, formatDateTime, nodeTypeLabel } from "../utils/format.js";
 import {
   Server,
   Activity,
@@ -47,6 +47,10 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const clusterRequestPending = useRef(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -58,11 +62,15 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
   }, [focusSection, isLoading]);
 
   const fetchClusterData = async (isManual = false) => {
+    // A slow response must not queue additional polling requests.
+    if (clusterRequestPending.current) return;
+    clusterRequestPending.current = true;
     if (isManual) setIsRefreshing(true);
     try {
       const data = await api.getNodes();
       setNodes(data);
       setErrorMessage(null);
+      setLastUpdated(new Date().toISOString());
       setSelectedNode(
         (prev) => data.find((n) => n.id === prev?.id) ?? data[0] ?? null,
       );
@@ -71,6 +79,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
         err.message || "Không thể kết nối tới Control Plane Gateway",
       );
     } finally {
+      clusterRequestPending.current = false;
       setIsLoading(false);
       setIsRefreshing(false);
     }
@@ -111,18 +120,23 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
 
   useEffect(() => {
     fetchClusterData();
-    const timer = setInterval(() => fetchClusterData(), 5000);
+    const timer = setInterval(() => {
+      setNow(Date.now());
+      fetchClusterData();
+    }, 5000);
     return () => clearInterval(timer);
   }, []);
 
   const filteredNodes = nodes.filter(
     (n) =>
-      n.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      n.ip_address.toLowerCase().includes(searchQuery.toLowerCase()),
+      (n.name.toLowerCase().includes(searchQuery.trim().toLowerCase()) ||
+        n.ip_address.toLowerCase().includes(searchQuery.trim().toLowerCase())) &&
+      (statusFilter === "ALL" || n.status === statusFilter),
   );
   const counts = [
     {
       label: "Tổng máy chủ",
+      status: "ALL",
       value: nodes.length,
       hint: "Máy chủ trong cụm",
       icon: Layers,
@@ -130,6 +144,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
     },
     {
       label: "Online",
+      status: "HEALTHY",
       value: nodes.filter((n) => n.status === "HEALTHY").length,
       hint: "Đang nhận heartbeat",
       icon: CheckCircle2,
@@ -137,6 +152,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
     },
     {
       label: "Stale",
+      status: "WARNING",
       value: nodes.filter((n) => n.status === "WARNING").length,
       hint: "Heartbeat bị trễ",
       icon: AlertTriangle,
@@ -144,6 +160,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
     },
     {
       label: "Offline",
+      status: "OFFLINE",
       value: nodes.filter((n) => n.status === "OFFLINE").length,
       hint: "Mất tín hiệu",
       icon: XCircle,
@@ -265,8 +282,8 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
           <span className="eyebrow">SERVER INVENTORY</span>
           <h2>Sẵn sàng cho máy chủ đầu tiên</h2>
           <p>
-            Cấu hình WireGuard và Mini-Agent theo README của dự án. Máy chủ sẽ
-            xuất hiện khi Gateway nhận được heartbeat hợp lệ.
+            Đăng ký máy chủ tại Gateway, sau đó cấu hình WireGuard và Mini-Agent
+            theo hướng dẫn triển khai để bắt đầu nhận số liệu.
           </p>
           <button
             className="button secondary"
@@ -301,9 +318,24 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
           </button>
         </div>
       )}
+      <div className={`sync-strip ${errorMessage ? "warning" : ""}`}>
+        <span className="sync-state">
+          <i /> {errorMessage ? "Dữ liệu chưa đồng bộ" : "Đã đồng bộ với Gateway"}
+        </span>
+        <span>
+          Lần tải thành công: <time dateTime={lastUpdated ?? undefined} title={formatDateTime(lastUpdated)}>{formatTime(lastUpdated)}</time>
+        </span>
+        <span className="sync-interval">Danh sách 5 giây · Biểu đồ 3 giây</span>
+      </div>
       <section className="summary-grid" aria-label="Trạng thái cụm máy chủ">
-        {counts.map(({ label, value, hint, icon: Icon, color }) => (
-          <div className={`summary-card ${color}`} key={label}>
+        {counts.map(({ label, status, value, hint, icon: Icon, color }) => (
+          <button
+            className={`summary-card ${color} ${statusFilter === status ? "is-active" : ""}`}
+            key={label}
+            aria-label={`Lọc ${label}: ${value} máy chủ`}
+            aria-pressed={statusFilter === status}
+            onClick={() => setStatusFilter(status)}
+          >
             <div className="summary-top">
               <span>{label}</span>
               <span className="summary-icon">
@@ -324,7 +356,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
                 />
               </div>
             </div>
-          </div>
+          </button>
         ))}
       </section>
       <div className="monitor-layout">
@@ -351,13 +383,19 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
+          {statusFilter !== "ALL" && (
+            <div className="fleet-filter-state">
+              <span>Đang lọc: {counts.find((item) => item.status === statusFilter)?.label}</span>
+              <button onClick={() => setStatusFilter("ALL")}>Xóa bộ lọc</button>
+            </div>
+          )}
           <div className="node-list">
             {filteredNodes.length === 0 ? (
               <div className="search-empty">
                 <Search size={25} />
                 <strong>Không tìm thấy máy chủ</strong>
-                <span>Thử tên hoặc địa chỉ IP khác.</span>
-                <button onClick={() => setSearchQuery("")}>Xóa tìm kiếm</button>
+                <span>Thử tên, địa chỉ IP hoặc trạng thái khác.</span>
+                <button onClick={() => { setSearchQuery(""); setStatusFilter("ALL"); }}>Xóa bộ lọc</button>
               </div>
             ) : (
               filteredNodes.map((node) => (
@@ -369,6 +407,8 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
                   isSelected={selectedNode?.id === node.id}
                   onSelectNode={setSelectedNode}
                   onOpenTerminal={onOpenTerminal}
+                  now={now}
+                  sourceStale={!!errorMessage}
                 />
               ))
             )}
@@ -377,7 +417,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
             <Info size={15} />
             <span>
               Chọn máy chủ để xem tài nguyên. <br />
-              Trạng thái kết nối được xác định theo heartbeat.
+              Bấm thẻ trạng thái phía trên để lọc danh sách.
             </span>
           </div>
         </section>
@@ -385,6 +425,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
           <section
             className="detail-panel panel"
             aria-label={`Tài nguyên ${selectedNode.name}`}
+            data-stale={!!errorMessage || selectedNode.status !== "HEALTHY"}
           >
             <div className="detail-heading">
               <div>
@@ -397,7 +438,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
                   <Radio size={13} />
                   {selectedNode.ip_address}
                   <i />
-                  {selectedNode.node_type}
+                  {nodeTypeLabel(selectedNode.node_type)}
                 </span>
               </div>
               {currentUser?.role === "ADMIN" ? (
@@ -420,9 +461,16 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
             {selectedNode.status !== "HEALTHY" && metric && (
               <div className="notice warning">
                 <AlertTriangle size={16} />
-                <span>Số liệu lần cuối; máy chủ chưa có heartbeat mới.</span>
+                <span>
+                  Đang hiển thị mẫu cuối lúc {formatDateTime(metric.recorded_at)}.
+                  Gateway chưa nhận heartbeat mới; chưa thể kết luận máy đã tắt hay mất mạng.
+                </span>
               </div>
             )}
+            <div className="node-context">
+              <span><Clock3 size={14} /> Heartbeat: <b title={formatDateTime(selectedNode.last_seen)}>{formatAge(selectedNode.last_seen, now)}</b></span>
+              <span>Mẫu tài nguyên: <time dateTime={metric?.recorded_at} title={formatDateTime(metric?.recorded_at)}>{formatTime(metric?.recorded_at)}</time></span>
+            </div>
             <div className="resource-grid">
               {resources.map(({ label, icon: Icon, value, hint, color }) => (
                 <div className="resource-tile" key={label}>
@@ -479,14 +527,14 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
               <div>
                 <span>
                   <ArrowDownLeft size={16} />
-                  Network RX
+                  RX tích lũy
                 </span>
                 <strong>{formatBytes(metric?.network_rx_bytes)}</strong>
               </div>
               <div>
                 <span>
                   <ArrowUpRight size={16} />
-                  Network TX
+                  TX tích lũy
                 </span>
                 <strong>{formatBytes(metric?.network_tx_bytes)}</strong>
               </div>
@@ -501,7 +549,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
             <div className="detail-footnote">
               <span>RX/TX: byte tích lũy trên giao diện Agent chọn, không phải byte/s.</span>
               <span>
-                Heartbeat: <b>{formatTime(selectedNode.last_seen)}</b>
+                Uptime: thời gian chạy của hệ điều hành.
               </span>
             </div>
           </section>
@@ -511,10 +559,10 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
         <Info size={14} />
         <span>
           Online / Stale / Offline phản ánh heartbeat của máy chủ. Mức tải CPU
-          được theo dõi riêng. CPU, RAM và uptime đo Linux host; trong Docker
-          dùng host chung. Ổ đĩa đo filesystem tại mount của Agent.
+          được theo dõi riêng. CPU, RAM và uptime đo hệ điều hành chạy Agent;
+          trong Docker có thể dùng host chung. Ổ đĩa đo filesystem/volume được
+          cấu hình tại Agent.
         </span>
-        <span className="polling-label">Tự cập nhật mỗi 5 giây</span>
       </div>
     </div>
   );

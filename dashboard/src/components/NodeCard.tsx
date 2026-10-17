@@ -2,6 +2,7 @@ import React from "react";
 import { NodeItem, MetricSnapshot, UserSession } from "../types/index.js";
 import { Server, Terminal, ChevronRight } from "lucide-react";
 import { StatusBadge } from "./StatusBadge.js";
+import { formatAge, formatDateTime, nodeTypeLabel } from "../utils/format.js";
 
 interface NodeCardProps {
   node: NodeItem;
@@ -10,6 +11,8 @@ interface NodeCardProps {
   onOpenTerminal: (node: NodeItem) => void;
   onSelectNode: (node: NodeItem) => void;
   isSelected?: boolean;
+  now: number;
+  sourceStale?: boolean;
 }
 
 export const NodeCard: React.FC<NodeCardProps> = ({
@@ -19,6 +22,8 @@ export const NodeCard: React.FC<NodeCardProps> = ({
   onOpenTerminal,
   onSelectNode,
   isSelected = false,
+  now,
+  sourceStale = false,
 }) => {
   const cpu = latestMetric?.cpu_percent;
   const memory =
@@ -26,7 +31,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({
       ? (latestMetric.memory_used_bytes / latestMetric.memory_total_bytes) * 100
       : undefined;
   return (
-    <article className={`node-card ${isSelected ? "selected" : ""}`}>
+    <article className={`node-card ${isSelected ? "selected" : ""}`} data-stale={sourceStale || node.status !== "HEALTHY"}>
       <button
         className="node-select"
         onClick={() => onSelectNode(node)}
@@ -44,6 +49,10 @@ export const NodeCard: React.FC<NodeCardProps> = ({
           <ChevronRight size={16} />
         </div>
         <span className="node-address">{node.ip_address}</span>
+        <span className="node-freshness" title={`Heartbeat: ${formatDateTime(node.last_seen)}`}>
+          {formatAge(node.last_seen, now)}
+          {(sourceStale || node.status !== "HEALTHY") && " · số liệu cũ"}
+        </span>
         <div className="node-mini-metrics">
           {[
             { label: "CPU", value: cpu, color: "cpu" },
@@ -68,11 +77,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({
       </button>
       <div className="node-card-footer">
         <span>
-          {node.node_type === "DOCKER"
-            ? "Docker container"
-            : node.node_type === "VM"
-              ? "Virtual machine"
-              : "Bare metal"}
+          {nodeTypeLabel(node.node_type)}
         </span>
         {currentUser?.role === "ADMIN" ? (
           <button

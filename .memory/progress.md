@@ -237,3 +237,10 @@ Commit bàn giao xem `git log -1 --oneline`.
   và16luồng runtime cùngSQLschema/audit/registration thật đạt trên cụm riêng Node22.
   docs/verification/dependency-review.md ghi điều kiện và phần chưavá, không tự
   nâng major framework hoặc gọi bản này đã sạch securityaudit.
+- Việc Dashboard: sync/time/heartbeatage và last sample rõ, lọcstatus hoạt động,
+  charttimestamp thật/ngắtgap>15s, RX/TX tíchlũy, giải thíchOS-neutral không dựng
+  nhãnWindows. Terminalretry, READYtimeout, nềninert/focus và AltEsc; giữ login.
+- Docker tsc/Vite đạt; Firefox157 với cụmLinux riêng đạt17checks: API/SSHlệnhthật,
+  đóngshell/mởphiênmới, audit, Viewer, theme và viewport1920/768/375/320khôngtràn.
+  Fetcherror là giảlập trongbrowser rồi trảAPIthật; không là mấtmạng vật lý.
+  SSRfixtures chart/unknownRAM/timegap đạt; không gọi đây là Windows runtime.
