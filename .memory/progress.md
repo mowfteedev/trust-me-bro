@@ -244,3 +244,7 @@ Commit bàn giao xem `git log -1 --oneline`.
   đóngshell/mởphiênmới, audit, Viewer, theme và viewport1920/768/375/320khôngtràn.
   Fetcherror là giảlập trongbrowser rồi trảAPIthật; không là mấtmạng vật lý.
   SSRfixtures chart/unknownRAM/timegap đạt; không gọi đây là Windows runtime.
+- Phát hiện cuối: demo.py up buildGateway/UI nhưng có thể giữ imageWorker cũ khi
+  image đã tồn tại. Đã thêm --build ở bước upWorker, build/recreateWorker thật và
+  chạy lại nguyên lệnhup thành công; --validate-config và --check của binary mới
+  hoạt động. Không thu hồiJWT/chạylogout trên demo chính; checksum/identities giữ nguyên.

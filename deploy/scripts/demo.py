@@ -76,7 +76,8 @@ def main():
         }
         run(compose + ['exec', '-T', 'gateway', 'node', 'dist/scripts/setup-demo.js'], input=json.dumps(setup), text=True)
         if args.action == 'up':
-            run(compose + ['up', '-d', 'node_worker_01'])
+            # Existing tags otherwise keep an old Agent even after source changes.
+            run(compose + ['up', '-d', '--build', 'node_worker_01'])
         print(f'Dashboard: https://localhost:{env.get("HTTPS_PORT", "443")}')
         print('Tài khoản: demo-admin / demo-viewer; mật khẩu riêng trong keys/demo-login.env (0600).')
         print(f'Telegram: {env.get("TELEGRAM_MODE", "dry-run")}. Cụm riêng, không sửa .env hay DB cũ.')
