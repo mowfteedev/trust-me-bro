@@ -5,7 +5,7 @@
 # ==============================================================================
 
 # --- TẦNG 1: BIÊN DỊCH MÃ NGUỒN TYPESCRIPT (BUILDER) ---
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -22,13 +22,13 @@ FROM builder AS production-deps
 RUN npm prune --omit=dev
 
 # --- TẦNG 2: MÔI TRƯỜNG THỰC THI TỐI GIẢN (PRODUCTION RUNTIME) ---
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Sử dụng người dùng không đặc quyền node (UID/GID 1000) sẵn có trong node:20-alpine
+# Sử dụng người dùng không đặc quyền node (UID/GID 1000) sẵn có trong node:22-alpine
 # để đồng bộ quyền hạn với host filesystem (tránh lỗi EACCES với keys chmod 600/700)
 RUN mkdir -p /app/logs/audit /app/keys && chown -R node:node /app/logs /app/keys
 

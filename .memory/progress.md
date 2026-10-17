@@ -229,3 +229,11 @@ Commit bàn giao xem `git log -1 --oneline`.
 - Thêm verify-vm.py dùng luồng16checks thực, WindowsEncodedCommand + Win32NT marker,
   Admin/Viewer/SSH/audit/logout. Entry point này thu hồi phiên demo-account; chỉ
   chạy trên target đã đăng ký. NhánhWindows vẫn chưa chạy, không dựng VM giả.
+- Việc dependency: audit mới Gateway runtime4 package, toàncâyGateway9 vàDashboard9;
+  không gọi đây là4exploit đã chứng minh. Đối chiếu advisory upstream với cấu hình
+  thật; HS256/secret tĩnh/cacheoff, khôngHTTP2/private404/stream, Nginxstatic.
+  Chưa tìm đường bypass cụ thể nhưng Fastify4/JWT vẫn OPEN, Fastify4 hếtLTS.
+- Gateway đổi baseNode20→22, Vite dev/preview chỉloopback. Build/unit18Go+58Gateway
+  và16luồng runtime cùngSQLschema/audit/registration thật đạt trên cụm riêng Node22.
+  docs/verification/dependency-review.md ghi điều kiện và phần chưavá, không tự
+  nâng major framework hoặc gọi bản này đã sạch securityaudit.

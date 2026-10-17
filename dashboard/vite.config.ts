@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    host: '0.0.0.0',
+    host: '127.0.0.1',
     proxy: {
       '/healthz': {
         target: 'http://localhost:3000',
@@ -22,6 +22,7 @@ export default defineConfig({
       },
     },
   },
+  preview: { host: '127.0.0.1' },
   build: {
     outDir: 'dist',
     sourcemap: false,
