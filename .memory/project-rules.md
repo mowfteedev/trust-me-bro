@@ -81,3 +81,14 @@
   Chỉ đạo này thay việc hoãn Telegram trước đây; môi trường mới vẫn mặc định dry-run.
 - Token chỉ ở keys/demo.env0600, không đưa token/OTP/chat ID vào Git hoặc báo cáo.
 - Không thêm dịch vụ, thư viện hoặc trang cài đặt ngoài phạm vi đồ án.
+
+## Hoàn thiện Linux Gateway + Windows Worker — 2026-10-18
+
+- Chủ dự án cho triển khai Agent Windows, bộ cài VM, kiểm chứng SSH/VPN/telemetry/
+  cảnh báo/tài nguyên và chỉnh dashboard tập trung; giữ kiến trúc và Linux Agent.
+- Gateway tiếp tục chạy Docker trên máy Arch Linux hiện tại; Windows VM là Worker.
+  Hai VM không phải số lượng bắt buộc trong phiếu giao.
+- Xong từng việc thì commit riêng trên minh-thanh. **KHÔNG PUSH** cho đến khi chủ
+  dự án xem kết quả và duyệt; chỉ đạo này thay quyền push của những phiên trước.
+- Tự quyết định việc thông thường; ghi vấn đề nghiêm trọng và phần chưa kiểm chứng
+  để báo cáo cuối. Không soạn slide/báo cáo môn học.

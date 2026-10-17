@@ -97,7 +97,7 @@ def main():
             elif args.action == 'check-telegram':
                 tests = ('runtime-telegram-live.cjs',)
             else:
-                tests = ('demo-runtime.cjs', 'runtime-alerts.cjs', 'runtime-schema.cjs', 'runtime-audit.cjs')
+                tests = ('demo-runtime.cjs', 'runtime-alerts.cjs', 'runtime-schema.cjs', 'runtime-audit.cjs', 'runtime-node-registration.cjs')
             for test in tests:
                 script = 'const credentials = ' + json.dumps(test_input) + ';\n'
                 if binary_path:

@@ -40,14 +40,14 @@
               "type": "number",
               "minimum": 0.0,
               "maximum": 100.0,
-              "description": "Tổng tải vi xử lý đo lường vi sai từ /proc/stat"
+              "description": "Tổng tải vi xử lý đo vi sai: /proc/stat trên Linux, GetSystemTimes trên Windows"
             },
             "load_avg": {
               "type": "array",
               "items": { "type": "number", "minimum": 0.0 },
               "minItems": 3,
               "maxItems": 3,
-              "description": "Chỉ số tải trung bình hệ thống [1m, 5m, 15m]"
+              "description": "Tải trung bình Linux [1m, 5m, 15m]; bỏ trường này trên Windows, không giả thành số 0"
             }
           }
         },

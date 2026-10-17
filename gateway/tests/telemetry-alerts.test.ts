@@ -56,6 +56,39 @@ async function beacon(cpu: number) {
   return result;
 }
 
+describe('cross-platform telemetry validation (mock DB)', () => {
+  async function submit(body: unknown) {
+    const app = Fastify();
+    await app.register(telemetryRoutes, { prefix: '/api/telemetry' });
+    try {
+      return await app.inject({ method: 'POST', url: '/api/telemetry/beacon',
+        headers: { 'x-node-token': 'unit-test-token' }, payload: body as any });
+    } finally { await app.close(); }
+  }
+  it('accepts a Windows-shaped beacon without inventing Linux load average', async () => {
+    expect((await submit(payload(12))).statusCode).toBe(200);
+    expect(mock.tx.mock.calls.some(([sql]) => sql.includes('INSERT INTO metrics_history'))).toBe(true);
+  });
+  it('keeps support for complete legacy flat telemetry', async () => {
+    const value = payload(12);
+    expect((await submit({ node_id: value.node_id, timestamp: value.timestamp, ...value.metrics })).statusCode).toBe(200);
+  });
+  it.each(['timestamp', 'uptime', 'network', 'rx', 'memory', 'disk', 'load'])(
+    'rejects missing or impossible %s measurements before persistence', async (field) => {
+      const value: any = payload(12);
+      if (field === 'timestamp') delete value.timestamp;
+      if (field === 'uptime') delete value.metrics.uptime_seconds;
+      if (field === 'network') delete value.metrics.network;
+      if (field === 'rx') delete value.metrics.network.rx_bytes_total;
+      if (field === 'memory') value.metrics.memory.used_bytes = 101;
+      if (field === 'disk') value.metrics.disk.used_bytes = 101;
+      if (field === 'load') value.metrics.cpu.load_avg = [-1, 0, 0];
+      expect((await submit(value)).statusCode).toBe(400);
+      expect(mock.tx).not.toHaveBeenCalled();
+      expect(mock.sendAlert).not.toHaveBeenCalled();
+    });
+});
+
 describe('CPU alert lifecycle (mock DB)', () => {
   it('records a CPU threshold alert and audit, then sends only after commit', async () => {
     mock.sendAlert.mockImplementation(async () => {

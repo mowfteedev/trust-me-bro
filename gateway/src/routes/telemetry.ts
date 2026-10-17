@@ -25,27 +25,28 @@ import { telegramService } from '../services/telegram.js';
 
 // Schema kiểm thực tải trọng chuẩn sau khi đã chuẩn hóa
 const NormalizedBeaconSchema = z.object({
-  node_id: z.string().min(3).max(64),
-  timestamp: z.number().int().positive(),
+  node_id: z.string().regex(/^[a-zA-Z0-9_-]{3,64}$/),
+  timestamp: z.number().int().safe().positive(),
   cpu: z.object({
     percent: z.number().min(0).max(100),
-    load_avg: z.array(z.number()).length(3).optional().default([0, 0, 0]),
+    // Windows has no Linux load average. Absence is not a measured zero.
+    load_avg: z.array(z.number().finite().nonnegative()).length(3).optional(),
   }),
   memory: z.object({
     total_bytes: z.number().int().positive(),
     used_bytes: z.number().int().nonnegative(),
     percent: z.number().min(0).max(100),
-  }),
+  }).refine((m) => m.used_bytes <= m.total_bytes, { message: 'Memory used exceeds total' }),
   disk: z.object({
     total_bytes: z.number().int().positive(),
     used_bytes: z.number().int().nonnegative(),
     percent: z.number().min(0).max(100),
-  }),
+  }).refine((d) => d.used_bytes <= d.total_bytes, { message: 'Disk used exceeds total' }),
   network: z.object({
     rx_bytes: z.number().int().nonnegative(),
     tx_bytes: z.number().int().nonnegative(),
   }),
-  uptime_seconds: z.number().int().nonnegative().default(0),
+  uptime_seconds: z.number().int().nonnegative(),
 });
 
 /**
@@ -59,30 +60,30 @@ function normalizePayload(raw: any) {
     const m = raw.metrics;
     return {
       node_id: raw.node_id,
-      timestamp: raw.timestamp || Date.now(),
+      timestamp: raw.timestamp,
       cpu: m.cpu,
       memory: m.memory,
       disk: m.disk,
       network: {
-        rx_bytes: m.network?.rx_bytes_total ?? m.network?.rx_bytes ?? 0,
-        tx_bytes: m.network?.tx_bytes_total ?? m.network?.tx_bytes ?? 0,
+        rx_bytes: m.network?.rx_bytes_total ?? m.network?.rx_bytes,
+        tx_bytes: m.network?.tx_bytes_total ?? m.network?.tx_bytes,
       },
-      uptime_seconds: m.uptime_seconds ?? 0,
+      uptime_seconds: m.uptime_seconds,
     };
   }
 
   // Trường hợp tải trọng phẳng ở root
   return {
     node_id: raw.node_id,
-    timestamp: raw.timestamp || Date.now(),
+    timestamp: raw.timestamp,
     cpu: raw.cpu,
     memory: raw.memory,
     disk: raw.disk,
     network: {
-      rx_bytes: raw.network?.rx_bytes_total ?? raw.network?.rx_bytes ?? 0,
-      tx_bytes: raw.network?.tx_bytes_total ?? raw.network?.tx_bytes ?? 0,
+      rx_bytes: raw.network?.rx_bytes_total ?? raw.network?.rx_bytes,
+      tx_bytes: raw.network?.tx_bytes_total ?? raw.network?.tx_bytes,
     },
-    uptime_seconds: raw.uptime_seconds ?? 0,
+    uptime_seconds: raw.uptime_seconds,
   };
 }
 

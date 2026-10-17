@@ -186,3 +186,23 @@ Commit bàn giao xem `git log -1 --oneline`.
   README/DEMO hướng dẫn setup và phân biệt payload CPU giả lập với gửi Telegram thật.
 - VM/systemd/Internet vẫn chưa kiểm chứng; không merge main/production, sáu báo cáo
   untracked cũ giữ nguyên.
+
+## Hoàn thiện Windows Worker — 2026-10-18
+
+- Chỉ minh-thanh, sau65bfd42; chủ dự án yêu cầu commit từng việc và **không push**
+  trước khi duyệt. Mô hình chọn: máy Arch Linux hiện tại chạy Gateway Docker +
+  Windows VM Worker. Không tự làm slide/báo cáo môn học.
+- Việc Gateway: nhận beacon không có Linux load_avg, không dựng timestamp/network/
+  uptime bằng số0 khi thiếu. Từ chối RAM/disk used>total trước transaction.
+- Thêm register-node CLI cục bộ dùng stdin + quyền one-shot migrator, không mở
+  API enrolment. SQL idempotent, chặn xung đột name/IP/token/host fingerprint,
+  không thay tài khoản/node cũ hoặc cấp thêm quyền.
+- Build Gateway và58Vitest đạt (DB/fetch giả lập). Test CLI trên PostgreSQL thật
+  trong DB riêng đạt: thêmVM, chạy lại, từ chối xung đột, giữ nguyên nodeDocker/
+  users/grants; DB tạm đã xóa. Logs /tmp/zt-completion-{gateway-unit,registration-runtime}.txt.
+- Test đầu ghi nhận giả định sai về quyền INSERT nodes: migration006 đã cấp quyền,
+  GRANTSELECT/UPDATE ở007 không thu hồi quyền đó. Đã sửa kỳ vọng mới thành kiểm
+  tra quyền không đổi, không gọi đây là lỗi đăng ký hoặc giả PASS; không sửa test
+  cũ. Runtime role vẫn có quyền bootstrap cũ, không tuyên bố cách ly quản trị DB.
+- Native Windows/VMware/VirtualBox chưa có trên máy; không có guest image, pwsh,
+  VBoxManage/vmrun/qemu. Cross-build/PowerShell parser không thay kiểm thử guest.
