@@ -1,0 +1,28 @@
+{
+  "scope": "Incidental REAL Linux host CPU spikes during Go image build, actual main Agent/Gateway/audit/Telegram; NOT Windows or synthetic CPU test.",
+  "cpu_high_audit": [
+    {
+      "created_at": "2026-10-17T21:58:07.152Z",
+      "cpu_percent": "87.25",
+      "threshold": "85"
+    },
+    {
+      "created_at": "2026-10-17T21:57:48.873Z",
+      "cpu_percent": "88.66",
+      "threshold": "85"
+    }
+  ],
+  "telegram_acknowledgements_current_gateway": [
+    {
+      "node": "node-worker-01",
+      "severity": "WARNING",
+      "message_id": 14
+    },
+    {
+      "node": "node-worker-01",
+      "severity": "WARNING",
+      "message_id": 15
+    }
+  ],
+  "note": "No explicit Telegram test-send command was run; normal live service emitted alerts when real host load crossed its configured threshold."
+}

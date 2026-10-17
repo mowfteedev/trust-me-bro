@@ -1,4 +1,14 @@
-# Mô hình hai VM để kiểm chứng trước khi nộp
+# Triển khai máy ảo
+
+Phương án hiện được chọn: **máy Arch Linux đang dùng chạy Gateway Docker và một
+Windows VM làm Worker**, IP riêng `10.100.0.3`, giữ Worker Docker `.2`.
+Xem [hướng dẫn Windows Worker](WINDOWS_WORKER.md). Phiếu giao yêu cầu có VM và
+Docker, không ấn định phải dựng hai VM hoặc có Windows.
+
+Phần dưới giữ phương án **hai VM Linux** để tham khảo nếu cần chuyển cả Gateway
+sang VM; không phải bước bắt buộc của phương án Windows hiện tại.
+
+## Phương án hai VM Linux
 
 **CHƯA KIỂM CHỨNG trên hypervisor.** Máy làm việc có KVM kernel khả dụng nhưng
 chưa có VirtualBox/VMware, chương trình chạy VM hoặc guest image. Cụm Docker đã chạy WireGuard/SSH thật, nhưng không thay

@@ -20,7 +20,7 @@ trình duyệt và terminal máy chủ.
 | 1 | Giới thiệu sơ đồ Gateway–WireGuard–Worker | VPN M2M bảo vệ đường truyền, token và RBAC bảo vệ ứng dụng |
 | 2 | Login `demo-viewer` | Thấy CPU/RAM/disk, tổng RX/TX, uptime, biểu đồ và Online; không có nút SSH |
 | 3 | Giới thiệu `demo.py check` | Backend trả 403 nếu Viewer gọi cấp vé SSH trực tiếp; ẩn nút không phải lớp bảo vệ duy nhất |
-| 4 | Logout, login `demo-admin`, mở Web SSH | Terminal CONNECTED; nhập `id`, `hostname`, `stty size`, tương tác shell thật với user `ztuser` |
+| 4 | Logout, login `demo-admin`, mở Web SSH | Terminal báo Đã kết nối; nhập `id`, `hostname`, `stty size`, tương tác shell Linux thật với user `ztuser` |
 | 5 | Phóng to/thu nhỏ, đóng terminal; mở Nhật ký hoạt động | PTY resize, socket đóng; START/END cùng session_id và IP request; lọc thêm đăng nhập thất bại |
 | 6 | Xem handshake/transfer WireGuard | Có peer handshake và lưu lượng; không xuất private key |
 | 7 | Tạm dừng worker theo lệnh dưới | Stale khoảng15–20s, Offline khoảng30–35s; live gửi Telegram, dry-run ghi log giả lập |
@@ -48,8 +48,9 @@ docker compose --env-file keys/demo.env -p zt_demo --profile demo unpause node_w
 
 Chờ giao diện thực sự chuyển trạng thái trước khi chạy `unpause`. Có thể kiểm
 tra tự động cùng thao tác bằng `python3 tests/demo-liveness.py`; bài này khôi
-phục worker trong `finally`. Bằng chứng hiện tại: Stale **17,80s**, Offline
-**32,82s**. Chênh lệch do pha heartbeat và chu kỳ quét, không phải SLA production.
+phục worker trong `finally`. Lượt18/10: Stale **15,19s**, Offline **30,21s**.
+Không chạy bài pause/unpause đồng thời với SSH hoặc bài thu hồi phiên trên cùng
+cụm. Chênh lệch do pha heartbeat và chu kỳ quét, không phải SLA production.
 
 Trong cửa sổ terminal khác, xem log giả lập cảnh báo:
 
@@ -90,10 +91,24 @@ WireGuard không thay thế RBAC; máy có VPN vẫn cần token, quyền ứng 
 fingerprint SSH. Gateway giữ khóa SSH nên vẫn là điểm tin cậy quan trọng;
 không tuyên bố an toàn tuyệt đối. SSH shell demo không có root. Snapshot RAM
 Python trước đây khoảng23MiB; Agent Go mới khoảng10,3–10,6MiB RSS trong các lượt đo,
-gần mục tiêu khoảng10MB nhưng không cam kết dưới10MB mọi tải. Docker worker có VPN/SSH
+gần mục tiêu khoảng10MB nhưng không cam kết dưới10MB mọi tải. Bản18/10 thêm hỗ trợ
+Windows/config/diagnostic chung đo LinuxRSS khoảng11,0MiB; WindowsRAM chưa đo.
+Docker worker có VPN/SSH
 thật nhưng chưa phải bằng chứng VMware/VirtualBox; xem [VM_SETUP.md](VM_SETUP.md).
 Số liệu `/proc` trong container phản ánh kernel/namespace đang chạy, không nên
 gọi toàn bộ là tài nguyên của một VM riêng.
+
+## Khi có Windows VM thật
+
+Theo [Windows Worker](WINDOWS_WORKER.md), giữ Gateway hiện tại và thêm peer riêng
+`.3`; không đổi Worker Docker `.2` thành nhãn Windows. Chỉ đưa nodeWindows vào
+demo sau khi có heartbeat và SSH thật. Terminal Windows dùng PowerShell/Windows
+commands, không dùng `id` hoặc `stty` để kết luận Windows lỗi.
+
+Luồng `verify-vm.py` đã chuẩn bị nhưng nhánh Windows **CHƯA KIỂM CHỨNG**.
+Khởi động VM mới, kiểm tra Win32 số liệu/WorkingSet, reboot/service/firewall,
+Viewer/logout và cảnh báo trước khi trình diễn. Không giới thiệu cross-build
+hoặc parser như kết quả chạy Windows.
 
 Kết thúc bằng `python3 deploy/scripts/demo.py down` nếu muốn dừng; dữ liệu demo
 được giữ để chạy lại. Không merge vào main hoặc deploy production.

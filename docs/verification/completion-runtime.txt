@@ -1,0 +1,186 @@
+CURRENT NODE22: real Linux Docker API/SSH and isolated SQL tests
+PASS 1: Gateway + PostgreSQL ready
+PASS 2: Chưa login không đọc nodes
+PASS 3: Mật khẩu sai bị từ chối
+PASS 4: Viewer có vai trò từ DB
+PASS 5: Admin có vai trò từ DB
+PASS 6: JWT unsigned bị từ chối
+PASS 7: Telemetry thật CPU/RAM/disk hiển thị qua API
+PASS 8: Network I/O + uptime thật qua API
+PASS 9: Viewer đọc lịch sử biểu đồ
+PASS 10: Viewer không lấy vé SSH
+PASS 11: Admin lấy vé SSH
+PASS 12: WebSocket→SSH→PTY thực thi lệnh thật qua WireGuard (linux)
+PASS 13: Audit START + END cùng phiên và IP socket VPN thật; XFF giả bị bỏ qua
+PASS 14: Đăng xuất đóng phiên SSH đang mở bằng session revocation
+PASS 15: Đăng xuất thu hồi JWT trên server
+PASS 16: Viewer đăng xuất được
+16 kiểm tra chức năng thật đạt cho node-worker-01 (linux). Không tự xác nhận hypervisor, firewall Internet, RAM hoặc cảnh báo Telegram.
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 001_init_schema.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 001_init_schema.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 002_partition_metrics.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 002_partition_metrics.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 003_seed_data.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 003_seed_data.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 004_add_target_to_audit.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 004_add_target_to_audit.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 005_add_session_version_and_host_pin.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 005_add_session_version_and_host_pin.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 006_remediate_default_seed_and_credentials.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 006_remediate_default_seed_and_credentials.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 007_extend_token_hash_and_add_maintenance_role.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 007_extend_token_hash_and_add_maintenance_role.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 008_normalize_metric_percentages.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 008_normalize_metric_percentages.sql
+[TELEGRAM] Chế độ dry-run; dry-run chỉ ghi log giả lập, không gửi ra ngoài.
+[TELEGRAM DRY-RUN / GIẢ LẬP — KHÔNG GỬI] [ZT-ServerOps WARNING] cpu-probe
+CPU_HIGH: cpu-probe CPU 99% >= 85%.
+2026-10-17T21:45:24.923Z
+PASS CPU vượt ngưỡng: 1 incident, không spam mỗi heartbeat (payload giả lập + DB thật)
+PASS CPU hồi phục: resolved trong DB thật
+PASS token sai/giả mạo node bị từ chối
+[TELEGRAM DRY-RUN / GIẢ LẬP — KHÔNG GỬI] [ZT-ServerOps CRITICAL] cpu-probe
+NODE_OFFLINE: Máy chủ con cpu-probe (10.100.0.99) không phản hồi quá 30s.
+2026-10-17T21:45:25.108Z
+🚨 [LIVENESS ALERT] Đã chuyển máy chủ cpu-probe sang trạng thái OFFLINE.
+PASS Stale/Offline + chống lặp incident (timestamp giả lập + DB thật)
+PASS phục hồi Online + resolve incident
+Telegram chỉ DRY-RUN, không gửi Bot API thật.
+🔌 [DATABASE POOL] Đang đóng toàn bộ kết nối PostgreSQL an toàn...
+✔ [DATABASE POOL] Đã đóng Connection Pool thành công.
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 001_init_schema.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 001_init_schema.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 002_partition_metrics.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 002_partition_metrics.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 003_seed_data.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 003_seed_data.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 004_add_target_to_audit.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 004_add_target_to_audit.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 005_add_session_version_and_host_pin.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 005_add_session_version_and_host_pin.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 006_remediate_default_seed_and_credentials.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 006_remediate_default_seed_and_credentials.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 007_extend_token_hash_and_add_maintenance_role.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 007_extend_token_hash_and_add_maintenance_role.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 008_normalize_metric_percentages.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 008_normalize_metric_percentages.sql
+PASS upgrade007→008 giữ UUID, FK, history/bytes/CPU/network/uptime, users/alerts/audit (DB thật)
+PASS parent, partitions hiện có và partition mới không lưu tỷ lệ dư thừa
+[TELEGRAM] Chế độ dry-run; dry-run chỉ ghi log giả lập, không gửi ra ngoài.
+PASS beacon ghi schema008, API latest/history giữ fields tỷ lệ tính từ bytes (Fastify inject + DB thật)
+🔌 [DATABASE POOL] Đang đóng toàn bộ kết nối PostgreSQL an toàn...
+✔ [DATABASE POOL] Đã đóng Connection Pool thành công.
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 001_init_schema.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 001_init_schema.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 002_partition_metrics.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 002_partition_metrics.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 003_seed_data.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 003_seed_data.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 004_add_target_to_audit.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 004_add_target_to_audit.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 005_add_session_version_and_host_pin.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 005_add_session_version_and_host_pin.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 006_remediate_default_seed_and_credentials.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 006_remediate_default_seed_and_credentials.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 007_extend_token_hash_and_add_maintenance_role.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 007_extend_token_hash_and_add_maintenance_role.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 008_normalize_metric_percentages.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 008_normalize_metric_percentages.sql
+[TELEGRAM] Chế độ dry-run; dry-run chỉ ghi log giả lập, không gửi ra ngoài.
+PASS LOGIN_FAILED lưu SQL thật không có secrets; IP trực tiếp không tin XFF, proxy chỉ định được tin; 429 trước ghi audit
+PASS audit401/Viewer403/Admin200 với middleware + PostgreSQL thật
+PASS tìm LOGIN_FAILED qua API; role zt_app bị PostgreSQL từ chối UPDATE/DELETE/TRUNCATE audit
+🧹 [AUDIT RECONCILER] Đã đối soát và bù đắp END log cho phiên session_id: 0787dcc9-0dec-4654-8439-5328fe1e3987 (Lý do: Lease Expired (Heartbeat lost / Gateway instance crash))
+🧹 [AUDIT RECONCILER] Đã đối soát và bù đắp END log cho phiên session_id: 98622c96-bc82-40ff-a4ff-16c6b514e4ae (Lý do: Lease Expired (Heartbeat lost / Gateway instance crash))
+🧹 [AUDIT RECONCILER] Đã đối soát và bù đắp END log cho phiên session_id: 225de12a-82e2-41d7-bb6b-ffcbb688d656 (Lý do: Lease Expired (Heartbeat lost / Gateway instance crash))
+PASS reconciler SQL thật: END giữ IP START cùng user/session, thiếu IP/START lưu null, chạy lại không lặp END
+PASS SQL thật: phân trang25, timestamp trùng được sắp theoUUID, no-store và không lộ raw secrets
+PASS tìm VPNIP, nối node legacy JSON, literalLIKE %,_,! và chốngSQL injection (DB thật)
+PASS CPU/offline details được giữ đúng kiểu; nodeJSON saiUUID không gây500
+PASS validation, không có API sửa/xóa, logout ghiDB và thu hồi quyền đọc củaJWT cũ
+Audit fixtures chỉ ở DB tạm; không phải bằng chứng SSH/CPU vật lý. Browser + cụm demo kiểm tra riêng.
+🔌 [DATABASE POOL] Đang đóng toàn bộ kết nối PostgreSQL an toàn...
+✔ [DATABASE POOL] Đã đóng Connection Pool thành công.
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 001_init_schema.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 001_init_schema.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 002_partition_metrics.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 002_partition_metrics.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 003_seed_data.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 003_seed_data.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 004_add_target_to_audit.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 004_add_target_to_audit.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 005_add_session_version_and_host_pin.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 005_add_session_version_and_host_pin.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 006_remediate_default_seed_and_credentials.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 006_remediate_default_seed_and_credentials.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 007_extend_token_hash_and_add_maintenance_role.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 007_extend_token_hash_and_add_maintenance_role.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 008_normalize_metric_percentages.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 008_normalize_metric_percentages.sql
+PASS real node-registration CLI: new VM, idempotent retry, name/IP/token/host-key conflicts rejected; existing Docker node/users and role grants preserved.
+
+
+REAL heartbeat loss; run sequentially after SSH checks
+Online trước dừng: PASS
+ Container zt_completion_check-node_worker_01-1 Paused 
+Stale thật sau 15.19s: PASS
+Offline thật sau 30.21s (yêu cầu15–45s): PASS
+Một incident offline thật trong PostgreSQL: PASS
+ Container zt_completion_check-node_worker_01-1 Unpaused 
+Khôi phục Online sau mở agent: PASS
+Incident tự resolved sau heartbeat mới: PASS
+
+
+REAL CPU lab; measured lower threshold, Telegram dry-run
+CPU_LIVE: real Linux /proc samples; isolated DB; loopback interface/HTTP lab only.
+CPU_LIVE: interval=1s, jitter=0, GOMAXPROCS=1; Telegram dry-run, no external messages.
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 001_init_schema.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 001_init_schema.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 002_partition_metrics.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 002_partition_metrics.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 003_seed_data.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 003_seed_data.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 004_add_target_to_audit.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 004_add_target_to_audit.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 005_add_session_version_and_host_pin.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 005_add_session_version_and_host_pin.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 006_remediate_default_seed_and_credentials.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 006_remediate_default_seed_and_credentials.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 007_extend_token_hash_and_add_maintenance_role.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 007_extend_token_hash_and_add_maintenance_role.sql
+⏳ [MIGRATION RUNNER] Đang áp dụng migration: 008_normalize_metric_percentages.sql...
+✅ [MIGRATION RUNNER] Đã áp dụng thành công: 008_normalize_metric_percentages.sql
+[TELEGRAM] Chế độ dry-run; dry-run chỉ ghi log giả lập, không gửi ra ngoài.
+CPU_LIVE samples baseline: 15.71%@2026-10-17T21:47:49.696Z
+CPU_LIVE samples baseline: 14.63%@2026-10-17T21:47:50.731Z
+CPU_LIVE samples baseline: 11.31%@2026-10-17T21:47:51.749Z
+CPU_LIVE threshold=20.21% (baseline maximum=15.71% +4.5 points).
+CPU_LIVE: test configuration only; default 85% was NOT demonstrated by this lab.
+CPU_LIVE controlled load: 2 Worker threads, each self-stops after 10 seconds; host logical CPUs=16.
+[TELEGRAM DRY-RUN / GIẢ LẬP — KHÔNG GỬI] [ZT-ServerOps WARNING] cpu-live-probe
+CPU_HIGH: cpu-live-probe CPU 21.69% >= 20.21%.
+2026-10-17T21:47:52.785Z
+CPU_LIVE samples load: 21.69%@2026-10-17T21:47:52.767Z
+CPU_LIVE samples load: 24.28%@2026-10-17T21:47:53.794Z
+CPU_LIVE samples load: 25.86%@2026-10-17T21:47:54.814Z, 21.86%@2026-10-17T21:47:55.831Z, 25.38%@2026-10-17T21:47:56.852Z, 22.75%@2026-10-17T21:47:57.877Z, 23.38%@2026-10-17T21:47:58.896Z, 30.26%@2026-10-17T21:47:59.916Z, 22.28%@2026-10-17T21:48:00.935Z, 22.80%@2026-10-17T21:48:01.952Z
+PASS CPU_LIVE real Agent/HTTP/SQL: peak=30.26%; one incident and one CPU_HIGH audit despite repeated high samples.
+CPU_LIVE samples recovery: 14.50%@2026-10-17T21:48:02.971Z
+CPU_LIVE samples recovery: 10.43%@2026-10-17T21:48:03.989Z
+PASS CPU_LIVE actual cooldown: last two readings=14.50%, 10.43%; original incident resolved in PostgreSQL.
+CPU_LIVE scope: Agent in Gateway lab container reads Linux host /proc; this is not the two-VM/WireGuard/default-85% proof.
+🔌 [DATABASE POOL] Đang đóng toàn bộ kết nối PostgreSQL an toàn...
+✔ [DATABASE POOL] Đã đóng Connection Pool thành công.
+PASS CPU_LIVE cleanup: Go child/workers stopped; owned temporary database dropped.
+
+
+VPN positive control + blocked Docker transport; not Internet proof
+PASS live Docker lab: VPN TCP22 reachable immediately before transport TCP22 rejected. NOT an independent Internet/Windows probe.
+
+
+Test execution note: an earlier SSH attempt overlapped the pause/unpause test on this owned cluster and failed while the Worker was paused. That liveness run was interrupted; finally restored the Worker. The successful results above were rerun sequentially. No code/test expectation was changed to hide a product failure. Raw interrupted logs retained in /tmp/zt-completion-*-interrupted.txt.
+
+REAL POSTGRESQL OUTAGE / RECOVERY
+PASS real PostgreSQL stopped: /api/auth/me returns503, no protected data granted from JWT alone.
+PASS real PostgreSQL stopped: /api/nodes returns503, no protected data granted from JWT alone.
+PASS same authenticated session works after PostgreSQL restart; no reset/secret change.
+Scope: owned isolated Linux Docker cluster, no main DB stopped.

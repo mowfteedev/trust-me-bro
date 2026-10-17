@@ -5,6 +5,9 @@ Web SSH có phân quyền ADMIN/VIEWER. Nhánh làm việc: **`minh-thanh`**; kh
 vào `main`. Phạm vi là mô hình môn học chạy được và giải thích được.
 Gateway giữ Fastify/TypeScript, Dashboard giữ React/TypeScript, DB giữ PostgreSQL.
 Mini-Agent dùng Go và thư viện chuẩn; phiếu giao không cố định ngôn ngữ Agent.
+Agent Linux đã chạy thật; collector/service Windows đã bổ sung và cross-build,
+**chưa kiểm chứng trên Windows VM**. Mô hình chọn là máy Arch Linux hiện tại chạy
+Gateway Docker + Windows VM Worker riêng; xem [Windows Worker](docs/WINDOWS_WORKER.md).
 
 ## Khởi chạy demo
 
@@ -39,7 +42,7 @@ python3 deploy/scripts/demo.py down
 ```
 
 `make up`, `make e2e`, `make status`, `make down` tương ứng các lệnh trên.
-`make test` chạy Go tests của Agent và Vitest của Gateway trong Docker; DB/fetch của test
+`make test` chạy Go tests Linux của Agent và Vitest của Gateway trong Docker; DB/fetch của test
 Gateway là giả lập. `make e2e` kiểm tra hệ thống thật và cảnh báo bằng payload
 kiểm thử trong DB tạm riêng. Không dùng `make clean` để dọn dữ liệu kiểm chứng.
 
@@ -84,12 +87,16 @@ flowchart LR
 - Heartbeat mặc định **3 giây**. Nhãn `Online/Stale/Offline` tương ứng giá trị DB
   `HEALTHY/WARNING/OFFLINE`. Stale từ 15s, Offline từ 30s, chu kỳ quét 5s.
   CPU vượt ngưỡng là incident riêng, không làm node thành Stale.
-- CPU/RAM/uptime là số liệu Linux host; trong Docker chúng dùng kernel host,
+- CPU/RAM/uptime là số liệu hệ điều hành chạy Agent; bản Linux Docker dùng kernel host,
   không phải mức sử dụng cgroup riêng của container. Disk là filesystem tại
   `DISK_MOUNT_POINT`. RX/TX là byte tích lũy trên **một** `NETWORK_INTERFACE`
   (demo: `wg0`), không cộng cả WireGuard và NIC transport, không phải byte/s.
+  Windows dùng Win32, disk có xét quota của tài khoản Agent, không gửi Linux load_avg.
   Bộ đếm mạng có thể reset khi giao diện được tạo lại. Lỗi collector bỏ beacon
   và ghi nguyên nhân, không gửi số 0 giả; Offline chỉ biểu thị mất heartbeat.
+- Dashboard có thời điểm tải thành công và tuổi heartbeat; mất kết nối Gateway
+  được phân biệt với nodeOffline. Bấm thẻ Online/Stale/Offline để lọc; chart đặt
+  mẫu theo timestamp thật và ngắt đường khi khoảng mẫu hơn15s, không nội suy mất dữ liệu.
 - Telegram mặc định **`TELEGRAM_MODE=dry-run`**: ghi log có nhãn GIẢ LẬP,
   không polling và không gửi ra ngoài, kể cả khi có token. Bot thật chỉ bật khi
   có token và đặt `TELEGRAM_MODE=live`; ghép nối theo hướng dẫn bên dưới.
@@ -144,6 +151,11 @@ coi payload này là tải CPU vật lý. Bằng chứng cấu hình live, ghép
 restart, CPU giả lập/gửi thật và Offline thật nằm trong
 [telegram-live.txt](docs/verification/telegram-live.txt).
 
+Lượt18/10, CPU host thật vượt85% khi build Worker (88,66% và87,25%); dịch vụ live
+đã ghi audit và gửi cảnh báo được Telegram xác nhận. Đây là sự kiện tải thật phát
+sinh khi build, khác bài lab CPU ngưỡng thấp và khác Windows chưa kiểm chứng.
+Xem [bằng chứng CPU/Telegram](docs/verification/completion-cpu-telegram-live.json).
+
 Toàn bộ mẫu biến trong [.env.example](.env.example). Khóa và mật khẩu nằm trong
 `keys/` được Git/Docker build context loại trừ. Đổi môi trường demo khác bằng
 `--env-file PATH --project TEN` ở mọi lệnh `demo.py`; phải chọn cổng host khác
@@ -182,23 +194,46 @@ Bài này dùng tối đa hai thread tải trong10s, heartbeat1s và ngưỡng t
 baseline đo được; ghi rõ ngưỡng/kết quả, không giả thành đã vượt mặc định85%.
 Không sửa ngưỡng hoặc dữ liệu của Gateway đang chạy, không gửi Telegram thật.
 
+### Windows Worker
+
+Có collector Windows64-bit, service native `ZTServerOpsAgent` chạy LocalService,
+JSON config và installer `agent/install-windows.ps1`. Giữ chung giao thức với
+Linux, không thêm thư viện Go hoặc dịch vụ phụ. `--validate-config` chỉ kiểm tra
+cấu hình, `--check` chỉ lấy một mẫu thật; cả hai không gửi HTTP.
+
+`deploy/scripts/register-node.py` chuẩn bị peer/token riêng ở `.3`, giữ nodeDocker
+`.2`. Lệnh register nhận trusted SSH host PUBLIC key từ guest, dùng one-shot
+migrator và từ chối ghi đè định danh. Không đưa private Gateway key vào bundle.
+`deploy/scripts/verify-vm.py --help` mô tả bài thử API/SSH/audit/logout cho VM.
+Lệnh verify thu hồi phiên các tài khoản demo trên Gateway được chọn.
+
+Bộ cài local trong `keys/windows-worker-01/` đã tạo; thư mục này có secrets và
+được Git loại trừ. **Chưa register Windows node và chưa chạy native Windows**;
+cross-build, parser hay DB test không thay thế bằng chứng guest.
+Xem [trình tự cài và kiểm chứng](docs/WINDOWS_WORKER.md).
+
 ## Đối chiếu và kiểm chứng
 
 | Yêu cầu | Hiện trạng | Bằng chứng | Việc còn thiếu |
 |---|---|---|---|
 | WireGuard M2M, Zero Inbound worker | Có VPN kernel, SSH chỉ qua VPN, không publish worker | `network-resources.txt`, runtime SSH | Chưa thử từ Internet/VM riêng |
-| ADMIN/VIEWER, Web SSH/PTY | Viewer nhận403; Admin chạy lệnh, resize, đóng; logout thu hồi phiên | 16 kiểm tra `runtime.txt`, ảnh terminal | Không |
+| ADMIN/VIEWER, Web SSH/PTY | Viewer nhận403; Admin chạy lệnh, resize, đóng; logout thu hồi phiên | 16 luồng LinuxDocker thật; Firefox SSH/reopen | Windows VM chưa kiểm chứng |
 | CPU/RAM/disk/network/uptime, dashboard | Collector Go thật, RX/TX một giao diện, giải thích phạm vi đo | Runtime thật + browser | Xem số đo RAM bên dưới |
-| Heartbeat3s, Online/Stale/Offline | Ngưỡng15/30s, quét5s | Stale17,80s, Offline32,82s; tự phục hồi | Không trong cấu hình demo |
-| Cảnh báo CPU/offline, Telegram | Live đã ghép nối; incident/audit, resolve và tránh lặp | CPU giả lập trong DB riêng gửi thật; Worker Offline thật31,89s và Telegram API xác nhận gửi | Mạng/VM bên ngoài vẫn cần kiểm chứng |
+| Heartbeat3s, Online/Stale/Offline | Ngưỡng15/30s, quét5s | Lượt18/10: Stale15,19s, Offline30,21s; tự phục hồi | Windows VM chưa kiểm chứng |
+| Cảnh báo CPU/offline, Telegram | Live đã ghép nối; incident/audit, resolve và tránh lặp | CPU host thật88,66%/87,25% vượt85% và Telegram ack18/10; Offline thật31,89s/ack16/10 | Windows/Internet vẫn cần kiểm chứng |
 | PostgreSQL, chuẩn hóa dữ liệu | Migration008 bỏ tỷ lệ RAM/disk lưu dư; API tính từ bytes | Test nâng007→008 giữ UUID/FK/lịch sử; fresh DB cũng chạy | Không đổi migration cũ |
-| VM và Docker | Cụm Docker đã chạy thật | `VM_SETUP.md` có hướng dẫn | Cần môi trường VMware/VirtualBox để kiểm chứng |
+| VM và Docker | Cụm Docker đã chạy thật; bộ cài Windows đã chuẩn bị | `WINDOWS_WORKER.md`, cross-build và parser | Cần Windows guest/VMware hoặc VirtualBox để kiểm chứng |
 
-Bằng chứng mới: [unit/build](docs/verification/hardening-unit.txt),
-[runtime, liveness và CPU thật](docs/verification/hardening-runtime.txt),
-[RAM và mạng Agent Go](docs/verification/agent-go-resources.txt),
-[Firefox/HTTPS](docs/verification/hardening-browser.json).
-Go tests và49Gateway Vitest đạt; unit dùng mockDB/fetch. Runtime dùng cụm Docker
+Bằng chứng mới ngày18/10: [kết quả và giới hạn](docs/verification/completion.md),
+[Firefox](docs/verification/completion-browser.json),
+[dashboard desktop](docs/verification/completion-desktop.png),
+[dashboard mobile](docs/verification/completion-mobile.png).
+
+Bằng chứng ngày18/10: [unit/build](docs/verification/completion-unit.txt),
+[runtime, liveness và CPU thật](docs/verification/completion-runtime.txt),
+[RAM và mạng Agent Go](docs/verification/completion-resources.txt),
+[Firefox/HTTPS](docs/verification/completion-browser.json).
+18Go tests Linux và58Gateway Vitest đạt; unit dùng mockDB/fetch. Runtime dùng cụm Docker
 riêng và DB tạm; thử CPU thật có ngưỡng lab được ghi rõ, Telegram vẫn dry-run.
 
 Bằng chứng trước đổi Agent cũng được giữ trong `docs/verification/`: `build-start.txt`, `unit.txt`
@@ -211,22 +246,23 @@ chúng có kỳ vọng cũ như Agent Python, khóa600, timeout10s, tỷ lệ RA
 Chúng không được dùng để gán PASS cho chức năng hiện tại. Riêng test nâng cấp
 008 dùng `tests/runtime-schema.cjs`; không sửa test cũ để che lỗi.
 
-Build còn ghi nhận **4 cảnh báo phụ thuộc** (1 moderate, 2 high, 1 critical).
-Chưa thực hiện nâng major framework trong phạm vi phiên này; đây là giới hạn
-an toàn cần biết, không coi bản demo là đã vượt audit production.
+Audit18/10 còn báo **4 package Gateway runtime** (1 moderate, 2 high, 1 critical),
+toàn cây Gateway9 và Dashboard9 gồm các quan hệ dev/build. Gateway đã chuyển
+Node20 sang22; Vite dev/preview chỉloopback. Các advisory Fastify/JWT vẫn **OPEN**,
+không gọi việc giảm bề mặt truy cập là vá thư viện. [Đối chiếu ảnh hưởng](docs/verification/dependency-review.md).
 
 ## Tài liệu và giới hạn
 
 - [Kịch bản demo và xử lý lỗi](docs/DEMO.md).
 - [Log và ảnh kiểm chứng](docs/verification/).
-- [Mô hình hai VM](docs/VM_SETUP.md): hướng dẫn, **chưa kiểm chứng hypervisor**.
+- [Triển khai máy ảo](docs/VM_SETUP.md), [Windows Worker](docs/WINDOWS_WORKER.md): **chưa kiểm chứng guest**.
 - [API](contracts/openapi.yaml): các endpoint đang hỗ trợ được ghi trong đặc tả.
 
 Các luồng chính đã chạy thật trong cụm Docker; xem log và ảnh trong `docs/verification/`.
-Python trước đây khoảng **23 MiB RSS**. Go đo khoảng **10,3–10,6 MiB RSS** trên
-Worker Docker thật và nhánh retry503 dùng cùng Go runtime/ngân sách mềm.
-Đã giảm về gần mục tiêu khoảng10MB, không cam kết luôn dưới10MB. RSS/PSS khác
-VmSize (không gian địa chỉ ảo) và Docker stats. Snapshot container mới khoảng115MiB;
+Python trước đây khoảng **23 MiB RSS**. Go lượt16/10 khoảng10,3–10,6MiB; bản có
+thêm config/diagnostic chung lượt18/10 đo **11,0 MiB RSS** trên Linux Worker thật
+(11272–11276kB), không cam kết dưới10MB hoặc suy sang Windows. RSS/PSS khác
+VmSize (không gian địa chỉ ảo) và Docker stats. Snapshot container18/10 khoảng128MiB;
 không tính OS/Docker daemon/hypervisor và không phải benchmark.
 Mô hình VM và thử inbound từ Internet thật còn cần xác nhận. Telegram live đã
 ghép nối và thử gửi; môi trường mới vẫn mặc định dry-run. Slide và báo cáo môn học

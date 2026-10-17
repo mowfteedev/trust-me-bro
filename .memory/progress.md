@@ -248,3 +248,20 @@ Commit bàn giao xem `git log -1 --oneline`.
   image đã tồn tại. Đã thêm --build ở bước upWorker, build/recreateWorker thật và
   chạy lại nguyên lệnhup thành công; --validate-config và --check của binary mới
   hoạt động. Không thu hồiJWT/chạylogout trên demo chính; checksum/identities giữ nguyên.
+- Bàn giao kỹ thuật18/10: README/DEMO/VM_SETUP cập nhật, WINDOWS_WORKER.md có lệnh
+  từng bước và nhãnWindows chưachạy. completion.md + rawunit/runtime/resources/
+  Windowsstatic/browser/rollout +3ảnh gộp bằng chứng, không làm slide/báo cáo môn học.
+- DBoutage thực ở cụm riêng: auth/me vànodes trả503 khiPGdừng, cùngJWT làm việc lại
+  sauPGstart; mainDBkhông dừng. Liveness15.19/30.21s, CPULabthreshold20.21peak30.26.
+- Go build thực khiến CPUhost main vượt85:88.66%/87.25%, auditCPU_HIGH vàTelegram
+  ackmessage14/15. Đây là cảnh báo tự động do tải thật, không testpayload, không
+  nativeWindows. Đã ghi completion-cpu-telegram-live.json và cập nhật nhận xét
+  trước đó 'không gửi thêm tin': getMe chỉđọc, nhưng dịch vụlive tự gửi khiCPUcao.
+- Finalrollout users/nodes/passwordhash/sessionversions/env/key giữ nguyên;
+  metrics20292→20521, audit127→129 (haiCPU_HIGH thực), Node20.20.2→22.23.3.
+  Workerimage thật đãrebuild; rawdata/volume demo chính không xóa, ownerJWTkhônglogout.
+- Đã dọn đúng zt_completion_check containers/networks/volumes do lượt này tạo;
+  giữ env test để tái lập. NativeWindows/Internet/RAMWindows vẫn CHƯA KIỂM CHỨNG;
+  runtime4package dependencyOPEN; LinuxAgent≈11MiBRSS, containers≈128MiB snapshot.
+- Read-only remotecheck: minh-thanh vẫn65bfd42, main1926d4e. Cáccommit mới cục bộ,
+  khôngpush, chỉpush khi chủ dự án duyệt. Sáu báo cáo untracked cũ giữ nguyên.
