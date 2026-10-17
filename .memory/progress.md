@@ -216,3 +216,16 @@ Commit bàn giao xem `git log -1 --oneline`.
 - Installer được parser PowerShell7.6.7 Linux kiểm tra; SCM/ACL/Win32/RAM Windows
   vẫn CHƯA KIỂM CHỨNG. LocalService là identity dùng chung; không chống admin hoặc
   mọi dịch vụ khác chạy cùng identity. Không phát hành hoặc push binaries lênGit.
+- Việc triển khai: prepare/register-node.py + bộ PowerShell setup/check/restore
+  giữ nodeDocker .2, chuẩn bị Windows .3 và host fingerprint lấy qua kênh tin cậy.
+  Peer bổ sung theo khóa riêng, kiểm tra overlap runtime/config, đăng ký idempotent
+  qua migrator; không đưa private Gateway key vào Worker bundle hoặc secret vào argv.
+- prepare thật đã tạo keys/windows-worker-01 bằng WireGuard keygen thật, bundle0700/
+  files0600, chạy lại từ chối ghi đè và checksumenv/login/configs cũ không đổi.
+  Chưa register/apply peerWindows vì chưa có SSHhostPUBLIC key thật từVM.
+- Setup/check/restore có guard reparse/owner/statepaths, SSHnonadmin/khóa/VPN-only,
+  firewall chỉ2rule cóscope, dependencyWG; không tự tắt rule khác hoặc sửa firewall
+  host. PowerShellparser và guardLinux/mock đạt; không gọi đây là PASSWindows.
+- Thêm verify-vm.py dùng luồng16checks thực, WindowsEncodedCommand + Win32NT marker,
+  Admin/Viewer/SSH/audit/logout. Entry point này thu hồi phiên demo-account; chỉ
+  chạy trên target đã đăng ký. NhánhWindows vẫn chưa chạy, không dựng VM giả.

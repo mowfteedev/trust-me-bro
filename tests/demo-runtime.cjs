@@ -4,6 +4,9 @@ const WebSocket = require('ws');
 const { Pool } = require('pg');
 const base = 'http://127.0.0.1:3000';
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const nodeName = credentials.node_name || 'node-worker-01';
+const shell = credentials.shell || 'linux';
+assert.ok(['linux', 'windows'].includes(shell));
 let passed = 0;
 function check(condition, name) { assert.ok(condition, name); console.log(`PASS ${++passed}: ${name}`); }
 async function api(path, token, body) {
@@ -23,7 +26,7 @@ async function login(username, password) {
 async function terminal(nodeId, ticket, command, expected) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(`ws://10.100.0.1:3000/ws/terminal/${nodeId}`, { localAddress: '10.100.0.1', headers: { 'X-Forwarded-For': '192.0.2.99' } });
-    const timeout = setTimeout(() => { socket.terminate(); reject(new Error('Terminal timeout')); }, 10000);
+    const timeout = setTimeout(() => { socket.terminate(); reject(new Error('Terminal timeout')); }, 30000);
     let output = '';
     let complete = false;
     socket.on('open', () => socket.send(JSON.stringify({ type: 'AUTH', ticket })));
@@ -39,7 +42,10 @@ async function terminal(nodeId, ticket, command, expected) {
         }
       } catch {}
       output += text;
-      if (output.includes(expected)) { complete = true; socket.close(); }
+      // Windows ConPTY may emit ANSI control sequences around line breaks.
+      const rendered = output.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+        .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\r/g, '');
+      if (rendered.includes(expected)) { complete = true; socket.close(); }
     });
     socket.on('error', (error) => { clearTimeout(timeout); reject(error); });
     socket.on('close', () => {
@@ -71,9 +77,10 @@ async function main() {
   await waitFor(async () => {
     const response = await api('/api/nodes', viewer);
     nodes = response.body.data;
-    return response.status === 200 && nodes.some((node) => node.name === 'node-worker-01' && node.status === 'HEALTHY' && node.latest_metric);
+    return response.status === 200 && nodes.some((node) => node.name === nodeName && node.status === 'HEALTHY' && node.latest_metric);
   }, 12000);
-  const node = nodes.find((item) => item.name === 'node-worker-01');
+  const node = nodes.find((item) => item.name === nodeName);
+  if (credentials.node_type) assert.equal(node.node_type, credentials.node_type, 'Target deployment type differs from requested VM');
   check(node.latest_metric.cpu_percent >= 0 && node.latest_metric.memory_total_bytes > 0 && node.latest_metric.disk_total_bytes > 0, 'Telemetry thật CPU/RAM/disk hiển thị qua API');
   check(node.latest_metric.network_rx_bytes >= 0 && node.latest_metric.network_tx_bytes >= 0 && node.latest_metric.uptime_seconds > 0, 'Network I/O + uptime thật qua API');
   const history = await api(`/api/nodes/${node.id}/history`, viewer);
@@ -83,8 +90,12 @@ async function main() {
   check(ticket.status === 200, 'Admin lấy vé SSH');
   const auditSince = (await pool.query('SELECT now()::text AS stamp')).rows[0].stamp;
   // Tạo marker chỉ trong stdout của shell, không nằm nguyên vẹn trong lệnh bị echo.
-  const output = await terminal(node.id, ticket.body.ticket, "printf 'ZT_%s_OK\\n' REAL; id; stty size", 'ZT_REAL_OK\r\nuid=');
-  check(output.includes('ztuser'), 'WebSocket→SSH→PTY thực thi lệnh thật qua WireGuard');
+  const windowsCommand = "[Console]::WriteLine(('ZT_'+'REAL_'+'WINDOWS_OK')); [Console]::WriteLine([Environment]::OSVersion.Platform); whoami";
+  const command = shell === 'windows'
+    ? 'powershell.exe -NoProfile -NonInteractive -EncodedCommand ' + Buffer.from(windowsCommand, 'utf16le').toString('base64')
+    : "printf 'ZT_%s_OK\\n' REAL; id; stty size";
+  const output = await terminal(node.id, ticket.body.ticket, command, shell === 'windows' ? 'ZT_REAL_WINDOWS_OK\nWin32NT' : 'ZT_REAL_OK\nuid=');
+  check(output.toLowerCase().includes('ztuser'), `WebSocket→SSH→PTY thực thi lệnh thật qua WireGuard (${shell})`);
   await waitFor(async () => {
     const events = await pool.query(
       `SELECT details->>'session_id' AS session_id FROM audit_logs
@@ -122,6 +133,6 @@ async function main() {
   check(true, 'Đăng xuất đóng phiên SSH đang mở bằng session revocation');
   check((await api('/api/auth/me', admin)).status === 401, 'Đăng xuất thu hồi JWT trên server');
   check((await api('/api/auth/logout', viewer, {})).status === 200, 'Viewer đăng xuất được');
-  console.log(`${passed} kiểm tra chức năng thật đạt; Telegram thật và VM không nằm trong bài này.`);
+  console.log(`${passed} kiểm tra chức năng thật đạt cho ${nodeName} (${shell}). Không tự xác nhận hypervisor, firewall Internet, RAM hoặc cảnh báo Telegram.`);
 }
 main().catch((error) => { console.error('FAIL:', error.message); process.exitCode = 1; }).finally(() => pool.end());
