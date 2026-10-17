@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"runtime/debug"
 	"syscall"
 	"time"
@@ -117,27 +119,89 @@ func configureMemoryBudget() {
 	}
 }
 
-func main() {
-	configureMemoryBudget()
-	logger := log.New(os.Stderr, "zt-agent ", log.LstdFlags)
-	cfg, err := loadConfig()
-	if err != nil {
-		logger.Print(err)
-		os.Exit(1)
-	}
+func runAgent(ctx context.Context, cfg config, check bool, logger *log.Logger) error {
 	collect, err := newCollector(cfg)
 	if err != nil {
-		logger.Printf("collector initialization failed: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("collector initialization failed: %w", err)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	client := newClient(cfg.HTTPTimeout)
 	defer client.CloseIdleConnections()
-	logger.Printf("started node=%s interface=%s disk=%s (Linux host metrics)", cfg.NodeID, cfg.NetworkInterface, cfg.DiskMountPoint)
+	logger.Printf("started node=%s interface=%s disk=%s (%s host metrics)", cfg.NodeID, cfg.NetworkInterface, cfg.DiskMountPoint, runtime.GOOS)
 	// First CPU value needs an elapsed interval, not a fabricated warm-up zero.
 	if wait(ctx, cfg.Interval) {
+		if check {
+			payload, err := collect.collect()
+			if err != nil {
+				return err
+			}
+			// Local diagnostic only; never includes the node token or sends HTTP.
+			return json.NewEncoder(os.Stdout).Encode(payload)
+		}
 		run(ctx, cfg, collect.collect, client, logger)
 	}
 	logger.Print("stopped")
+	return nil
+}
+
+func start(args []string, logger *log.Logger) error {
+	flags := flag.NewFlagSet("zt-agent", flag.ContinueOnError)
+	configPath := flags.String("config", "", "JSON settings file; otherwise read environment")
+	service := flags.Bool("service", false, "run under Windows Service Control Manager")
+	check := flags.Bool("check", false, "collect and print one real sample without sending HTTP")
+	validate := flags.Bool("validate-config", false, "validate settings without collecting or connecting")
+	if err := flags.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 || (*service && (*check || *validate)) {
+		return fmt.Errorf("unexpected arguments or incompatible service/diagnostic flags")
+	}
+	var cfg config
+	var err error
+	if *configPath == "" {
+		cfg, err = loadConfig()
+	} else {
+		cfg, err = loadConfigFile(*configPath)
+	}
+	if err != nil {
+		return err
+	}
+	if *validate {
+		logger.Print("configuration valid (no collection or network request)")
+		return nil
+	}
+	if *service {
+		if *configPath == "" {
+			return fmt.Errorf("Windows service requires --config")
+		}
+		output, err := newServiceLog(*configPath)
+		if err != nil {
+			return err
+		}
+		defer output.Close()
+		logger.SetOutput(output)
+		err = runPlatformService(func(ctx context.Context) error { return runAgent(ctx, cfg, false, logger) })
+		if err != nil {
+			logger.Print(err) // Record the cause before the service log is closed.
+		}
+		logger.SetOutput(os.Stderr)
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return runAgent(ctx, cfg, *check, logger)
+}
+
+func main() {
+	configureMemoryBudget()
+	if _, configured := os.LookupEnv("GOMAXPROCS"); !configured {
+		runtime.GOMAXPROCS(1)
+	}
+	logger := log.New(os.Stderr, "zt-agent ", log.LstdFlags)
+	if err := start(os.Args[1:], logger); err != nil {
+		logger.Print(err)
+		os.Exit(1)
+	}
 }

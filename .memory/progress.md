@@ -206,3 +206,13 @@ Commit bàn giao xem `git log -1 --oneline`.
   cũ. Runtime role vẫn có quyền bootstrap cũ, không tuyên bố cách ly quản trị DB.
 - Native Windows/VMware/VirtualBox chưa có trên máy; không có guest image, pwsh,
   VBoxManage/vmrun/qemu. Cross-build/PowerShell parser không thay kiểm thử guest.
+- Việc Agent: thêm collector Win32 stdlib 64-bit, Windows service LocalService,
+  JSON config tự chứa, installer ACL/giữconfig, log2x1MiB, --validate-config và
+  --check không gửi HTTP. Linux giữ /proc + giao thức, Windows bỏ load_avg.
+-18Go tests +21invalidconfigsubcases đạt; race/vet Linux, vet/testcompileWindows
+  amd64 và buildamd64/arm64 đạt. make test Docker Go +58GatewayVitest đạt.
+  Reviewer độc lập đã đối chiếu ABI MIB_IF_ROW2/CPU; sửa quota disk total/available
+  cùng phạm vi, đồng bộ SCM bằngchannel/mutex và guard junction/config bộ cài.
+- Installer được parser PowerShell7.6.7 Linux kiểm tra; SCM/ACL/Win32/RAM Windows
+  vẫn CHƯA KIỂM CHỨNG. LocalService là identity dùng chung; không chống admin hoặc
+  mọi dịch vụ khác chạy cùng identity. Không phát hành hoặc push binaries lênGit.

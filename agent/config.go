@@ -5,7 +5,6 @@ import (
 	"math"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,18 +18,21 @@ type config struct {
 }
 
 func loadConfig() (config, error) {
-	get := func(key, fallback string) string {
+	return parseConfig(func(key, fallback string) string {
 		if value, ok := os.LookupEnv(key); ok {
 			return value
 		}
 		return fallback
-	}
+	})
+}
+
+func parseConfig(get func(string, string) string) (config, error) {
 	cfg := config{
 		GatewayURL:       strings.TrimRight(get("GATEWAY_URL", "http://10.100.0.1:3000"), "/"),
-		NodeID:           get("NODE_ID", "node-worker-01"),
+		NodeID:           get("NODE_ID", defaultNodeID),
 		NodeToken:        strings.TrimSpace(get("NODE_TOKEN", "")),
-		NetworkInterface: get("NETWORK_INTERFACE", "wg0"),
-		DiskMountPoint:   get("DISK_MOUNT_POINT", "/"),
+		NetworkInterface: get("NETWORK_INTERFACE", defaultNetworkInterface),
+		DiskMountPoint:   get("DISK_MOUNT_POINT", defaultDiskMountPoint),
 	}
 	u, err := url.Parse(cfg.GatewayURL)
 	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || strings.Contains(cfg.GatewayURL, "#") {
@@ -42,11 +44,8 @@ func loadConfig() (config, error) {
 	if len(cfg.NodeToken) == 0 || len(cfg.NodeToken) > 512 || strings.IndexFunc(cfg.NodeToken, func(r rune) bool { return r < 33 || r > 126 }) >= 0 {
 		return cfg, fmt.Errorf("NODE_TOKEN is required (1–512 printable ASCII characters without whitespace)")
 	}
-	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`).MatchString(cfg.NetworkInterface) {
-		return cfg, fmt.Errorf("NETWORK_INTERFACE must name one Linux interface")
-	}
-	if !filepath.IsAbs(cfg.DiskMountPoint) || strings.ContainsAny(cfg.DiskMountPoint, "\x00\r\n") {
-		return cfg, fmt.Errorf("DISK_MOUNT_POINT must be an absolute Linux path")
+	if err := validatePlatformConfig(cfg); err != nil {
+		return cfg, err
 	}
 	seconds := func(key, fallback string, min, max float64) (time.Duration, error) {
 		value, err := strconv.ParseFloat(get(key, fallback), 64)

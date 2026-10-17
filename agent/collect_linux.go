@@ -12,32 +12,6 @@ import (
 	"time"
 )
 
-type cpuMetric struct {
-	Percent float64    `json:"percent"`
-	LoadAvg [3]float64 `json:"load_avg"`
-}
-type capacityMetric struct {
-	TotalBytes uint64  `json:"total_bytes"`
-	UsedBytes  uint64  `json:"used_bytes"`
-	Percent    float64 `json:"percent"`
-}
-type networkMetric struct {
-	RXBytesTotal uint64 `json:"rx_bytes_total"`
-	TXBytesTotal uint64 `json:"tx_bytes_total"`
-}
-type metrics struct {
-	CPU           cpuMetric      `json:"cpu"`
-	Memory        capacityMetric `json:"memory"`
-	Disk          capacityMetric `json:"disk"`
-	Network       networkMetric  `json:"network"`
-	UptimeSeconds uint64         `json:"uptime_seconds"`
-}
-type beacon struct {
-	NodeID    string  `json:"node_id"`
-	Timestamp int64   `json:"timestamp"`
-	Metrics   metrics `json:"metrics"`
-}
-type cpuTimes struct{ idle, total uint64 }
 type collector struct {
 	cfg      config
 	previous cpuTimes
@@ -71,13 +45,6 @@ func parseCPU(data string) (cpuTimes, error) {
 		}
 	}
 	return result, nil
-}
-
-func cpuPercent(previous, current cpuTimes) (float64, error) {
-	if current.total <= previous.total || current.idle < previous.idle || current.idle-previous.idle > current.total-previous.total {
-		return 0, fmt.Errorf("CPU counters reset or sample interval too short")
-	}
-	return roundPercent(100 * (1 - float64(current.idle-previous.idle)/float64(current.total-previous.total))), nil
 }
 
 func parseMemory(data string) (capacityMetric, error) {
@@ -152,11 +119,6 @@ func parseUptime(data string) (uint64, error) {
 	return uint64(value), nil
 }
 
-func capacity(total, used uint64) capacityMetric {
-	return capacityMetric{TotalBytes: total, UsedBytes: used, Percent: roundPercent(100 * float64(used) / float64(total))}
-}
-func roundPercent(value float64) float64 { return math.Round(value*100) / 100 }
-
 func readDisk(path string) (capacityMetric, error) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(path, &stat); err != nil {
@@ -192,9 +154,11 @@ func (c *collector) collect() (beacon, error) {
 	if err != nil {
 		return result, err
 	}
-	if result.Metrics.CPU.LoadAvg, err = parseLoad(load); err != nil {
+	loadAverage, err := parseLoad(load)
+	if err != nil {
 		return result, err
 	}
+	result.Metrics.CPU.LoadAvg = &loadAverage
 	result.Metrics.CPU.Percent = percent
 	mem, err := read("/proc/meminfo")
 	if err != nil {
