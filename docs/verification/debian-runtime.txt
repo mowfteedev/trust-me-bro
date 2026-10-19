@@ -1,0 +1,195 @@
+Before reboot: live API/SSH
+Live VM verification: real telemetry, Admin/Viewer, SSH command, audit and logout.
+This revokes demo-account sessions on the selected Gateway.
+PASS 1: Gateway + PostgreSQL ready
+PASS 2: Chưa login không đọc nodes
+PASS 3: Mật khẩu sai bị từ chối
+PASS 4: Viewer có vai trò từ DB
+PASS 5: Admin có vai trò từ DB
+PASS 6: JWT unsigned bị từ chối
+PASS 7: Telemetry thật CPU/RAM/disk hiển thị qua API
+PASS 8: Network I/O + uptime thật qua API
+PASS 9: Viewer đọc lịch sử biểu đồ
+PASS 10: Viewer không lấy vé SSH
+PASS 11: Admin lấy vé SSH
+PASS 12: WebSocket→SSH→PTY thực thi lệnh thật qua WireGuard (linux)
+PASS 13: Audit START + END cùng phiên và IP socket VPN thật; XFF giả bị bỏ qua
+PASS 14: Đăng xuất đóng phiên SSH đang mở bằng session revocation
+PASS 15: Đăng xuất thu hồi JWT trên server
+PASS 16: Viewer đăng xuất được
+16 kiểm tra chức năng thật đạt cho node-linux-01 (linux). Không tự xác nhận hypervisor, firewall Internet, RAM hoặc cảnh báo Telegram.
+
+
+After reboot: live API/SSH
+Live VM verification: real telemetry, Admin/Viewer, SSH command, audit and logout.
+This revokes demo-account sessions on the selected Gateway.
+PASS 1: Gateway + PostgreSQL ready
+PASS 2: Chưa login không đọc nodes
+PASS 3: Mật khẩu sai bị từ chối
+PASS 4: Viewer có vai trò từ DB
+PASS 5: Admin có vai trò từ DB
+PASS 6: JWT unsigned bị từ chối
+PASS 7: Telemetry thật CPU/RAM/disk hiển thị qua API
+PASS 8: Network I/O + uptime thật qua API
+PASS 9: Viewer đọc lịch sử biểu đồ
+PASS 10: Viewer không lấy vé SSH
+PASS 11: Admin lấy vé SSH
+PASS 12: WebSocket→SSH→PTY thực thi lệnh thật qua WireGuard (linux)
+PASS 13: Audit START + END cùng phiên và IP socket VPN thật; XFF giả bị bỏ qua
+PASS 14: Đăng xuất đóng phiên SSH đang mở bằng session revocation
+PASS 15: Đăng xuất thu hồi JWT trên server
+PASS 16: Viewer đăng xuất được
+16 kiểm tra chức năng thật đạt cho node-linux-01 (linux). Không tự xác nhận hypervisor, firewall Internet, RAM hoặc cảnh báo Telegram.
+
+
+Real Agent stop/start
+{"elapsed_seconds":0.062,"name":"node-linux-01","status":"HEALTHY","heartbeat_age":2.502816}
+{"elapsed_seconds":14.142,"name":"node-linux-01","status":"WARNING","heartbeat_age":16.596334}
+{"elapsed_seconds":29.22,"name":"node-linux-01","status":"OFFLINE","heartbeat_age":31.674111}
+{"elapsed_seconds":56.357,"name":"node-linux-01","status":"HEALTHY","heartbeat_age":0.33009}
+{"stale":true,"offline":true,"recovered":true,"alerts":[{"severity":"CRITICAL","resolved":true,"triggered_at":"2026-10-19T19:32:34.310Z","resolved_at":"2026-10-19T19:33:01.571Z"}]}
+
+
+Boot ID before reboot
+Mon Oct 19 07:33:18 PM UTC 2026
+6971898e-4cab-4d3c-b786-c26d978fc9fa
+active
+active
+active
+active
+
+
+Services / SSH / firewall after reboot
+Mon Oct 19 07:35:23 PM UTC 2026
+75bead3e-e93a-49c3-8fb9-ba55eb06220b
+ 02:35:23 up 1 min,  3 users,  load average: 0.01, 0.01, 0.00
+active
+active
+active
+active
+enabled
+enabled
+enabled
+enabled
+listenaddress 10.100.0.4:22
+permitrootlogin no
+passwordauthentication no
+x11forwarding no
+allowtcpforwarding no
+allowagentforwarding no
+disableforwarding yes
+allowstreamlocalforwarding yes
+allowusers ztuser@10.100.0.1
+allowusers linux@10.100.0.1
+authenticationmethods publickey
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      128       10.100.0.4:22        0.0.0.0:*    users:(("sshd",pid=562,fd=3))
+table inet zt_worker {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		iifname "lo" accept
+		ct state established,related accept
+		ct state invalid drop
+		iifname "wg0" ip saddr 10.100.0.1 tcp dport 22 accept
+		iifname "enp1s0" udp sport 67 udp dport 68 accept
+		ip6 saddr fe80::/10 ip6 hoplimit 255 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+	}
+
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+	}
+
+	chain output {
+		type filter hook output priority filter; policy accept;
+	}
+}
+4wv6Oufj2Yj6cuncaN0Q9rSpz9UivWMfvnm+mhJpwHE=	1792438414
+4wv6Oufj2Yj6cuncaN0Q9rSpz9UivWMfvnm+mhJpwHE=	77776	97372
+MainPID=557
+MemoryCurrent=12509184
+User=zt-agent
+    PID USER       RSS    VSZ %CPU COMMAND
+    557 zt-agent 10796 1266112 0.0 /opt/zt-serverops/agent/zt-agent
+               total        used        free      shared  buff/cache   available
+Mem:         1498036      244076     1271724        4632      115412     1253960
+Swap:         998396           0      998396
+Filesystem       1B-blocks       Used   Available Use% Mounted on
+/dev/vda1      14734467072 1928241152 12035420160  14% /
+600 root /etc/wireguard/wg0.conf
+400 root /etc/ssh/ssh_host_ed25519_key
+600 root /opt/zt-serverops/agent/.env
+NODE_ID=node-linux-01
+NETWORK_INTERFACE=wg0
+DISK_MOUNT_POINT=/
+BEACON_INTERVAL_SECONDS=3.0
+JITTER_RATIO=0.0
+Oct 20 02:35:02 node-linux-01 zt-agent[557]: zt-agent 2026/10/20 02:35:02 beacon ACK cpu=0.33% ram=16.29%
+Oct 20 02:35:05 node-linux-01 zt-agent[557]: zt-agent 2026/10/20 02:35:05 beacon ACK cpu=0.00% ram=16.29%
+Oct 20 02:35:08 node-linux-01 zt-agent[557]: zt-agent 2026/10/20 02:35:08 beacon ACK cpu=1.66% ram=16.27%
+Oct 20 02:35:11 node-linux-01 zt-agent[557]: zt-agent 2026/10/20 02:35:11 beacon ACK cpu=0.17% ram=16.27%
+Oct 20 02:35:14 node-linux-01 zt-agent[557]: zt-agent 2026/10/20 02:35:14 beacon ACK cpu=0.00% ram=16.27%
+Oct 20 02:35:17 node-linux-01 zt-agent[557]: zt-agent 2026/10/20 02:35:17 beacon ACK cpu=0.17% ram=16.27%
+Oct 20 02:35:20 node-linux-01 zt-agent[557]: zt-agent 2026/10/20 02:35:20 beacon ACK cpu=0.00% ram=16.27%
+Oct 20 02:35:23 node-linux-01 zt-agent[557]: zt-agent 2026/10/20 02:35:23 beacon ACK cpu=0.17% ram=16.27%
+
+
+Agent RSS six samples
+2026-10-19T19:37:53Z
+    557 10924  0.0
+2026-10-19T19:37:55Z
+    557 10924  0.0
+2026-10-19T19:37:57Z
+    557 10924  0.0
+2026-10-19T19:37:59Z
+    557 10924  0.0
+2026-10-19T19:38:01Z
+    557 10924  0.0
+2026-10-19T19:38:03Z
+    557 10924  0.0
+
+
+Host key verification
+Host fingerprint from trusted libvirt guest-agent matches SSH pinned key.
+256 SHA256:Z1Mqi3t8PMhuzXqMnEqbLi9utTFOtaahvVozTOmF++s root@node-linux-01 (ED25519)
+
+
+SSH negative checks
+Actual SSH via pinned VPN connection: root login rejected (publickey); password-only login rejected (publickey). Transport IPv4 192.168.122.233 ports 22,80,3000 all timed out from Arch host. No independent Internet probe performed.
+
+
+Automatic Telegram API acknowledgement
+[
+  {
+    "node": "node-linux-01",
+    "severity": "CRITICAL",
+    "message_id": 26
+  }
+]
+
+Final doctor
+Chẩn đoán chỉ đọc: zt_demo. Không thay dữ liệu hoặc phiên đăng nhập.
+[OK] Env chỉ chủ sở hữu được đọc/ghi (0600)
+[OK] Đọc được trạng thái Docker Compose
+[OK] Dịch vụ postgres đang chạy
+[OK] Dịch vụ gateway đang chạy
+[OK] Dịch vụ wireguard_gateway đang chạy
+[OK] Dịch vụ dashboard đang chạy
+[OK] Dịch vụ proxy đang chạy
+[OK] migrator hoàn tất thành công
+[OK] provisioner hoàn tất thành công
+[OK] HTTPS /readyz qua Caddy và DB sẵn sàng (CA demo)
+[OK] WireGuard wg0 có peer được cấu hình
+[OK] Runtime role đọc được danh sách node từ PostgreSQL
+[OK] Gateway đọc được Bastion key với quyền 0400
+[OK] Có node chưa bị thu hồi trong DB
+[OK] node-linux-01: heartbeat mới (2.9 giây)
+[OK] node-linux-01: WireGuard đã handshake trong 180 giây
+[OK] node-linux-01: có host fingerprint và SSH banner qua VPN
+[OK] node-worker-01: heartbeat mới (2.9 giây)
+[OK] node-worker-01: WireGuard đã handshake trong 180 giây
+[OK] node-worker-01: có host fingerprint và SSH banner qua VPN
+Phạm vi: kiểm tra trạng thái/heartbeat/TCP banner; CHƯA KIỂM CHỨNG SSH/PTY có xác thực,
+Zero Inbound từ máy độc lập, Windows/reboot hoặc gửi Telegram. Dùng bài runtime riêng để nghiệm thu.
+Kết quả: 0 vấn đề cần kiểm tra. Không thay đổi cấu hình/dữ liệu/phiên.
+
+Installed public configs match repository SHA256; temporary guest staging removed.

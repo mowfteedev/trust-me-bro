@@ -471,3 +471,47 @@ Commit bàn giao xem `git log -1 --oneline`.
   dùng cột percentage cũ nên lỗi; sửa truy vấn đo theo 008, không sửa ứng dụng.
 - Remote trước push: minh-thanh 7ee86a0, main 1926d4e. Giữ 8 báo cáo untracked;
   chỉ stage bằng chứng/bộ nhớ, không đưa keys hoặc số đo chứa secret lên Git.
+
+## Setup Debian VM thật — 20/10/2026
+
+- Bắt đầu từ 19b923f đã push lên origin/minh-thanh; chỉ 8 báo cáo cũ untracked.
+  Chủ dự án cấp user/IP/mật khẩu, yêu cầu SSH và tự setup Debian. Không lưu mật
+  khẩu trong bộ nhớ/Git. Phiên này chỉ commit cục bộ, không được suy ra quyền push.
+- Dùng guild devops/security/tester/doc-writer cho VM; không sửa ứng dụng/UI,
+  thêm dịch vụ hoặc viết slide/báo cáo môn học. Không cần subagent cho setup tuần tự.
+- VM libvirt debian12: Debian12 x86_64, 2 vCPU, 1536 MiB RAM, disk15 GiB;
+  enp1s0 DHCP 192.168.122.233. Gói SSH/WG/nft/curl/CA đã có; apt install trả0thay đổi.
+  Binary Agent lấy từ image Docker Worker hiện tại, không cài compiler lên guest.
+- Bundle riêng keys/linux-worker-01: node-linux-01/.4, endpoint192.168.122.1:51820.
+  Đổi defaults Windows sang wg0 và disk /, đăng ký DB+peer bằng CLI sẵn có,
+  giữ Docker .2 và Windows bundle .3, không restart Gateway.
+- WireGuard kernel có handshake/transfer, readyz qua VPN và Agent ACK thật.
+  Service Agent user zt-agent, env root600, heartbeat3s/jitter0.0; WG config root600.
+- SSH ztuser không sudo, public Bastion key, host Ed25519 root400 và fingerprint
+  ghim; đối chiếu độc lập qua libvirt guest-agent trùng khóa SSH. Khóa setup riêng
+  ignored400, linux giữ sudo qua VPN, không thêm NOPASSWD. SSH chỉ nghe .4:22,
+  chỉ public key từ Gateway .1; tắt root/password/forwarding.
+- nft input/forward DROP, giữ outbound reply/DHCP/NDP và SSH .1 qua wg0; không
+  đổi firewall host. Transport ports22/80/3000 timeout từ host; root/password-only
+  SSH bị từ chối. Hai public config deploy/linux qua sshd-t/nft-c và được cài thật.
+- verify-vm.py --node-name node-linux-01 --shell linux đạt16/16 trước/sau reboot:
+  auth/RBAC/telemetry/history/SSH-PTY/audit/logout. Đã thông báo demo sessions bị
+  logout; không dùng fixture Docker để chứng nhận VM.
+- Dừng Agent thật: Stale ở tuổi heartbeat16.596s, Offline31.674s; bật lại về HEALTHY,
+  đúng1incident resolved và1Telegram API ack cho Offline VM. Không tạo payload giả.
+- Reboot đổi bootID6971898e→75bead3e; WG/Agent/SSH/nft active+enabled; SSH VPN lên lại.
+  Drop-in SSH/Agent Requires+After WG. Firefox158 đạt7/7: hai node, VM metric thật,
+  terminal hostname/whoami/uname, socket close, Viewer không SSH, không JS error.
+  Harness lần đầu quên clear username Viewer; giữ log/ảnh lỗi, sửa helper rồi chạy
+  lại; không sửa app hoặc tính lượt đầu là đạt.
+- 6 mẫu RSS/10s đều10924KiB=10.67MiB≈11.19MB; 11 khoảng heartbeat3.017782–3.041880s,
+  median3.020227s. Guest OS dùng≈238MiB ở mẫu sau boot, không là bằng chứng RAM toàn
+  mô hình500MB–1GB. Doctor cuối lượt thấy cả hai node khỏe, trả0.
+- 15 kiểm tra bảo toàn khớp:8báo cáo/env/login/key/users-password-role và WG prefix/
+  backup khớp hash ban đầu. Chỉ thêm peer .4 và node/telemetry/audit thật; session
+  version tăng do logout đã thông báo. Dọn staging guest, giữ backup root và bundle.
+- README/DEMO/VM_SETUP cập nhật; DEBIAN_WORKER.md, debian-vm.md, rawlog và2ảnh thật
+  trong docs/verification. Rawcache ~/.cache/zt-debian12-20261019T192950Z/.
+- Đọc lại phiếu gốc xác nhận có ghi VMware/VirtualBox; KVM hiện tại chưa được xác
+  nhận thay thế. Internet độc lập, native Windows, CPU cao riêng trên VM và RAM
+  toàn mô hình vẫn chưa nghiệm thu. Không mở thêm vòng phát triển.

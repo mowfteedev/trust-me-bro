@@ -137,3 +137,14 @@
   phân tích/thiết kế. Lượt này chỉ soạn prompt, không tự viết báo cáo hoặc slide.
 - Phiếu giao/source thực tế ưu tiên hơn nội dung mẫu EVE-NG; không sao chép hoặc
   gán kết quả VM/Windows/Internet và các cải tổ dự kiến thành đã hoàn thành.
+
+## Worker Debian được cho setup — 20/10/2026
+
+- Chủ dự án đã cài Debian12 VM, cung cấp user/IP và thông tin xác thực, yêu cầu
+  SSH vào rồi tự làm phần setup. Không lưu mật khẩu trong Git hoặc bộ nhớ này.
+- Gateway vẫn ở Docker trên hostArch; Worker mới node-linux-01 dùng VPN `.4`,
+  giữ Docker `.2`, không dùng khóa/định danh của Windows bundle `.3`.
+- VM đang chạy KVM/virt-manager. Đã đọc lại phụ lục gốc: có ghi VMware/VirtualBox,
+  vì vậy chỉ xác nhận KVM chạy chức năng; không tự kết luận khớp hypervisor.
+- Quyền setup không phải quyền push mới hoặc chuyển cloud/triển khai production.
+  Giữ nhánh minh-thanh, commit cục bộ theo phần việc; không tự push thêm.

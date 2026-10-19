@@ -115,6 +115,25 @@ thật nhưng chưa phải bằng chứng VMware/VirtualBox; xem [VM_SETUP.md](V
 Số liệu `/proc` trong container phản ánh kernel/namespace đang chạy, không nên
 gọi toàn bộ là tài nguyên của một VM riêng.
 
+## Debian VM đang chạy
+
+Ngày20/10 đã thêm `node-linux-01` (`10.100.0.4`) trên Debian12 KVM, giữ nodeDocker
+`.2`. Bật VM trong virt-manager, chạy `demo.py doctor`, mở https://localhost,
+chọn nodeDebian và **Web SSH**. Chạy `hostname; whoami; uname -sr`: thấy
+`node-linux-01`, `ztuser`, Linux. Dashboard hiển thị RAM/disk của guest riêng.
+Logout đóng phiên SSH đang mở; Viewer chỉ xem thông số. Bài kiểm tra tự động:
+
+```sh
+python3 deploy/scripts/verify-vm.py --node-name node-linux-01 --shell linux
+```
+
+Lệnh này đăng xuất các phiên demo-admin/demo-viewer. Đã kiểm tra reboot, heartbeat
+median3,020s, Stale16,60s/Offline31,67s và phục hồi sau khi dừng/bật Agent thật;
+cảnh báo Offline có Telegram API ack. Thao tác dừng Agent thật trên cụm live có
+thể gửi thông báo. Xem [Debian Worker](DEBIAN_WORKER.md) và
+[bằng chứng](verification/debian-vm.md). Phiếu ghi VMware/VirtualBox, còn lượt này
+chạy KVM; chưa xác nhận tương đương. Internet độc lập và Windows vẫn chưa thử.
+
 ## Khi có Windows VM thật
 
 Theo [Windows Worker](WINDOWS_WORKER.md), giữ Gateway hiện tại và thêm peer riêng

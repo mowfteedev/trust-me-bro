@@ -1,18 +1,23 @@
 # Triển khai máy ảo
 
-Phương án hiện được chọn: **máy Arch Linux đang dùng chạy Gateway Docker và một
-Windows VM làm Worker**, IP riêng `10.100.0.3`, giữ Worker Docker `.2`.
-Xem [hướng dẫn Windows Worker](WINDOWS_WORKER.md). Phiếu giao yêu cầu có VM và
-Docker, không ấn định phải dựng hai VM hoặc có Windows.
+Phương án đã chạy thật: **máy Arch Linux đang dùng chạy Gateway Docker và một
+Debian 12 VM làm Worker**, IP riêng `10.100.0.4`, giữ Worker Docker `.2`.
+Xem [Debian Worker](DEBIAN_WORKER.md) và [bằng chứng](verification/debian-vm.md).
+VM đang dùng KVM/virt-manager; phiếu giao ghi **VMware/VirtualBox**, nên chưa
+xác nhận việc thay thế hypervisor này. Phiếu không bắt buộc Windows hoặc hai VM.
+
+Phương án [Windows Worker](WINDOWS_WORKER.md) `.3` đã chuẩn bị nhưng **chưa chạy
+guest Windows**; không sử dụng bằng chứng Debian để chứng nhận Windows.
 
 Phần dưới giữ phương án **hai VM Linux** để tham khảo nếu cần chuyển cả Gateway
-sang VM; không phải bước bắt buộc của phương án Windows hiện tại.
+sang VM; không phải bước bắt buộc của phương án hiện tại.
 
 ## Phương án hai VM Linux
 
-**CHƯA KIỂM CHỨNG trên hypervisor.** Máy làm việc có KVM kernel khả dụng nhưng
-chưa có VirtualBox/VMware, chương trình chạy VM hoặc guest image. Cụm Docker đã chạy WireGuard/SSH thật, nhưng không thay
-thế bằng chứng hai VM hoặc kiểm tra inbound từ Internet.
+**CHƯA KIỂM CHỨNG phương án hai VM.** Bằng chứng hiện có là một Worker Debian
+KVM và Gateway Docker trên host, không thay thế việc chạy hai VM hoặc kiểm tra
+inbound từ Internet độc lập. Hướng dẫn dưới đây là phương án tham khảo cũ;
+với mô hình đang chạy, dùng địa chỉ và quy trình trong `DEBIAN_WORKER.md`.
 
 Mô hình giữ nguyên ứng dụng: VM Gateway chạy PostgreSQL, Fastify, React/Caddy và
 WireGuard helper trong Compose; VM Worker chạy WireGuard, OpenSSH và Mini-Agent Go.
