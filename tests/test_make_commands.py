@@ -5,13 +5,14 @@ import shlex
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('clean_script', ROOT / 'deploy/scripts/clean.py')
 CLEAN = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CLEAN)
-DEMO_SPEC = importlib.util.spec_from_file_location('demo_script', ROOT / 'deploy/scripts/demo.py')
+DEMO_SPEC = importlib.util.spec_from_file_location('demo_actions', ROOT / 'deploy/scripts/demo_actions.py')
 DEMO = importlib.util.module_from_spec(DEMO_SPEC)
 DEMO_SPEC.loader.exec_module(DEMO)
 
@@ -97,6 +98,37 @@ class CredentialTests(unittest.TestCase):
                 self.assertEqual((DEMO.KEYS / 'demo-login.env').stat().st_mode & 0o777, 0o600)
         finally:
             DEMO.KEYS = previous
+
+    def test_check_dispatch_requires_credentials_before_running_commands(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            keys = root / 'keys'
+            keys.mkdir()
+            env_path = root / 'fixture with spaces.env'
+            env_path.write_text('TELEGRAM_MODE=live\nTELEGRAM_BOT_TOKEN=fixture\n')
+            with patch.object(DEMO, 'KEYS', keys), patch.object(DEMO, 'run') as run:
+                for action in ('setup', 'check', 'check-cpu', 'check-telegram'):
+                    with self.subTest(action=action), self.assertRaises(RuntimeError):
+                        DEMO.dispatch(action, env_path, 'zt_fixture', self.fail)
+                    run.assert_not_called()
+                    self.assertEqual(list(keys.iterdir()), [])
+
+    def test_inspection_and_down_preserve_credentials_and_compose_selection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            env_path = root / 'fixture with spaces.env'
+            env_path.write_text('TELEGRAM_MODE=dry-run\n')
+            compose = ['docker', 'compose', '--env-file', str(env_path), '-p', 'zt_fixture', '--profile', 'demo']
+            commands = {'status': compose + ['ps', '-a'],
+                        'logs': compose + ['logs', '--tail', '80', 'gateway', 'wireguard_gateway', 'node_worker_01'],
+                        'down': compose + ['down']}
+            with patch.object(DEMO, 'KEYS', root), patch.object(DEMO, 'run') as run:
+                for action, command in commands.items():
+                    with self.subTest(action=action):
+                        DEMO.dispatch(action, env_path, 'zt_fixture', self.fail)
+                        run.assert_called_once_with(command)
+                        self.assertFalse((root / 'demo-login.env').exists())
+                        run.reset_mock()
 
 
 if __name__ == '__main__':
