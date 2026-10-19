@@ -265,3 +265,42 @@ Commit bàn giao xem `git log -1 --oneline`.
   runtime4package dependencyOPEN; LinuxAgent≈11MiBRSS, containers≈128MiB snapshot.
 - Read-only remotecheck: minh-thanh vẫn65bfd42, main1926d4e. Cáccommit mới cục bộ,
   khôngpush, chỉpush khi chủ dự án duyệt. Sáu báo cáo untracked cũ giữ nguyên.
+
+## Chủ dự án duyệt push và review ZIP — 19/10/2026
+
+- Sau báo cáo, chủ dự án đã duyệt push bảy commit đến f83265b lên đúng remote
+  minh-thanh; đã xác nhận remote khớp, main vẫn1926d4e. Quyền push đó đã thực hiện.
+- Công việc kiểm chứng Windows được chuyển sang review ZIP theo chỉ đạo mới.
+  KVM API12 dùng được, nhưng không có guest/hypervisor; chỉ cross-build/vet lại
+  Windows amd64/arm64 và compile test exe. Chưa tải ISO hoặc tạo/chạy Windows VM.
+- ZIP mới: Downloads/zt-serverops-v1.1.0.zip, SHA256
+  ffb8dc98eb3cf6482f300260acd06c8c276d063bb410613343ec808bd3610047.
+  Giải nén riêng tại /home/mowftee/.cache/zt-friend-review/ffb8dc98eb3c;
+  97 checksum khớp. Review và bằng chứng ở REVIEW.md trong thư mục đó.
+- Không sửa mã ZIP hoặc mã ứng dụng minh-thanh. Dùng guild reviewer/security/
+  tester/devops và ba reviewer độc lập có ranh giới; root chạy runtime.
+- Build nguyên Dockerfile backend/frontend đạt; Python61 và module12 đạt;
+  PGlite14 subcases đạt (reporter15 gồm cha), promtool3.5.0 SUCCESS4trườnghợp.
+  Test Python đặc quyền dùng mock, PGlite/fetch giả lập; không quy thành VM/VPN.
+- Đã chạy đủ5service thật trong project zt_friend_review, secrets/DB/volume riêng,
+  localhost18080/18081/18082, Telegram chưa cấu hình. Không chạy installer/nft/WG
+  host. OpenSSH fixture riêng trên Docker bridge, không phải VM hoặc WireGuard.
+- BLOCKER thực: provision.ts dùng $2::inet rồi $2::text, PostgreSQL16 suy luận
+  inet nên ssh_host thành10.77.0.2/32; SSH ENOTFOUND. PGlite tests bỏ lọt trường này.
+  Lưu lỗi nguyên trạng trước; chỉ normalize ssh_host trong DB tạm để thử lỗi sau.
+- Runtime sau normalize fixture:20checks,13đạt/7lỗi. Cookie cũ vẫn200 sau logout,
+  SSH cũ vẫn chạy sau5,5s; shell exit không đóngWS/ghiDISCONNECT; resize123x37 bị mất
+  thành24x80; XFF tự đặt đi vào audit; ViewerSSH403 đúng nhưng thiếu audit từchối.
+- Firefox158:6checks,5đạt/1lỗi; Grafana thật renderpanel, layouthẹp CSS500px không
+  tràn nhưng ẩn nútLogout. Không tuyên bố đã thử390px (Firefox giữ minimum500px).
+  Nghi ngờ Escape từsource không tái hiện trongxterm, đã rút khỏi lỗi xác nhận.
+- Snapshot5container≈227,4MiB, không tínhOS/daemon/Agent; collectorPython host
+  khoảng23,3MiBRSS, chưa phải serviceDebian. Audit ZIP runtime1moderate(fast-jwt).
+  Chưa nghiệm thu systemd/reboot/WGhai máy/ZeroInbound/Telegram thật; không có
+  WindowsAgent, nhưng phiếu giao không bắt Windows hoặc ngôn ngữAgent cố định.
+- Kết luận: có ý tưởng quản lýnode/UI/vận hành và Fastify5 đáng học; chưa nhận
+  nguyên trạng làm bản demo vì lỗiSSH/logout. Không tự sửa hoặc tích hợp ZIP.
+  Ghi nhớ review bằng commit riêng; không tự push thêm khi chưa được yêu cầu.
+- Đã dọn đúng containers/networks/volumes của zt_friend_review và SSHfixture;
+  ZIP và97file nguồn không đổi byte nào. Demo chính vẫnreadyz200, sáu báo cáo
+  untracked cũ giữ nguyên; bằng chứng và cấu hình thử riêng còn trongcache.
