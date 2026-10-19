@@ -1,13 +1,5 @@
 import { NodeItem, MetricSnapshot, UserSession, AuditLogPage } from '../types/index.js';
 
-/**
- * ==============================================================================
- * DỊCH VỤ GIAO TIẾP VỚI GATEWAY API (services/api.ts)
- * Dự án: ZT-ServerOps (do-an-co-so-nganh)
- * Phụ trách: frontend (chủ trì), backend
- * ==============================================================================
- */
-
 const TOKEN_STORAGE_KEY = 'zt_session_token';
 const USER_STORAGE_KEY = 'zt_user_profile';
 
@@ -53,10 +45,7 @@ class ApiService {
     localStorage.removeItem(USER_STORAGE_KEY);
   }
 
-  /**
-   * Đăng xuất người dùng: Thu hồi phiên làm việc phía máy chủ trước khi xóa bộ nhớ cục bộ (P1 Remediation)
-   * Phân biệt rõ ràng giữa thành công thu hồi server-side và lỗi ngoại tuyến/503.
-   */
+  // Luôn xóa phiên cục bộ; caller cần phân biệt Gateway đã xác nhận thu hồi hay chưa.
   public async logout(): Promise<{ serverRevoked: boolean; error?: string }> {
     let serverRevoked = false;
     let errorMsg: string | undefined;
@@ -74,9 +63,6 @@ class ApiService {
     return { serverRevoked, error: errorMsg };
   }
 
-  /**
-   * Bộ điều phối HTTP Request có tự động đính kèm JWT Bearer Header
-   */
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -109,9 +95,6 @@ class ApiService {
     return data as T;
   }
 
-  /**
-   * Đăng nhập người dùng quản trị
-   */
   public async login(username: string, password: string): Promise<UserSession> {
     const res = await this.request<{ success: boolean; token: string; user: UserSession }>('/api/auth/login', {
       method: 'POST',
@@ -122,17 +105,11 @@ class ApiService {
     return res.user;
   }
 
-  /**
-   * Lấy danh sách toàn bộ Endpoint Hosts
-   */
   public async getNodes(): Promise<NodeItem[]> {
     const res = await this.request<{ success: boolean; data: NodeItem[] }>('/api/telemetry/nodes');
     return res.data;
   }
 
-  /**
-   * Lấy lịch sử số liệu chuỗi thời gian của một máy chủ con
-   */
   public async getNodeHistory(nodeId: string): Promise<MetricSnapshot[]> {
     const res = await this.request<{ success: boolean; data: MetricSnapshot[] }>(`/api/telemetry/nodes/${nodeId}/history`);
     return res.data;
@@ -145,9 +122,6 @@ class ApiService {
     return this.request<AuditLogPage>(`/api/audit/logs?${params}`);
   }
 
-  /**
-   * Yêu cầu cấp One-Time Ticket để kết nối Web SSH Terminal
-   */
   public async getBastionTicket(nodeId: string): Promise<string> {
     const res = await this.request<{ success: boolean; ticket: string }>('/api/bastion/ticket', {
       method: 'POST',
@@ -156,9 +130,6 @@ class ApiService {
     return res.ticket;
   }
 
-  /**
-   * Kiểm tra tính khả dụng của Gateway Server
-   */
   public async checkHealth(): Promise<{ status: string }> {
     const res = await fetch('/healthz', { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`Gateway: HTTP ${res.status}`);

@@ -1,11 +1,3 @@
-/**
- * ==============================================================================
- * HỢP ĐỒNG DỮ LIỆU GIAO DIỆN NGƯỜI DÙNG (types/index.ts)
- * Dự án: ZT-ServerOps (do-an-co-so-nganh)
- * Phụ trách: frontend (chủ trì), backend
- * ==============================================================================
- */
-
 export type NodeStatus = 'HEALTHY' | 'WARNING' | 'OFFLINE';
 export type NodeType = 'DOCKER' | 'VM' | 'BARE_METAL';
 export type UserRole = 'ADMIN' | 'VIEWER';

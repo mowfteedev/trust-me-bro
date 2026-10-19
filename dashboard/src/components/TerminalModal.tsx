@@ -13,20 +13,8 @@ interface TerminalModalProps {
   onClose: () => void;
 }
 
-/**
- * ==============================================================================
- * CỬA SỔ DÒNG LỆNH NHÚNG XTERM.JS CANVAS (components/TerminalModal.tsx)
- * Dự án: ZT-ServerOps (do-an-co-so-nganh)
- * Phụ trách: frontend (chủ trì), backend, security
- * ==============================================================================
- *
- * LÝ DO PHI TRỰC GIÁC (RATIONALE):
- * 1. Không truyền Token qua Query Params trên URL kết nối WebSocket (tránh bị lưu
- *    vào Access Log của Caddy). Bắt buộc xin cấp One-Time Ticket 30s qua API trước,
- *    sau đó gửi gói tin handshake đầu tiên: { type: 'AUTH', ticket }.
- * 2. Kẹp biên RESIZE và tự động gọi FitAddon khi modal thay đổi kích thước.
- * 3. Đóng WebSocket, observer và terminal khi modal đóng hoặc người dùng thử lại.
- */
+// Gửi vé dùng một lần trong frame AUTH đầu tiên để tránh lộ JWT qua URL/access log.
+// Mỗi lần kết nối sở hữu WebSocket, observer và terminal, được dọn khi đóng/thử lại.
 
 export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onClose }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -66,7 +54,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
     setErrorMessage(null);
     closeButtonRef.current?.focus();
 
-    // 1. Khởi tạo đối tượng xterm.js với cấu hình bảng màu Cyber Dark
     const term = new XTerm({
       cursorBlink: true,
       fontSize: 14,
@@ -104,7 +91,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
 
     term.writeln('\x1b[36m⚡ [ZT-SERVEROPS] Đang khởi tạo kết nối đường hầm mã hóa WireGuard Web SSH...\x1b[0m');
 
-    // 2. Lấy One-Time Ticket và kết nối WebSocket
     async function startConnection() {
       try {
         term.writeln('\x1b[33m🔑 Đang xin cấp vé xác thực One-Time Ticket...\x1b[0m');
@@ -126,7 +112,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
 
         socket.onopen = () => {
           if (!isSubscribed) return;
-          // Gửi gói tin AUTH đầu tiên
           socket.send(JSON.stringify({ type: 'AUTH', ticket }));
         };
 
@@ -144,7 +129,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
                 setConnectionStatus('CONNECTED');
                 term.focus();
                 term.writeln(`\r\n\x1b[32m✔ ${frame.message}\x1b[0m\r\n`);
-                // Gửi gói tin RESIZE ban đầu
                 fitAddon.fit();
                 socket.send(JSON.stringify({ type: 'RESIZE', rows: term.rows, cols: term.cols }));
                 return;
@@ -180,7 +164,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
           term.writeln(`\r\n\x1b[33m🔌 Phiên làm việc đã kết thúc (Mã: ${event.code}).\x1b[0m`);
         };
 
-        // Gửi ký tự người dùng nhập vào SSH stream (Raw Stream siêu tốc không độ trễ)
         term.onData((data) => {
           if (isReady && socket.readyState === WebSocket.OPEN) {
             socket.send(data);
@@ -196,7 +179,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
 
     startConnection();
 
-    // 3. Lắng nghe thay đổi kích thước cửa sổ trình duyệt để tự động điều chỉnh rows/cols
     const handleResize = () => {
       if (fitAddonRef.current && termRef.current) {
         fitAddonRef.current.fit();
@@ -213,7 +195,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
     const observer = new ResizeObserver(handleResize);
     if (terminalRef.current) observer.observe(terminalRef.current);
 
-    // 4. Release the resources owned by this connection attempt.
+    // Release the resources owned by this connection attempt.
     return () => {
       isSubscribed = false;
       clearTimeout(readyTimeout);
@@ -248,7 +230,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
           isFullScreen ? 'h-full w-full' : 'h-[85vh] w-full max-w-5xl'
         }`}
       >
-        {/* Header Terminal Modal */}
         <div className="flex shrink-0 flex-wrap gap-2 py-2 items-center justify-between border-b border-neutral-800 bg-neutral-900/80 px-4">
           <div className="flex min-w-0 items-center space-x-3">
             <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-400">
@@ -267,7 +248,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
           </div>
 
           <div className="flex items-center space-x-2">
-            {/* Trạng thái kết nối */}
             <span role="status" className={`inline-flex items-center text-xs font-mono px-2 py-0.5 rounded-full ${
               connectionStatus === 'CONNECTED' ? 'bg-emerald-500/10 text-emerald-400' :
               connectionStatus === 'CONNECTING' ? 'bg-cyan-500/10 text-cyan-400 animate-pulse' :
@@ -279,8 +259,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
               }`} />
               {{ CONNECTED: 'Đã kết nối', CONNECTING: 'Đang kết nối', DISCONNECTED: 'Đã đóng', ERROR: 'Lỗi kết nối' }[connectionStatus]}
             </span>
-
-            {/* Nút phóng to / thu nhỏ */}
             <button
               onClick={() => setIsFullScreen(!isFullScreen)}
               className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
@@ -289,8 +267,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
             >
               {isFullScreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </button>
-
-            {/* Nút đóng Modal */}
             <button
               ref={closeButtonRef}
               onClick={onClose}
@@ -302,15 +278,11 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
             </button>
           </div>
         </div>
-
-        {/* Banner cảnh báo lỗi nếu có */}
         {errorMessage && (
           <div role="alert" className="bg-red-950/40 border-b border-red-500/30 px-4 py-2 text-xs font-mono text-red-300">
             {errorMessage}
           </div>
         )}
-
-        {/* Khung Terminal Canvas */}
         <div className="relative min-h-0 flex-1 p-3 bg-[#090d16] overflow-hidden">
           <div ref={terminalRef} className="h-full w-full" />
         </div>
