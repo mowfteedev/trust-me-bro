@@ -1,4 +1,5 @@
-import { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { WebSocket } from 'ws';
 import { z } from 'zod';
 import { authenticate, authorize, AuthUserPayload } from '../middlewares/auth.middleware.js';
 import { createBastionTicket, attachBastionSession } from '../services/bastion.js';
@@ -88,14 +89,8 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   /**
    * WebSocket handler dùng chung cho cả /ws/terminal/:node_id và /api/bastion/ws/terminal/:node_id
    */
-  const handleWsTerminal = (connection: any, req: any) => {
+  const handleWsTerminal = (socket: WebSocket, req: FastifyRequest) => {
     const { node_id } = req.params as { node_id: string };
-    const socket = connection?.socket || connection;
-
-    if (!socket || typeof socket.on !== 'function') {
-      req.log.error('WebSocket connection không hợp lệ hoặc thiếu đối tượng socket');
-      return;
-    }
 
     // Lắng nghe gói tin đầu tiên để xác thực vé One-Time Ticket
     const authTimeout = setTimeout(() => {

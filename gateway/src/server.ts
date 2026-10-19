@@ -1,4 +1,4 @@
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyError, FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import jwt from '@fastify/jwt';
@@ -39,6 +39,30 @@ export async function buildServer(): Promise<FastifyInstance> {
     trustProxy: config.TRUSTED_PROXY_IP || false,
   });
 
+  // Install before routes: encapsulated plugins inherit the error handler at registration.
+  fastify.setErrorHandler((error, req, reply) => {
+    req.log.error(error);
+
+    // Fastify 5 exposes thrown values as unknown; non-Error throws remain a 500.
+    const requestError = error instanceof Error ? error as FastifyError : undefined;
+    const statusCode = requestError?.statusCode || 500;
+    // BẢO MẬT: Không rò rỉ chi tiết lỗi CSDL hay stack trace ra ngoài nếu là lỗi 500 ở Production
+    const isProd = config.NODE_ENV === 'production';
+    const detail = (statusCode >= 500 && isProd)
+      ? 'Đã xảy ra lỗi nội bộ trên hệ thống'
+      : (requestError?.message || 'Đã xảy ra lỗi nội bộ trên hệ thống');
+
+    reply.status(statusCode).send({
+      type: 'https://tools.ietf.org/html/rfc7807',
+      title: requestError?.name || 'Lỗi xử lý yêu cầu',
+      status: statusCode,
+      code: requestError?.code || 'INTERNAL_ERROR',
+      detail,
+      request_id: req.id,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   // 1. Đăng ký plugin CORS cho phép Web Console tương tác an toàn
   await fastify.register(cors, {
     origin: true,
@@ -50,12 +74,12 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(rateLimit, {
     max: 120, // Tối đa 120 yêu cầu mỗi phút trên mỗi địa chỉ IP
     timeWindow: '1 minute',
-    errorResponseBuilder: (req, context) => ({
-      type: 'https://tools.ietf.org/html/rfc7807',
-      title: 'Quá giới hạn tần suất yêu cầu',
-      status: 429,
+    errorResponseBuilder: (_req, context) => Object.assign(new Error(
+      `Bạn đã vượt quá giới hạn ${context.max} yêu cầu trong 1 phút. Vui lòng thử lại sau.`
+    ), {
+      name: 'Quá giới hạn tần suất yêu cầu',
+      statusCode: context.statusCode,
       code: 'RATE_LIMIT_EXCEEDED',
-      detail: `Bạn đã vượt quá giới hạn ${context.max} yêu cầu trong 1 phút. Vui lòng thử lại sau.`,
     }),
   });
 
@@ -106,28 +130,6 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(bastionRoutes, { prefix: '/api/bastion' });
   await fastify.register(bastionRoutes); // Hỗ trợ cả đường dẫn trực tiếp /ws/terminal/:node_id
   await fastify.register(auditRoutes, { prefix: '/api/audit' });
-
-  // 7. Bắt lỗi toàn cục định dạng theo chuẩn RFC-7807 Problem Details
-  fastify.setErrorHandler((error, req, reply) => {
-    req.log.error(error);
-
-    const statusCode = error.statusCode || 500;
-    // BẢO MẬT: Không rò rỉ chi tiết lỗi CSDL hay stack trace ra ngoài nếu là lỗi 500 ở Production
-    const isProd = config.NODE_ENV === 'production';
-    const detail = (statusCode >= 500 && isProd)
-      ? 'Đã xảy ra lỗi nội bộ trên hệ thống'
-      : (error.message || 'Đã xảy ra lỗi nội bộ trên hệ thống');
-
-    reply.status(statusCode).send({
-      type: 'https://tools.ietf.org/html/rfc7807',
-      title: error.name || 'Lỗi xử lý yêu cầu',
-      status: statusCode,
-      code: (error as any).code || 'INTERNAL_ERROR',
-      detail,
-      request_id: req.id,
-      timestamp: new Date().toISOString(),
-    });
-  });
 
   return fastify;
 }

@@ -1,5 +1,6 @@
 /** Real Fastify/JWT/rate-limit and ticket logic; PostgreSQL and SSH filesystem mocked. */
 import fs from 'node:fs';
+import { createHmac } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
@@ -38,6 +39,7 @@ const failureQueries = () => mock.query.mock.calls.filter(([sql]) => sql.include
 beforeEach(async () => {
   vi.clearAllMocks();
   lookupUser = { ...user };
+  mock.config.NODE_ENV = 'test';
   mock.config.TRUSTED_PROXY_IP = '172.30.88.2';
   mock.query.mockImplementation(async (sql: string) => ({
     rows: sql.includes('FROM users') ? lookupUser ? [lookupUser] : [] : [], rowCount: 1,
@@ -141,6 +143,73 @@ describe('bounded failed-login audit and trusted proxy', () => {
     expect(result.statusCode).toBe(403);
     expect(mock.query.mock.calls.some(([sql]) => sql.includes("'BASTION_TICKET_ISSUED'"))).toBe(false);
   });
+});
+
+describe('Fastify 5 plugin and error contract regression', () => {
+  it('keeps malformed JSON and unsupported body types as HTTP client errors', async () => {
+    const malformed = await app.inject({ method: 'POST', url: '/api/auth/login',
+      headers: { 'content-type': 'application/json' }, payload: '{broken' });
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.json()).toMatchObject({ status: 400, code: 'FST_ERR_CTP_INVALID_JSON_BODY' });
+    const unsupported = await app.inject({ method: 'POST', url: '/api/auth/login',
+      headers: { 'content-type': 'application/octet-stream' }, payload: 'untrusted' });
+    expect(unsupported.statusCode).toBe(415);
+    expect(unsupported.json()).toMatchObject({ status: 415, code: 'FST_ERR_CTP_INVALID_MEDIA_TYPE' });
+    expect(mock.query).not.toHaveBeenCalled();
+  });
+
+  it('redacts unexpected production errors without losing the Problem Details response', async () => {
+    mock.config.NODE_ENV = 'production';
+    app.get('/isolated-error', async () => { throw new Error('private-database-detail'); });
+    const result = await app.inject('/isolated-error');
+    expect(result.statusCode).toBe(500);
+    expect(result.json()).toMatchObject({ status: 500, code: 'INTERNAL_ERROR',
+      detail: 'Đã xảy ra lỗi nội bộ trên hệ thống' });
+    expect(result.body).not.toContain('private-database-detail');
+  });
+
+  const signToken = (header: Record<string, unknown>, key = mock.config.JWT_SECRET) => {
+    const claims = { id: user.id, username: user.username, role: 'ADMIN', session_version: 1,
+      exp: Math.floor(Date.now() / 1000) + 60 };
+    const input = [header, claims].map((part) => Buffer.from(JSON.stringify(part)).toString('base64url')).join('.');
+    return `${input}.${createHmac('sha256', key).update(input).digest('base64url')}`;
+  };
+
+  it.each(['expired', 'wrong-key', 'none', 'unknown-critical-header'])(
+    'rejects a %s JWT before consulting the user database', async (kind) => {
+      let token: string;
+      if (kind === 'expired') {
+        token = app.jwt.sign({ id: user.id, exp: Math.floor(Date.now() / 1000) - 60 });
+      } else if (kind === 'none') {
+        const encoded = Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url');
+        token = `${encoded}.${Buffer.from(JSON.stringify({ id: user.id })).toString('base64url')}.`;
+      } else if (kind === 'unknown-critical-header') {
+        // Valid signature: rejection must come from the unsupported critical extension.
+        token = signToken({ alg: 'HS256', typ: 'JWT', crit: ['custom-extension'], 'custom-extension': true });
+      } else {
+        token = signToken({ alg: 'HS256', typ: 'JWT' }, 'different-isolated-test-secret-over-32-characters');
+      }
+      const result = await app.inject({ method: 'GET', url: '/api/auth/me',
+        headers: { authorization: `Bearer ${token}` } });
+      expect(result.statusCode).toBe(401);
+      expect(mock.query).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['/ws/terminal/worker-test', '/terminal/worker-test',
+    '/api/bastion/ws/terminal/worker-test', '/api/bastion/terminal/worker-test'])(
+    'upgrades %s and rejects a malformed AUTH message through the real WebSocket plugin', async (url) => {
+      await app.ready();
+      // injectWS supplies streams, but not the raw socket address used by trustProxy/rate-limit.
+      const socket = await app.injectWS(url, { socket: { remoteAddress: '10.100.0.2' } as any });
+      const message = new Promise<Buffer>((resolve) => socket.once('message', resolve));
+      const closed = new Promise<number>((resolve) => socket.once('close', resolve));
+      socket.send(JSON.stringify({ type: 'INPUT', data: 'must-not-open-a-shell' }));
+      expect(JSON.parse((await message).toString())).toMatchObject({ type: 'ERROR' });
+      expect(await closed).toBe(4401);
+      expect(mock.query).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('one-time SSH ticket negative paths', () => {
