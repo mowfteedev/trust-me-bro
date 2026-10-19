@@ -102,3 +102,20 @@
   chỉ đọc và Fastify/JWT phù hợp; không tích hợp nguyên bản ZIP hoặc thêm dịch vụ.
 - Đã đọc lại phiếu gốc khi được hỏi về Fastify5: chỉ ghi Backend Node.js
   (Fastify/TypeScript), không khóa phiên bản. Nâng Fastify5 vẫn đúng công nghệ.
+
+## Quy ước bố cục code — chỉ đạo 19/10/2026
+
+- Chủ dự án yêu cầu code rõ ràng, rành mạch, gọn; phân chia thư mục theo trách
+  nhiệm và đặt tên giúp tìm được nơi xử lý chức năng.
+- Giảm xuống dòng/dòng trống không cần thiết. Giữ khối logic dễ đọc và định dạng
+  theo ngôn ngữ; không dồn nhiều câu lệnh vào một dòng chỉ để giảm số dòng.
+- Comment vừa phải, tập trung vào lý do thiết kế, ranh giới bảo mật, điều kiện
+  quan trọng hoặc hành vi khó thấy; bỏ banner và lời kể lại code dư thừa.
+- Chương trình chính/entry point chủ yếu gọi các hàm khởi tạo, chạy và dừng.
+  Đưa logic nghiệp vụ và phần định nghĩa hàm ra đơn vị phù hợp; hạn chế hàm lồng
+  trong main. Callback/closure cần thiết vẫn dùng khi giúp code dễ hiểu.
+- Chia module vừa đủ theo kiến trúc hiện có, không thêm tầng/hàm bọc hoặc nhiều
+  file rất nhỏ chỉ để main trông ngắn. Giữ hành vi, API, xác thực và dữ liệu.
+- Chủ dự án đang hỏi về Supabase/Vercel/AWS để cân nhắc cải tổ; chưa chốt chuyển
+  dịch vụ, migrate DB hoặc triển khai cloud. Không suy ra quyền tạo tài nguyên
+  trả phí hay triển khai từ câu hỏi tìm hiểu nền tảng.

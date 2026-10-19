@@ -349,3 +349,20 @@ Commit bàn giao xem `git log -1 --oneline`.
   trong báo cáo. WindowsVM/service/reboot/ZeroInbound máy độc lập vẫn CHƯA KIỂM CHỨNG.
 - Chỉ minh-thanh, không merge/reset/main/production, không push thêm. Các commit
   mới sau f83265b chờ duyệt; sáu báo cáo untracked cũ giữ nguyên.
+
+## Push được duyệt và định hướng cải tổ — 19/10/2026
+
+- Chủ dự án yêu cầu push trước khi đưa ý kiến cải tổ. Đã push đúng5commit
+  f83265b→1a024ae lên origin/minh-thanh; ls-remote xác nhận1a024ae56c18a76ee1d4d902daf52381f6900f30.
+  Remote main vẫn1926d4e532d62d3e1c5e7b8d286d3229e4d22f32, không merge/forcepush.
+- Chỉ đạo mới: bố cục rõ, gọn, ít dòng trống/comment; main chủ yếu gọi hàm,
+  hạn chế định nghĩa hàm lồng; thư mục phân trách nhiệm. Đã lưu quy ước chi tiết
+  vào project-rules.md, giữ tính dễ đọc và không thêm lớp bọc vô ích.
+- Đã khảo sát entrypoint/thư mục hiện có để trả lời hướng cải tổ; lượt này chưa
+  thay mã ứng dụng hoặc chuyển dịch vụ. Dùng guild tech-lead ở mức phù hợp.
+- Tra cứu tài liệu chính thức Supabase/PostgreSQL/Auth/Storage/Realtime,
+  Vercel/Vite và AWS EC2/security groups. Vercel KB hiện ghi WebSocket native
+  public beta có giới hạn duration; không lặp lại khẳng định cũ rằng Vercel
+  tuyệt đối không hỗ trợ WS. Gateway còn cần WireGuard/UDP và tiến trình lâu dài.
+- Câu hỏi về ba nền tảng là bước tìm hiểu; chưa tạo cloud account/resource,
+  migrate DB, thay auth hoặc deploy. Các thay đổi sau push này vẫn chưa push.
