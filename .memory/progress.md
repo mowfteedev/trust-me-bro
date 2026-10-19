@@ -452,3 +452,22 @@ Commit bàn giao xem `git log -1 --oneline`.
   Hoàn thành phạm vi cải tổ, dừng phát triển thêm. Không sửa báo cáo môn học.
 - Remote cuối phiên: minh-thanh7ee86a0, main1926d4e; chưa push các commit mới.
   Windows native/VM/reboot/Internet độc lập vẫn CHƯA KIỂM CHỨNG.
+
+## Đo lại thông số và duyệt push — 19/10/2026
+
+- Chủ dự án yêu cầu đo lại rồi push; được push batch commit cục bộ lần này lên
+  đúng `origin/minh-thanh`. Không merge/main/force-push hoặc suy thành quyền
+  push tự động cho thay đổi tương lai. Source ở `00b78c2`, chỉ cập nhật bằng chứng.
+- Cụm chính `zt_demo`, 6 mẫu/5 giây, khoảng 25,06s, không tải giả/restart/logout:
+  Agent RSS trung bình 12,46MiB (12,39–12,57), CPU process 0,080% một lõi;
+  tổng working set 6 container 171,48MiB (169,75–173,45). Không cộng RSS Agent
+  lần nữa. RAM Agent ≈13,07MB nhỉnh mốc ≈10MB; chưa chứng minh tổng RAM mô hình.
+- Gateway 42,17MiB; PostgreSQL 47,00; Dashboard 12,64; proxy 56,38; Worker 10,80;
+  WireGuard helper 2,49. Docker CPU là số đo mẫu, không phải benchmark/giới hạn.
+- Doctor 0, heartbeat 2,4s; đọc DB sau 0,49s; 11 khoảng heartbeat 3,020–3,051s,
+  median 3,049s. 6 HTTPS readiness 200, median 10,71ms/max 16,33ms localhost.
+- Bản ghi ở `docs/verification/refactor.md`; rawcache
+  `/home/mowftee/.cache/zt-remeasure-20261019T122737Z/`. Truy vấn collector đầu
+  dùng cột percentage cũ nên lỗi; sửa truy vấn đo theo 008, không sửa ứng dụng.
+- Remote trước push: minh-thanh 7ee86a0, main 1926d4e. Giữ 8 báo cáo untracked;
+  chỉ stage bằng chứng/bộ nhớ, không đưa keys hoặc số đo chứa secret lên Git.

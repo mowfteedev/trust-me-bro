@@ -2,7 +2,8 @@
 
 Phạm vi: thực hiện kế hoạch cải tổ trên `minh-thanh`, từ baseline `22d36c9`.
 Giữ Fastify/TypeScript, React, PostgreSQL, Go Agent và Docker Compose; không
-thêm dependency, dịch vụ, tính năng cloud hoặc thay schema. Không push/merge.
+thêm dependency, dịch vụ, tính năng cloud hoặc thay schema. Không merge main.
+Lần bàn giao đầu chỉ ở cục bộ; chủ dự án sau đó duyệt đo lại và push.
 
 ## Bố cục sau cải tổ
 
@@ -83,8 +84,8 @@ do phiên này tạo, giữ demo chính và dữ liệu hiện có.
 
 Không đổi lệnh sử dụng: `make up`, mở `https://localhost`, xem `make doctor` và
 làm theo [kịch bản demo](../DEMO.md). Tài khoản/mật khẩu hiện có không thay đổi.
-Remote `minh-thanh` vẫn ở `7ee86a0`, remote `main` vẫn ở `1926d4e` khi kiểm tra
-cuối phiên; các commit cải tổ chỉ có cục bộ.
+Ở lần bàn giao `00b78c2`, remote `minh-thanh` còn ở `7ee86a0`, remote `main`
+ở `1926d4e`; lúc đó các commit cải tổ chỉ có cục bộ.
 
 ## Tài nguyên và giới hạn
 
@@ -101,3 +102,49 @@ tự gửi khi phát sinh sự cố thực tế. Không tự gửi thông điệ
 Rawlog, ảnh trước/sau và JSON không chứa token/mật khẩu ở:
 `/home/mowftee/.cache/zt-refactor-20261019/` (cache cục bộ, không đưa vào Git).
 Chạy lại dùng hướng dẫn [README](../../README.md) và [DEMO](../DEMO.md).
+
+## Đo lại trước khi push được duyệt
+
+Ngày 19/10/2026, lúc 19:28:24–19:28:49 (UTC+7), trên code `00b78c2` và cụm chính
+`zt_demo`: lấy 6 mẫu cách nhau 5 giây, khoảng quan sát 25,06 giây. Giữ hoạt động
+hiện có, một Worker gửi telemetry thật; không tạo tải giả, không restart, không
+đăng nhập/logout hoặc gửi Telegram thử. Đây là số đo mới trên cụm chính, khác
+DB/uptime/hoạt động của cụm thử ở phần trước; không so trực tiếp để kết luận
+refactor làm tăng hoặc giảm tài nguyên.
+
+| Thành phần | RAM trung bình (MiB) | Khoảng RAM quan sát (MiB) | CPU trung bình (% một lõi) |
+|---|---:|---:|---:|
+| Agent riêng, RSS `/proc/PID/status` | 12,46 | 12,39–12,57 | 0,080 |
+| Worker container, gồm Agent/sshd/WireGuard | 10,80 | 10,43–11,19 | 0,185 |
+| Gateway | 42,17 | 41,69–42,62 | 0,382 |
+| PostgreSQL | 47,00 | 45,62–49,79 | 9,397 |
+| Dashboard | 12,64 | 12,64–12,64 | 0,000 |
+| Caddy proxy | 56,38 | 56,38–56,38 | 0,000 |
+| WireGuard helper | 2,49 | 2,18–2,75 | 2,387 |
+| Tổng sáu container | **171,48** | **169,75–173,45** | — |
+
+RAM container là working set từ `docker stats --no-stream`; tổng đã gồm Worker,
+không cộng RSS Agent lần nữa. RSS tính các trang resident được map vào process,
+working set container loại một phần cache; hai cách đo khác nhau nên RSS Agent
+có thể lớn hơn số container. CPU Agent tính từ chênh lệch ticks `/proc/PID/stat`
+trong 25,06 giây; CPU container là trung bình 6 mẫu Docker, 100% tương ứng một lõi
+logic. Số 0 chỉ là làm tròn ở độ phân giải mẫu, không có nghĩa không dùng CPU.
+
+Đối chiếu phiếu: RSS Agent 12,46MiB ≈13,07MB, nhỉnh hơn mốc khoảng 10MB; không
+gắn nhãn đạt đúng 10MB. Tổng container 171,48MiB chưa gồm OS/kernel/Docker daemon/
+VM, nên **CHƯA KIỂM CHỨNG** ngân sách tổng mô hình 500MB–1GB. Khoảng trên chỉ là
+min/max đã quan sát, không phải trần RAM hoặc kết quả benchmark tải cao.
+
+- `make doctor` trả 0; Worker HEALTHY, heartbeat 2,4 giây tại lượt doctor và 0,49
+  giây ở lần đọc DB sau đó; VPN handshake, Bastion key 0400 và SSH banner tốt.
+- 12 mẫu metric gần nhất cho 11 khoảng: 3,020–3,051 giây, median 3,049 giây; Agent
+  đang cấu hình chu kỳ 3,0 giây. DB có 30.499 mẫu khi đọc.
+- 6 request HTTPS `/readyz` qua Caddy đều 200: 8,22–16,33ms, median 10,71ms, gồm TLS
+  và truy vấn DB; chỉ là localhost, bỏ xác minh CA demo, không phải RTT Internet.
+- Không lặp bài pause/SSH/PTY hoặc unit/build trong lượt chỉ đo này. Kết quả
+  Stale/Offline và các bộ test phía trên thuộc lượt nghiệm thu trước.
+
+Raw JSON/log mới: `/home/mowftee/.cache/zt-remeasure-20261019T122737Z/`.
+Collector SQL ban đầu dùng hai cột percentage đã bỏ từ migration 008 nên lỗi;
+đã sửa riêng truy vấn đo để suy ra tỷ lệ từ byte như API hiện tại, không sửa
+source hoặc schema của ứng dụng. Giữ ghi chú lỗi collector trong cache.
