@@ -369,3 +369,20 @@ Commit bàn giao xem `git log -1 --oneline`.
 - Chủ dự án nhắc lại nguyên tắc quyết định: tuân theo phiếu giao và tối ưu.
   Đã lưu vào project-rules.md; ưu tiên cụm Linux/Compose/PostgreSQL và kiểm chứng
   WorkerVM, cân nhắc cloud theo nhu cầu thực thay vì mặc định thêm ba nền tảng.
+
+## Kế hoạch cải tổ code — 19/10/2026
+
+- Chủ dự án yêu cầu lập kế hoạch trước; lượt này chỉ khảo sát source và viết kế
+  hoạch, chưa sửa mã ứng dụng, chạy lại runtime, chuyển dịch vụ hoặc push.
+- Đã dùng guild tech-lead/code-reviewer; reviewer độc lập chỉ đọc Gateway/Bastion,
+  root khảo sát frontend/Agent/scripts/build/importers, không có chỉnh sửa trùng.
+- Kế hoạch lưu ở .memory/refactor-plan.md: baseline → entrypoint Gateway/Agent
+  → Dashboard logic/layout → CSS → SSH modules → scripts/bàn giao. Mỗi phần
+  commit riêng, kiểm chứng đúng phạm vi, giữ API/giao diện/DB và kiến trúc hiện có.
+- Điểm rủi ro phải giữ: Fastify errorhandler trước routes; shared SSH registry/
+  timer và cleanup/audit; React polling/effect cleanup; thứ tự CSS cascade;
+  Go buildtags/cross-build và CLI/env/credentials. Không tách theo số dòng.
+- Số test trước chỉ là baseline lịch sử, không là PASS refactor. Các test dò
+  source/probe cũ có kỳ vọng lỗi thời; phải dùng kiểm tra hành vi khi triển khai.
+- WindowsVM/native/reboot/Internet vẫn chưa kiểm chứng, là phần nghiệm thu riêng.
+  Chỉ minh-thanh, giữ sáu báo cáo untracked, không push thêm.
