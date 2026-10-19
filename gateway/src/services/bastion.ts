@@ -79,31 +79,43 @@ const MAX_SESSIONS_PER_USER = 5;
 const MAX_SESSIONS_PER_NODE = 10;
 const MAX_GLOBAL_SESSIONS = 50;
 
-// Dọn dẹp các ticket hết hạn mỗi 10 giây
-setInterval(() => {
-  const now = Date.now();
-  for (const [ticket, data] of ticketStore.entries()) {
-    if (data.expiresAt < now) {
-      ticketStore.delete(ticket);
+let ticketCleanerInterval: NodeJS.Timeout | null = null;
+
+export function startTicketCleaner(): void {
+  if (ticketCleanerInterval) return;
+  ticketCleanerInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [ticket, data] of ticketStore.entries()) {
+      if (data.expiresAt < now) ticketStore.delete(ticket);
     }
-  }
-}, 10000).unref();
+  }, 10000);
+  ticketCleanerInterval.unref();
+}
+
+export function stopTicketCleaner(): void {
+  if (ticketCleanerInterval) clearInterval(ticketCleanerInterval);
+  ticketCleanerInterval = null;
+}
 
 // Định danh thực thể Gateway phục vụ heartbeat fencing (R3-04)
 const GATEWAY_INSTANCE_ID = process.env.GATEWAY_INSTANCE_ID || `gw_${process.pid}_${Date.now().toString(36)}`;
 
 // Cờ chống truy vấn chồng chéo (In-flight guard)
 let isCheckingDb = false;
+let maintenanceGeneration = 0;
+let sessionCheckerInterval: NodeJS.Timeout | null = null;
+let independentWatchdogInterval: NodeJS.Timeout | null = null;
 
 /**
  * Background Session Registry Batch Checker (R03 & N07 Remediation):
  * Quét định kỳ mỗi 2 giây để thu hồi phiên mở khi người dùng bị khóa/hạ quyền/đăng xuất trong CSDL
  * và gia hạn heartbeat lease cho các phiên còn sống (R3-04 Remediation).
  */
-const sessionCheckerInterval = setInterval(async () => {
+async function checkSessions(): Promise<void> {
   if (activeSessions.size === 0) return;
   if (isCheckingDb) return; // In-flight check guard chống query chồng chéo khi CSDL treo
   isCheckingDb = true;
+  const generation = maintenanceGeneration;
 
   // N07 REMEDIATION: Tạo snapshot danh sách phiên tại thời điểm bắt đầu query
   const sessionSnapshot = new Map(activeSessions.entries());
@@ -118,6 +130,9 @@ const sessionCheckerInterval = setInterval(async () => {
       'SELECT id, is_active, role, session_version FROM users WHERE id = ANY($1);',
       [userIds]
     );
+
+    // A stopped/restarted owner must not apply a response from the previous run.
+    if (generation !== maintenanceGeneration) return;
 
     const userMap = new Map<string, any>();
     for (const row of res.rows) {
@@ -163,8 +178,7 @@ const sessionCheckerInterval = setInterval(async () => {
   } finally {
     isCheckingDb = false;
   }
-}, 2000);
-sessionCheckerInterval.unref();
+}
 
 /**
  * Independent Watchdog Timer (R03, N06 & R3-06 Remediation):
@@ -172,7 +186,7 @@ sessionCheckerInterval.unref();
  * Ngưỡng deadline 4800ms (4.8s) + tick interval 200ms bảo đảm phát hiện và ngắt phiên muộn nhất ở 5000ms (5.0s, trần SLA <= 5.2s).
  */
 const DB_WATCHDOG_DEADLINE_MS = 4800;
-const independentWatchdogInterval = setInterval(() => {
+function checkSessionDeadlines(): void {
   if (activeSessions.size === 0) return;
   const nowNs = process.hrtime.bigint();
   for (const [sessionId, session] of activeSessions.entries()) {
@@ -183,8 +197,25 @@ const independentWatchdogInterval = setInterval(() => {
       session.cleanupFn(4503, 'DB Deadline Exceeded', 'Mất kết nối kiểm tra an ninh cơ sở dữ liệu quá thời hạn cho phép');
     }
   }
-}, 200);
-independentWatchdogInterval.unref();
+}
+
+export function startSessionMaintenance(): void {
+  if (sessionCheckerInterval || independentWatchdogInterval) return;
+  maintenanceGeneration++;
+  sessionCheckerInterval = setInterval(checkSessions, 2000);
+  independentWatchdogInterval = setInterval(checkSessionDeadlines, 200);
+  sessionCheckerInterval.unref();
+  independentWatchdogInterval.unref();
+}
+
+export function stopSessionMaintenance(): void {
+  maintenanceGeneration++;
+  if (sessionCheckerInterval) clearInterval(sessionCheckerInterval);
+  if (independentWatchdogInterval) clearInterval(independentWatchdogInterval);
+  sessionCheckerInterval = null;
+  independentWatchdogInterval = null;
+  // Keep the in-flight guard until the pending query settles, including across restart.
+}
 
 /**
  * Cấp phát One-Time Ticket dùng một lần để kết nối Web SSH (Gắn liền session_version và authExpiresAt)
