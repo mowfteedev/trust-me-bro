@@ -386,3 +386,20 @@ Commit bàn giao xem `git log -1 --oneline`.
   source/probe cũ có kỳ vọng lỗi thời; phải dùng kiểm tra hành vi khi triển khai.
 - WindowsVM/native/reboot/Internet vẫn chưa kiểm chứng, là phần nghiệm thu riêng.
   Chỉ minh-thanh, giữ sáu báo cáo untracked, không push thêm.
+
+## Push kế hoạch và chuẩn bị prompt tài liệu — 19/10/2026
+
+- Theo yêu cầu chủ dự án, đã push3commit quy ước/kế hoạch1a024ae→7ee86a0 lên
+  origin/minh-thanh, ls-remote xác nhận7ee86a07b9b28a1c07d08f76a50b21faa377ed7e;
+  remote main vẫn1926d4e532d62d3e1c5e7b8d286d3229e4d22f32. Chưa refactor code.
+- Chủ dự án muốn tối triển khai trọn đợt cải tổ trong một phiên, không dừng hỏi
+  tiếp tục giữa các bước; kế hoạch chia phần để test/commit, không phải chia phiên.
+- Công việc hiện tại: soạn prompt cho AGY viết Chương1/2 dựa mẫu Downloads/
+  do-an-tren-mang.md (1194dòng). Đã đọc bố cục, Chương1, phân tích/thiết kế Chương2,
+  đối chiếu phiếu gốc, README, schema và giới hạn kiểm chứng hiện tại.
+- Dùng guild doc-writer; prompt ở docs/prompts/AGY_CHUONG_1_2.md. Giữ khung tổng
+  quan→yêu cầu→ý tưởng→thiết kế→kết luận chương; thay nội dung EVE-NG bằng đúng
+  WireGuard/Gateway/SSH/Agent/telemetry/RBAC/PostgreSQL/Telegram. Không tự viết
+  hai chương, slide, sửa mã hoặc gửi thông điệp cho AGY bằng tool.
+- Prompt yêu cầu nguồn thật, không bịa kết quả/secret/triển khai VM, không coi kế
+  hoạch refactor/cloud thành đã thực hiện. Chưa push thêm ngoài7ee86a0.

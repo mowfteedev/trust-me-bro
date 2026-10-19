@@ -128,3 +128,12 @@
   môn học. Supabase/Vercel/AWS là lựa chọn theo nhu cầu, không là yêu cầu mới.
 - Ưu tiên hoàn thiện và kiểm chứng kiến trúc đang có; không tăng phạm vi hoặc
   chuyển cloud chỉ để dùng thêm nền tảng. Không tự nâng chuẩn lên production.
+
+## Chuẩn bị prompt cho báo cáo — 19/10/2026
+
+- Chỉ đạo mới cho phép hỗ trợ chuẩn bị phần tài liệu: đọc mẫu đồ án người khác
+  `Downloads/do-an-tren-mang.md`, soạn prompt để chủ dự án đưa AGY viết phần1/2.
+- Theo cấu trúc mẫu, hiểu phần1/2 là Chương1 tổng quan/cơ sở lý thuyết và Chương2
+  phân tích/thiết kế. Lượt này chỉ soạn prompt, không tự viết báo cáo hoặc slide.
+- Phiếu giao/source thực tế ưu tiên hơn nội dung mẫu EVE-NG; không sao chép hoặc
+  gán kết quả VM/Windows/Internet và các cải tổ dự kiến thành đã hoàn thành.
