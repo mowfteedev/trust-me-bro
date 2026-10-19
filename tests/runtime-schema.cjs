@@ -115,6 +115,21 @@ async function main() {
   assert.ok(history.json().data.every((row) => typeof row.memory_used_bytes === 'number'
     && typeof row.network_rx_bytes === 'number' && typeof row.uptime_seconds === 'number'));
   console.log('PASS beacon ghi schema008, API latest/history giữ fields tỷ lệ tính từ bytes (Fastify inject + DB thật)');
+
+  // Simulate persisted data from before a wall-clock correction. Keep the row,
+  // but do not let its future timestamp replace current dashboard measurements.
+  await testAdmin.query(`INSERT INTO metrics_history (node_id,cpu_percent,ram_used_bytes,ram_total_bytes,
+    disk_used_bytes,disk_total_bytes,network_rx_bytes,network_tx_bytes,uptime_seconds,recorded_at)
+    VALUES ($1,99,900,1000,900,1000,999,999,999,now()+interval '3 hours')`, [nodeId]);
+  const current = await server.inject({ method: 'GET', url: '/api/nodes', headers });
+  assert.equal(current.statusCode, 200);
+  assert.equal(current.json().data.find((node) => node.id === nodeId).latest_metric.cpu_percent, 13);
+  const visibleHistory = await server.inject({ method: 'GET', url: `/api/nodes/${nodeId}/history`, headers });
+  assert.equal(visibleHistory.statusCode, 200);
+  assert.equal(visibleHistory.json().data.length, 2);
+  assert.ok(visibleHistory.json().data.every((row) => row.cpu_percent !== 99));
+  assert.equal((await testAdmin.query('SELECT count(*)::int n FROM metrics_history WHERE node_id=$1', [nodeId])).rows[0].n, 3);
+  console.log('PASS mẫu có timestamp tương lai không che mẫu mới; giữ nguyên dữ liệu DB (fixture SQL, không sửa giờ host)');
 }
 main().catch((error) => { console.error('FAIL schema:', error.message); process.exitCode = 1; }).finally(async () => {
   process.chdir(appDir);

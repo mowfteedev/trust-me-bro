@@ -306,7 +306,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
                 LEAST(100.0, ROUND(100.0 * mh.disk_used_bytes / mh.disk_total_bytes, 2))::real AS disk_percent,
                 mh.network_rx_bytes, mh.network_tx_bytes, mh.uptime_seconds, mh.recorded_at
          FROM metrics_history mh
-         WHERE mh.node_id = n.id
+         WHERE mh.node_id = n.id AND mh.recorded_at <= NOW()
          ORDER BY mh.recorded_at DESC
          LIMIT 1
        ) m ON true
@@ -360,7 +360,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
               m.network_rx_bytes, m.network_tx_bytes, m.uptime_seconds, m.recorded_at
        FROM metrics_history m
        JOIN nodes n ON m.node_id = n.id
-       WHERE (n.id::text = $1 OR n.name = $1)
+       WHERE (n.id::text = $1 OR n.name = $1) AND m.recorded_at <= NOW()
        ORDER BY m.recorded_at DESC
        LIMIT 100;`,
       [node_id]
