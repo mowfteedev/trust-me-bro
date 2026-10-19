@@ -32,7 +32,9 @@ vi.mock('ssh2', async () => {
   return { Client };
 });
 
-import { attachBastionSession, createBastionTicket, shutdownAllBastionSessions } from '../src/services/bastion.js';
+import { attachBastionSession } from '../src/services/bastion/session.js';
+import { createBastionTicket } from '../src/services/bastion/tickets.js';
+import { shutdownAllBastionSessions } from '../src/services/bastion/registry.js';
 
 class TestSocket extends EventEmitter {
   readyState = 1;

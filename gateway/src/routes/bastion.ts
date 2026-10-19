@@ -2,17 +2,10 @@ import { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { z } from 'zod';
 import { authenticate, authorize, AuthUserPayload } from '../middlewares/auth.middleware.js';
-import { createBastionTicket, attachBastionSession } from '../services/bastion.js';
+import { createBastionTicket } from '../services/bastion/tickets.js';
+import { attachBastionSession } from '../services/bastion/session.js';
 import { query } from '../services/db.js';
 import { normalizeClientIp } from '../utils/client-ip.js';
-
-/**
- * ==============================================================================
- * TUYẾN ĐIỀU HƯỚNG WEB SSH BASTION PTY (routes/bastion.ts)
- * Dự án: ZT-ServerOps (do-an-co-so-nganh)
- * Phụ trách: backend (chủ trì), security, tester
- * ==============================================================================
- */
 
 const TicketRequestSchema = z.object({
   node_id: z.string().min(1),
@@ -41,7 +34,7 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const { node_id } = parseResult.data;
       const user = req.user as AuthUserPayload;
 
-      // Giới hạn thời hạn ticket theo thời hạn JWT còn lại (tối đa 30s) (R04 Remediation)
+      // Giới hạn thời hạn ticket theo thời hạn JWT còn lại (tối đa 30s)
       const now = Date.now();
       const authExpiresAt = user.authExpiresAt || (user.exp ? user.exp * 1000 : now + 30000);
       const remainingSeconds = Math.floor((authExpiresAt - now) / 1000);

@@ -27,8 +27,9 @@ vi.mock('../src/services/telegram.js', () => ({
 
 import { buildServer } from '../src/server.js';
 import { hashPassword } from '../src/utils/crypto.js';
-import { attachBastionSession, createBastionTicket, verifyAndConsumeTicket,
-  shutdownAllBastionSessions } from '../src/services/bastion.js';
+import { attachBastionSession } from '../src/services/bastion/session.js';
+import { createBastionTicket, verifyAndConsumeTicket } from '../src/services/bastion/tickets.js';
+import { shutdownAllBastionSessions } from '../src/services/bastion/registry.js';
 
 const user = { id: '956947db-c94f-453a-8798-908e6a197a3e', username: 'test-admin',
   role: 'ADMIN', is_active: true, session_version: 1, password_hash: hashPassword('test-only-password') };

@@ -12,8 +12,10 @@ vi.mock('../src/config/env.js', () => ({ config: {
   GATEWAY_PORT: 3000, GATEWAY_HOST: '127.0.0.1', TRUSTED_PROXY_IP: undefined,
 } }));
 vi.mock('../src/services/db.js', () => ({ ensureSeedData: mock.ensureSeedData, closeDatabasePool: mock.closeDatabasePool }));
-vi.mock('../src/services/bastion.js', () => ({
+vi.mock('../src/services/bastion/tickets.js', () => ({
   startTicketCleaner: mock.startTicketCleaner, stopTicketCleaner: mock.stopTicketCleaner,
+}));
+vi.mock('../src/services/bastion/registry.js', () => ({
   startSessionMaintenance: mock.startSessionMaintenance, stopSessionMaintenance: mock.stopSessionMaintenance,
   shutdownAllBastionSessions: mock.shutdownAllBastionSessions,
 }));

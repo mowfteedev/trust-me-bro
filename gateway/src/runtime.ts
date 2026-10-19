@@ -3,9 +3,9 @@ import { buildServer } from './app.js';
 import { config } from './config/env.js';
 import { closeDatabasePool, ensureSeedData } from './services/db.js';
 import {
-  shutdownAllBastionSessions, startSessionMaintenance, startTicketCleaner,
-  stopSessionMaintenance, stopTicketCleaner,
-} from './services/bastion.js';
+  shutdownAllBastionSessions, startSessionMaintenance, stopSessionMaintenance,
+} from './services/bastion/registry.js';
+import { startTicketCleaner, stopTicketCleaner } from './services/bastion/tickets.js';
 import { startSweeper, stopSweeper } from './services/sweeper.js';
 import { telegramService } from './services/telegram.js';
 

@@ -14,7 +14,9 @@ vi.mock('../src/services/telegram.js', () => ({ telegramService: {
   init: vi.fn(), sendAlert: vi.fn(), stop: vi.fn(),
 } }));
 
-let bastion: typeof import('../src/services/bastion.js');
+let tickets: typeof import('../src/services/bastion/tickets.js');
+let registry: typeof import('../src/services/bastion/registry.js');
+let session: typeof import('../src/services/bastion/session.js');
 class TestSocket extends EventEmitter {
   readyState = 1;
   send = vi.fn();
@@ -27,12 +29,14 @@ beforeEach(async () => {
   vi.clearAllMocks();
   vi.spyOn(process.hrtime, 'bigint').mockReturnValue(0n);
   mock.query.mockResolvedValue({ rows: [], rowCount: 1 });
-  bastion = await import('../src/services/bastion.js');
+  tickets = await import('../src/services/bastion/tickets.js');
+  registry = await import('../src/services/bastion/registry.js');
+  session = await import('../src/services/bastion/session.js');
 });
 afterEach(() => {
-  bastion.stopTicketCleaner();
-  bastion.stopSessionMaintenance();
-  bastion.shutdownAllBastionSessions();
+  tickets.stopTicketCleaner();
+  registry.stopSessionMaintenance();
+  registry.shutdownAllBastionSessions();
   vi.clearAllTimers();
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -40,18 +44,18 @@ afterEach(() => {
 
 it('imports without starting maintenance and starts/stops exactly three owned intervals', () => {
   expect(vi.getTimerCount()).toBe(0);
-  bastion.startTicketCleaner();
-  bastion.startTicketCleaner();
-  bastion.startSessionMaintenance();
-  bastion.startSessionMaintenance();
+  tickets.startTicketCleaner();
+  tickets.startTicketCleaner();
+  registry.startSessionMaintenance();
+  registry.startSessionMaintenance();
   expect(vi.getTimerCount()).toBe(3);
-  bastion.stopTicketCleaner();
-  bastion.stopTicketCleaner();
-  bastion.stopSessionMaintenance();
-  bastion.stopSessionMaintenance();
+  tickets.stopTicketCleaner();
+  tickets.stopTicketCleaner();
+  registry.stopSessionMaintenance();
+  registry.stopSessionMaintenance();
   expect(vi.getTimerCount()).toBe(0);
-  bastion.startTicketCleaner();
-  bastion.startSessionMaintenance();
+  tickets.startTicketCleaner();
+  registry.startSessionMaintenance();
   expect(vi.getTimerCount()).toBe(3);
 });
 
@@ -78,12 +82,12 @@ it('keeps a pending checker exclusive across stop/restart and ignores its stale 
   mock.query.mockImplementation((sql: string) => sql.includes('WHERE id = ANY') ? check
     : sql.includes('FROM users') ? auth : Promise.resolve({ rows: [], rowCount: 1 }));
   const socket = new TestSocket();
-  const attaching = bastion.attachBastionSession(socket as unknown as WebSocket, 'worker-test',
-    bastion.createBastionTicket('worker-test', 'test-admin', 1));
-  bastion.startSessionMaintenance();
+  const attaching = session.attachBastionSession(socket as unknown as WebSocket, 'worker-test',
+    tickets.createBastionTicket('worker-test', 'test-admin', 1));
+  registry.startSessionMaintenance();
   await vi.advanceTimersByTimeAsync(2000);
-  bastion.stopSessionMaintenance();
-  bastion.startSessionMaintenance();
+  registry.stopSessionMaintenance();
+  registry.startSessionMaintenance();
   await vi.advanceTimersByTimeAsync(2000);
   expect(mock.query.mock.calls.filter(([sql]) => sql.includes('WHERE id = ANY'))).toHaveLength(1);
   releaseCheck({ rows: [], rowCount: 0 });
@@ -105,13 +109,13 @@ it('checks only the captured sessions when a new session arrives during a pendin
   mock.query.mockImplementation((sql: string) => sql.includes('WHERE id = ANY') ? check
     : sql.includes('FROM users') ? auth : Promise.resolve({ rows: [], rowCount: 1 }));
   const first = new TestSocket();
-  const firstAttaching = bastion.attachBastionSession(first as unknown as WebSocket, 'worker-test',
-    bastion.createBastionTicket('worker-test', 'first-admin', 1));
-  bastion.startSessionMaintenance();
+  const firstAttaching = session.attachBastionSession(first as unknown as WebSocket, 'worker-test',
+    tickets.createBastionTicket('worker-test', 'first-admin', 1));
+  registry.startSessionMaintenance();
   await vi.advanceTimersByTimeAsync(2000);
   const second = new TestSocket();
-  const secondAttaching = bastion.attachBastionSession(second as unknown as WebSocket, 'worker-test',
-    bastion.createBastionTicket('worker-test', 'second-admin', 1));
+  const secondAttaching = session.attachBastionSession(second as unknown as WebSocket, 'worker-test',
+    tickets.createBastionTicket('worker-test', 'second-admin', 1));
   const revoked = new Promise<void>((resolve) => first.once('close', resolve));
   releaseCheck({ rows: [], rowCount: 0 });
   await revoked;
@@ -129,9 +133,9 @@ it('uses the monotonic watchdog even when wall time moves backwards and database
   mock.query.mockImplementation((sql: string) => sql.includes('WHERE id = ANY') ? check
     : sql.includes('FROM users') ? auth : Promise.resolve({ rows: [], rowCount: 1 }));
   const socket = new TestSocket();
-  const attaching = bastion.attachBastionSession(socket as unknown as WebSocket, 'worker-test',
-    bastion.createBastionTicket('worker-test', 'test-admin', 1));
-  bastion.startSessionMaintenance();
+  const attaching = session.attachBastionSession(socket as unknown as WebSocket, 'worker-test',
+    tickets.createBastionTicket('worker-test', 'test-admin', 1));
+  registry.startSessionMaintenance();
   await vi.advanceTimersByTimeAsync(2000);
   vi.setSystemTime(Date.now() - 3600000);
   vi.mocked(process.hrtime.bigint).mockReturnValue(4_800_000_000n);
