@@ -515,3 +515,19 @@ Commit bàn giao xem `git log -1 --oneline`.
 - Đọc lại phiếu gốc xác nhận có ghi VMware/VirtualBox; KVM hiện tại chưa được xác
   nhận thay thế. Internet độc lập, native Windows, CPU cao riêng trên VM và RAM
   toàn mô hình vẫn chưa nghiệm thu. Không mở thêm vòng phát triển.
+
+## Đối chiếu a.txt giữa console và Web SSH — 20/10/2026
+
+- Chủ dự án thấy nội dung a.txt khác giữa console Debian và Web SSH. Đã kiểm tra
+  trực tiếp qua SSH quản trị và luồng API ticket→WebSocket→SSH thật của Gateway.
+- Cả hai kết nối cùng node-linux-01/.4, bootID75bead3e-e93a-49c3-8fb9-ba55eb06220b.
+  Console userlinux/cwd/home/linux; Web SSH userztuser/cwd/home/ztuser. Hai tệp
+  a.txt khác inode654112/654123, kích thước32/8byte. Cùng đường dẫn tuyệt đối
+  /home/ztuser/a.txt cho cùng inode và SHA256 ở hai phiên. Không có bằng chứng
+  kết nối nhầm máy hoặc sai nội dung trên đường truyền.
+- /home/linux quyền700: ztuser bị từ chối đọc đúng ranh giới tài khoản. Không đổi
+  user SSH, chmod, copy/sửa hai tệp hoặc cấp thêm quyền. ADMIN web không tự mang
+  quyền root/sudo của tài khoản linux. Bổ sung giải thích vào DEBIAN_WORKER.md.
+- Rawcache ~/.cache/zt-ssh-context-20261019T194518Z/; không đưa nội dung tệp cá nhân
+  vào Git. Login kiểm tra không logout tài khoản demo, không thu hồi phiên của chủ
+  dự án. Không đổi ứng dụng nên không build lại. Vẫn minh-thanh, không push.

@@ -28,6 +28,14 @@ Mở **https://localhost**, đăng nhập `demo-admin`, chọn `node-linux-01` v
 `ztuser`, Linux. Viewer xem được thông số nhưng không được mở SSH.
 Mật khẩu Dashboard ở `keys/demo-login.env`; mật khẩu VM không phải mật khẩu web.
 
+Web SSH đăng nhập hệ điều hành bằng **`ztuser`**, thư mục ban đầu `/home/ztuser`.
+Console VM thường đăng nhập **`linux`**, thư mục `/home/linux`. Vì vậy `cat a.txt`
+ở hai phiên có thể đọc hai tệp khác nhau; dùng `whoami; pwd; readlink -f a.txt`
+để xác định tệp. Đọc `/home/ztuser/a.txt` từ console cho cùng nội dung như Web SSH
+đọc tệp đó. `/home/linux` có quyền700 nên `ztuser` không truy cập được. Quyền
+ADMIN của Dashboard cho phép mở SSH, không tự đổi tài khoản Linux thành root
+hoặc tài khoản đang đăng nhập console. Không đổi quyền thư mục cá nhân để đồng bộ.
+
 SSH quản trị từ host sử dụng khóa đã cấp và host key đã ghim:
 
 ```sh
