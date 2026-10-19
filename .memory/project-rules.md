@@ -92,3 +92,13 @@
   dự án xem kết quả và duyệt; chỉ đạo này thay quyền push của những phiên trước.
 - Tự quyết định việc thông thường; ghi vấn đề nghiêm trọng và phần chưa kiểm chứng
   để báo cáo cuối. Không soạn slide/báo cáo môn học.
+
+## Makefile và dependency — 19/10/2026
+
+- Quyền push trước đã dùng để đưa bảy commit đến f83265b lên minh-thanh. Các
+  commit mới sau đó vẫn chờ chủ dự án duyệt, không suy ra quyền push tiếp.
+- Sau review ZIP, chủ dự án đồng ý giữ bản của mình, cải tiến có chọn lọc và
+  yêu cầu kiểm tra Makefile. Phạm vi: cleanup an toàn, chọn project/env, doctor
+  chỉ đọc và Fastify/JWT phù hợp; không tích hợp nguyên bản ZIP hoặc thêm dịch vụ.
+- Đã đọc lại phiếu gốc khi được hỏi về Fastify5: chỉ ghi Backend Node.js
+  (Fastify/TypeScript), không khóa phiên bản. Nâng Fastify5 vẫn đúng công nghệ.

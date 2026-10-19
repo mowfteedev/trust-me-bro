@@ -3,7 +3,7 @@
 Đồ án cơ sở ngành Nhóm 9: quản trị máy chủ qua WireGuard, giám sát tài nguyên và
 Web SSH có phân quyền ADMIN/VIEWER. Nhánh làm việc: **`minh-thanh`**; không merge
 vào `main`. Phạm vi là mô hình môn học chạy được và giải thích được.
-Gateway giữ Fastify/TypeScript, Dashboard giữ React/TypeScript, DB giữ PostgreSQL.
+Gateway giữ Fastify 5/TypeScript, Dashboard giữ React/TypeScript, DB giữ PostgreSQL.
 Mini-Agent dùng Go và thư viện chuẩn; phiếu giao không cố định ngôn ngữ Agent.
 Agent Linux đã chạy thật; collector/service Windows đã bổ sung và cross-build,
 **chưa kiểm chứng trên Windows VM**. Mô hình chọn là máy Arch Linux hiện tại chạy
@@ -241,7 +241,12 @@ Xem [trình tự cài và kiểm chứng](docs/WINDOWS_WORKER.md).
 | PostgreSQL, chuẩn hóa dữ liệu | Migration008 bỏ tỷ lệ RAM/disk lưu dư; API tính từ bytes | Test nâng007→008 giữ UUID/FK/lịch sử; fresh DB cũng chạy | Không đổi migration cũ |
 | VM và Docker | Cụm Docker đã chạy thật; bộ cài Windows đã chuẩn bị | `WINDOWS_WORKER.md`, cross-build và parser | Cần Windows guest/VMware hoặc VirtualBox để kiểm chứng |
 
-Bằng chứng mới ngày18/10: [kết quả và giới hạn](docs/verification/completion.md),
+Bổ sung19/10: Makefile nhận đúng project/env, cleanup giữ log/keys, có `make doctor`
+chỉ đọc; Gateway Fastify5/JWT mới qua68unit và16luồng API/SSH thật trong cụm riêng.
+Latest/history giữ dữ liệu có timestamp tương lai trong DB nhưng không để chúng
+che mẫu hiện tại. Xem [lệnh chạy và kiểm chứng](docs/verification/commands-v5.md).
+
+Bằng chứng ngày18/10: [kết quả và giới hạn](docs/verification/completion.md),
 [Firefox](docs/verification/completion-browser.json),
 [dashboard desktop](docs/verification/completion-desktop.png),
 [dashboard mobile](docs/verification/completion-mobile.png).
@@ -263,10 +268,11 @@ chúng có kỳ vọng cũ như Agent Python, khóa600, timeout10s, tỷ lệ RA
 Chúng không được dùng để gán PASS cho chức năng hiện tại. Riêng test nâng cấp
 008 dùng `tests/runtime-schema.cjs`; không sửa test cũ để che lỗi.
 
-Audit18/10 còn báo **4 package Gateway runtime** (1 moderate, 2 high, 1 critical),
-toàn cây Gateway9 và Dashboard9 gồm các quan hệ dev/build. Gateway đã chuyển
-Node20 sang22; Vite dev/preview chỉloopback. Các advisory Fastify/JWT vẫn **OPEN**,
-không gọi việc giảm bề mặt truy cập là vá thư viện. [Đối chiếu ảnh hưởng](docs/verification/dependency-review.md).
+Audit19/10 sau nâng Fastify5/JWT mới: **0 package Gateway runtime bị cảnh báo**,
+thay kết quả4package của bản18/10. Toàn cây Gateway còn **5 package tooling**
+(2moderate,1high,2critical) trong chuỗi Vitest; runtime Docker đã loại dev dependencies.
+Dashboard chưa thay dependency trong lượt này. Không coi runtime audit0 là toàn bộ
+hệ thống sạch lỗ hổng. [Phiên bản, audit và giới hạn](docs/verification/dependency-review.md).
 
 ## Tài liệu và giới hạn
 

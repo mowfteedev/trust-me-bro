@@ -1,4 +1,40 @@
-# Dependency review — 2026-10-18
+# Dependency review — cập nhật 19/10/2026
+
+Đã nâng Gateway lên Fastify5.12.7, @fastify/jwt10.2.5 (fast-jwt6.3.5),
+CORS11.3.1, rate-limit11.2.1 và websocket11.3.4. Giữ Node22, API, schemaDB,
+HS256 và cơ chế session_version/ticket hiện có; không thêm dependency/dịch vụ.
+
+Audit lại từ package-lock bằng npm audit --json và --omit=dev:
+
+| Phạm vi | Kết quả19/10 | Giới hạn |
+|---|---|---|
+| Gateway runtime | **0 package bị audit cảnh báo** | Không phải chứng nhận không có lỗ hổng ứng dụng |
+| Toàn cây Gateway | **5 package:2moderate,1high,2critical** | esbuild/tinypool/vite/vite-node/vitest thuộc chuỗi công cụ Vitest1; không đóng gói trong image runtime |
+| Dashboard | Không thay dependency trong lượt này | Kết quả18/10 ở phần lịch sử; không tuyên bố đã vá toolingVite |
+
+Builder giữ dev dependencies để test; runner chỉ có npm prune --omit=dev.
+Không bật VitestUI/API server. Vẫn cần cập nhật bộ test trong một đợt riêng nếu
+có nhu cầu sử dụng các chế độ đó; không gọi toàn bộ dependency đã sạch.
+
+Build TypeScript +68Vitest đạt (DB/fetch/SSH củaunit đượcmock; pluginWebSocket thật
+đượcinject bằngstreamtest). Cụm Docker riêng chạy đủ16luồng API/SSH/PTY quaWireGuard,
+Viewer403, logout đóngSSH/thu hồiJWT vàSQLmigration/registration thật.
+
+Sửa tương thích v5 có phạm vi nhỏ: nhận WebSocket trực tiếp; errorhandler đặt trước
+route để plugin con kế thừa, xử lý unknown và giữredaction500; rate-limit tạoError
+cóstatusCode để tiếp tục trả429. Thêm10regressioncases vềJWT/parser/redaction/WSaliases.
+
+Primary references: [Fastify migration](https://fastify.dev/docs/latest/Guides/Migration-Guide-V5/),
+[LTS](https://fastify.dev/docs/latest/Reference/LTS/),
+[JWT compatibility](https://github.com/fastify/fastify-jwt),
+[WebSocket API](https://github.com/fastify/fastify-websocket).
+
+Phần dưới giữ nguyên nhận xét lịch sử của bản18/10. Các nhận xét “runtime4package
+cònOPEN” mô tả phiên bản trước, đã được thay bởi kết quả0runtime ở trên.
+
+---
+
+# Đối chiếu bản trước — 18/10/2026
 
 Audit được chạy lại từ package-lock thực bằng `npm audit --package-lock-only
 --json`, và thêm `--omit=dev` cho Gateway. Không dùng số cảnh báo cũ làm bằng chứng.

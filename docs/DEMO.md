@@ -6,6 +6,7 @@ Chạy từ thư mục repository, Linux có Docker/Compose v2 và kernel WireGu
 
 ```sh
 python3 deploy/scripts/demo.py up
+python3 deploy/scripts/demo.py doctor
 python3 deploy/scripts/demo.py check
 ```
 
@@ -74,6 +75,9 @@ Online và incident resolved. Xem `docs/verification/telegram-live.txt`.
 
 - Port 80/443 đang dùng: đổi `HTTP_PORT`/`HTTPS_PORT` trong `keys/demo.env`, rồi
   chạy `up` lại; URL sẽ được script in ra.
+- Chẩn đoán nhanh bằng `make doctor` (chỉ đọc, không thu hồi phiên). Các target
+  Make nhận `PROJECT=... ENV_FILE=...` để chọn đúng cụm. `make logs` in 80 dòng
+  gần nhất, không chạy follow. `make clean` giữ log, khóa, tài liệu và DB.
 - Gateway chưa ready: xem `demo.py status` và `demo.py logs`; kiểm tra migrator
   và provisioner đã exit 0, PostgreSQL healthy. Không tự xóa volume để chữa lỗi.
 - SSH không vào: kiểm tra handshake, node đang Online, tài khoản `ztuser`,
@@ -82,6 +86,19 @@ Online và incident resolved. Xem `docs/verification/telegram-live.txt`.
   network namespace. Không recreate riêng Gateway rồi giữ helper cũ.
 - Tài khoản/node đã tồn tại với bí mật khác: CLI dừng để bảo toàn dữ liệu;
   dùng đúng `keys/demo.env` và `keys/demo-login.env` của cụm đã tạo.
+- Nếu Agent gửi ít nhưng bị HTTP429 kéo dài sau khi đồng hồ máy thay đổi: kiểm
+  tra đồng bộ thời gian. Rate-limit trong bộ nhớ phụ thuộc đồng hồ hệ thống;
+  chạy `up` thông thường không buộc restart nếu image/config không đổi. Có thể
+  tạo lại đúng Gateway/helper/Worker để bỏ cache cũ, giữ DB/key/tài khoản:
+
+  ```sh
+  docker compose --env-file keys/demo.env -p zt_demo --profile demo up -d --no-build --no-deps --force-recreate gateway wireguard_gateway node_worker_01
+  make doctor
+  ```
+
+  Lệnh làm gián đoạn kết nối đang mở, không thu hồi JWT hoặc xóa volume.
+  Không tự chỉnh giờ host hay xóa lịch sử để chữa lỗi. Mẫu có timestamp tương
+  lai được giữ trong DB, tạm không dùng cho latest/history cho đến khi giờ bắt kịp.
 - Mất kết nối Gateway: dashboard có thông báo và Retry; số liệu cũ được ghi rõ.
   Logout offline xóa phiên trình duyệt nhưng chưa xác nhận thu hồi trên server.
 

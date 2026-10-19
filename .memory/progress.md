@@ -304,3 +304,48 @@ Commit bàn giao xem `git log -1 --oneline`.
 - Đã dọn đúng containers/networks/volumes của zt_friend_review và SSHfixture;
   ZIP và97file nguồn không đổi byte nào. Demo chính vẫnreadyz200, sáu báo cáo
   untracked cũ giữ nguyên; bằng chứng và cấu hình thử riêng còn trongcache.
+
+## Hoàn thiện Makefile và Fastify5 — 19/10/2026
+
+- Chủ dự án đồng ý cải tiến có chọn lọc sau review ZIP, yêu cầu kiểm tra Makefile
+  và tiếp tục. Đang dùng guild devops/tester/reviewer/security, phân công độc lập
+  phần script và dependency, reviewer chỉ đọc; không sửa ZIP, không thêm dịch vụ.
+- a11a82e: Make nhận đúng PROJECT/ENV_FILE; clean chỉ bytecode, giữ log/keys/docs/
+  symlink; doctor chỉ đọc Compose/HTTPS/DB/heartbeat/WG/SSH banner/key400; lệnh
+  kiểm tra thiếu login file dừng, không tự tạo credentials mới. Help mô tả đúng
+  mock không HTTP, logs snapshot80, e2e thu hồi phiên và Telegram gửi thật.
+- 6a9d5b0: Fastify5.12.7, JWT10.2.5/fast-jwt6.3.5, plugins tương thích, giữ Node22.
+  Nhận WS trực tiếp, errorhandler kế thừa/redaction, rate-limit vẫn trả429.
+  68Vitest đạt, gồm10regressioncases mới; unit mockDB/fetch/SSH, pluginWS inject thật.
+  Runtime audit0; toàn cây còn5package tooling (2moderate/1high/2critical), không
+  đóng gói devdependencies vào runner. Dashboard dependency không sửa.
+- e0c1a4f: latest/history lọc recorded_at<=NOW, giữ dòng tương lai trong DB.
+  Phát hiện khi mainready200 nhưng heartbeat cũ, Agent429, WG/SSH còn hoạt động.
+  DB có mẫu tương lai3h; mô phỏng clock rollback tạoTTL10.860.000ms ở rate-limit
+  cũ và mới, là giả thuyết nguyên nhân chứ chưa xác minh lịch sử clock host.
+  Tạo lại đúng Gateway/helper/Worker khôi phục heartbeat, không chỉnh giờ/xóa DB.
+- make test đạt:68GatewayVitest chạy mới, Go thành công từcache (18testsource
+  không đổi; không gọi đây là18lượt native mới). 4Python script tests mới đạt,
+  gồm8trường hợp project/env; make help/mock/clean/status/logs chạy được; lệnh
+  check-telegram chỉ dry-run cú pháp, không gửi cảnh báo thử mới.
+- Cụm sạch zt_completion_check/env riêng/DBvolumes riêng/Telegramdry-run: make up
+  và16luồng API/SSH/PTY/WireGuard/RBAC/audit/logout thật đạt. SQL thật upgrade007→008,
+  audit/quyền/registration đạt; fixture tương lai giữ3dòng, latestCPU13 bỏCPU99,
+  history2. CPU/timestamp alertfixtures không gọi làCPU/mấtmạng vật lý.
+- Doctor cụm riêng: bình thường0; pause Worker thật tớiheartbeat17,8s trảnonzero
+  và lỗiSSH; unpause hồi phục0. Thiếuenv trảnonzero không tạo file. Down/up giữ
+  volume, hashusers/password/sessionversion/nodes/token/fingerprint/login file.
+- make up chính thành công: Node22.23.3/Fastify5.12.7/JWT10.2.5 trongcontainer thực;
+  doctor0, heartbeat1,4s, SSHbanner/VPN tốt. Hashidentities/sessionversions và
+  env/login/Bastionkey/WGconfigs giữ nguyên; metric24.767,41future giữ nguyên.
+  Không login/logout chính; không xóa dữ liệu hoặc volume. Đã dọn đúng cụm thử
+  do lượt này tạo. Main vẫn chạy; Telegramlive có thể tự gửi nếu tải thật cao.
+- Khi chủ dự án hỏi Fastify5, đã mở lại đúng phiếu Downloads, SHA256
+  ae5baf56b25ecc521fbb2d8120ccc6f757f0aaeb26f324472414122a742c8fca. Ghi Backend
+  Node.js(Fastify/TypeScript), không khóa phiên bản; Fastify5 phù hợp, Node22 đủ
+  điều kiện. Đối chiếu tài liệu chính thức: Fastify4 hếtLTS30/06/2025.
+- README/DEMO và docs/verification/commands-v5.md, dependency-review.md cập nhật
+  kết quả/giới hạn. Rawlog ở ~/.cache/zt-makefile-completion, không có secret
+  trong báo cáo. WindowsVM/service/reboot/ZeroInbound máy độc lập vẫn CHƯA KIỂM CHỨNG.
+- Chỉ minh-thanh, không merge/reset/main/production, không push thêm. Các commit
+  mới sau f83265b chờ duyệt; sáu báo cáo untracked cũ giữ nguyên.
