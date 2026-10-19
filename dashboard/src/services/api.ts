@@ -51,7 +51,7 @@ class ApiService {
     let errorMsg: string | undefined;
     try {
       if (this.token) {
-        await this.request('/api/auth/logout', { method: 'POST' });
+        await this.request('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
         serverRevoked = true;
       }
     } catch (err: any) {
