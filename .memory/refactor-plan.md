@@ -1,8 +1,8 @@
 # Kế hoạch cải tổ code — 19/10/2026
 
-Trạng thái: đã khảo sát và lập kế hoạch, **chưa thực hiện refactor**.
-Nhánh `minh-thanh`, mốc lập kế hoạch `c03438d`; mã ứng dụng hiện tương ứng bản
-đã push `1a024ae`. Sáu báo cáo untracked có sẵn được giữ nguyên.
+Trạng thái: **đã hoàn thành và kiểm chứng đợt refactor** theo lệnh bắt đầu của
+chủ dự án. Nhánh `minh-thanh`, mốc lập kế hoạch `c03438d`, mã nền đã push
+`1a024ae`; baseline thực hiện `22d36c9`. Tám báo cáo untracked hiện có giữ nguyên.
 
 ## Mục tiêu và ranh giới
 
@@ -131,3 +131,27 @@ bị thụt lùi, UI giữ hình thức đã duyệt và số đo không tăng b
 chỉ tiêu giảm RAM chỉ bằng di chuyển file hoặc thêm thư viện để đạt hình thức.
 Windows native/VM/reboot/Zero Inbound từ máy độc lập vẫn là phần nghiệm thu riêng;
 cross-build, mock và Docker không đổi thành PASS VM sau đợt cải tổ này.
+
+## Kết quả thực hiện
+
+- Baseline tại `22d36c9`: 68 Gateway tests và16 luồng Docker Linux thật đạt
+  trong project `zt_refactor_check`; Telegram dry-run. Cache bằng chứng:
+  `/home/mowftee/.cache/zt-refactor-20261019/`.
+- `b26f825`: Agent tách main/http/runner/cli;18 tests Linux chạy mới, race/vet và
+  Linux/Windows cross-build đạt. Giữ collector/platform/installer.
+- `bb3498c`: Script parse/dispatch, actions riêng;6 tests đạt, giữ CLI.
+- `353633a`: Dashboard tách session/layout/login/polling/summary/node details.
+- `24bbd30`: CSS chia6 nhóm, giữ cascade; bundle cuối giống byte baseline.
+- `d982155`: Gateway app/runtime; runtime sở hữu timer và process listeners.
+- `7df23e3`: Bastion tickets/registry/session, giữ logic SSH/SQL/cleanup; thêm
+  regression có mục tiêu, tổng85 Gateway tests đạt.
+- Browser baseline43 checks chỉ chứng minh logout xóa phiên cục bộ, API400.
+  Phát hiện lỗi cũ và sửa JSON body tại `18b2fa2`; sau sửa47 browser checks đạt,
+  gồm logout200/token cũ401 cả hai vai trò. Đã giải thích38 khác biệt ảnh/styles
+  do gap telemetry, số dòng audit và transition; không sửa baseline.
+- Cụm mới:16 luồng thật, SQL upgrade và down/up giữ identities đạt. Pause Worker
+  thật cho Stale15,00s/Offline29,90s, một incident rồi phục hồi/resolved.
+- Main đã cập nhật image, doctor0 sau heartbeat đầu tiên; identities và13 tệp
+  giữ nguyên, metrics tiếp tục tăng. Dọn đúng cụm thử; không push/merge/reset.
+- Dừng phát triển theo phạm vi. Chi tiết ở `docs/verification/refactor.md`;
+  Windows native/VM/reboot/Internet độc lập vẫn CHƯA KIỂM CHỨNG.

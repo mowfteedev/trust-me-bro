@@ -9,6 +9,25 @@ Agent Linux đã chạy thật; collector/service Windows đã bổ sung và cro
 **chưa kiểm chứng trên Windows VM**. Mô hình chọn là máy Arch Linux hiện tại chạy
 Gateway Docker + Windows VM Worker riêng; xem [Windows Worker](docs/WINDOWS_WORKER.md).
 
+## Tổ chức mã nguồn
+
+| Thư mục / tệp | Trách nhiệm |
+|---|---|
+| `gateway/src/server.ts`, `app.ts`, `runtime.ts` | Entry point, ghép Fastify và quản lý khởi chạy/dừng |
+| `gateway/src/routes/`, `middlewares/` | API, kiểm tra xác thực và quyền truy cập |
+| `gateway/src/services/bastion/` | Vé SSH, registry/timer dùng chung và tài nguyên từng phiên |
+| `gateway/src/services/`, `gateway/migrations/` | Cảnh báo/Telegram/DB và schema có phiên bản |
+| `dashboard/src/App.tsx`, `pages/`, `layouts/` | Điều phối trang, đăng nhập và khung console |
+| `dashboard/src/hooks/`, `components/`, `services/` | Session/polling, phần hiển thị và gọi API |
+| `dashboard/src/styles/theme.css` | Nhập các nhóm CSS theo thứ tự cascade hiện có |
+| `agent/main.go`, `cli.go`, `http.go`, `runner.go` | Khởi chạy, tham số/chế độ, truyền beacon và vòng thu thập/gửi |
+| `agent/collect_*.go`, `platform_*.go` | Collector và tích hợp hệ điều hành Linux/Windows |
+| `deploy/scripts/demo.py`, `demo_actions.py` | CLI đọc tham số và các thao tác bootstrap/kiểm tra/Compose |
+
+Giữ các phần có trạng thái phiên hoặc effect React cùng nơi quản lý cleanup.
+Tách module không thay hợp đồng API, schema DB hoặc các lệnh chạy bên dưới.
+Kết quả cải tổ và giới hạn kiểm chứng: [kiểm chứng refactor](docs/verification/refactor.md).
+
 ## Khởi chạy demo
 
 Cần Linux có kernel WireGuard, Docker Engine + **Docker Compose v2**, Python 3.9+,

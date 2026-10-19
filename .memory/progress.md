@@ -403,3 +403,52 @@ Commit bàn giao xem `git log -1 --oneline`.
   hai chương, slide, sửa mã hoặc gửi thông điệp cho AGY bằng tool.
 - Prompt yêu cầu nguồn thật, không bịa kết quả/secret/triển khai VM, không coi kế
   hoạch refactor/cloud thành đã thực hiện. Chưa push thêm ngoài7ee86a0.
+
+## Bắt đầu cải tổ code — 19/10/2026
+
+- Chủ dự án nhắn “đến giờ rồi, bắt đầu”: triển khai trọn kế hoạch cải tổ code,
+  không tiếp tục viết báo cáo môn học. Nhánh minh-thanh, baseline22d36c9.
+- Có thêm docs/BAO_CAO_CHUONG_1_2.md và _V2.md do người dùng/AGY tạo, cùng6báo cáo
+  untracked cũ; giữ nguyên8tệp. Snapshot SHA25613file (gồm env/login/key/WGconfig)
+  và hashusers/nodes/sessionversions main lưu cachezt-refactor-20261019.
+- Dùng guild tech-lead/backend/frontend/tester/devops và3subagent, tách phạm vi
+  Agent, Dashboard vàscript; sau khi xong chuyển sang Gateway vàQA browser.
+  Không nhiều agent sửa cùng tệp; root review/commit theo phần.
+- Baseline make test68Gateway đạt; cụm riêngzt_refactor_check từ env testdry-run
+  up và16luồngAPI/SSH/audit/logout thật đạt. Không login/logout main. Rawlogcache.
+- b26f825 Agent:main19dòng,9functionbody giữnguyên, táchhttp/runner/cli;18Go Linux
+  tests chạy mới, race/vet, Linux static vàWindowsamd64/arm64cross-build đạt.
+- bb3498c script:demo23dòng, demo_actions riêng;6tests gồm4cũ+2regression guard
+  credentials/Compose/volumes đạt. Runtimecheck quaCLI mới trênimagebaseline đạt.
+- 353633a Dashboard:App84dòng,ClusterOverview295; tách session/login/layout và
+  cluster/historyhooks/summary/details, gọnbannercomment. Buildtsc/Vite và16SSR
+  fixturemarkup so trước/sau đạt; đây không thay browser/HTTP/timer thật.
+- 24bbd30 CSS:6nhómtheothứtựcũ, buildCSSgiốnghash. Root bỏblankEOF ởfilemới để
+  gitdiffcheck sạch; xácnhận lạiCSSbundle vàbrowserởlượt build cuối.
+- `d982155`: Gateway server14 dòng, app factory/runtime riêng; giữ thứ tự plugin/
+  routes/error handler. Runtime sở hữu timer/listener/startup/shutdown.
+- `7df23e3`: Bastion tickets/registry/session; direct imports, không facade hoặc
+  import vòng.17 regression mới về quota/cleanup/backpressure/runtime/maintenance;
+  TypeScript build và85 Gateway tests đạt. Source review độc lập không thấy blocker.
+- Baseline browser43 checks chỉ kiểm tra local logout, API trả400. Root phát hiện
+  POST JSON không body; `18b2fa2` thêm body{} đúng một dòng. Browser sau sửa47
+  checks đạt: logout200 và JWT cũ401 cả Admin/Viewer, hai SSH/PTY thật, audit,
+  filter/theme/mobile menu, viewport1920/768/375/320, error fetch có nhãn giả lập.
+- Đã xem ảnh thật và đối chiếu styles/geometry. CSS bundle cuối giống byte;
+  38 khác biệt được giải thích bằng gap telemetry, số dòng audit và animation,
+  giữ nguyên baseline/raw comparison. Cache không có token/mật khẩu/JWT thật;
+  profile browser tạm đã dọn, không còn phiên SSH thử.
+- Cụm mới cold-start/down/up giữ hash users/nodes;16 luồng API/SSH/PTY/VPN/RBAC/
+  audit/logout và SQL upgrade007→008/schema/registration đạt. Pause Worker thật:
+  Stale15,00s, Offline29,90s, một incident, phục hồi Online và resolved.
+- Snapshot Agent RSS11,92→10,83MiB, tổng working set6 container126,31→116,30MiB;
+  không coi đây là benchmark hoặc bằng chứng tổng RAM VM500MB–1GB.
+- Main `make up` image mới thành công. Doctor ngay lúc Worker vừa start báo
+  heartbeat cũ21,8s; kiểm tra tiếp theo0, heartbeat2,8s, VPN/SSH banner tốt.
+  Không login/logout main; hash users/password/role/session_version và nodes/
+  token/fingerprint giữ nguyên.13 tệp env/login/key/WGconfig/báo cáo giữ byte;
+  metrics29.787→30.216 tại thời điểm đo. Đã dọn đúng cụm thử do phiên này tạo.
+- README có bản đồ source; `docs/verification/refactor.md` ghi kết quả/giới hạn.
+  Hoàn thành phạm vi cải tổ, dừng phát triển thêm. Không sửa báo cáo môn học.
+- Remote cuối phiên: minh-thanh7ee86a0, main1926d4e; chưa push các commit mới.
+  Windows native/VM/reboot/Internet độc lập vẫn CHƯA KIỂM CHỨNG.
