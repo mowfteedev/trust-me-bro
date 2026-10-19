@@ -119,3 +119,12 @@
 - Chủ dự án đang hỏi về Supabase/Vercel/AWS để cân nhắc cải tổ; chưa chốt chuyển
   dịch vụ, migrate DB hoặc triển khai cloud. Không suy ra quyền tạo tài nguyên
   trả phí hay triển khai từ câu hỏi tìm hiểu nền tảng.
+
+## Nguyên tắc ưu tiên được nhắc lại — 19/10/2026
+
+- Mọi đề xuất và thay đổi phải tuân theo phiếu giao, đồng thời tối ưu trong phạm
+  vi đồ án: code rõ/gọn, tài nguyên phù hợp, ít thành phần và dễ chạy/demo.
+- Giải thích lợi ích cụ thể của việc thêm/thay công nghệ; đối chiếu với yêu cầu
+  môn học. Supabase/Vercel/AWS là lựa chọn theo nhu cầu, không là yêu cầu mới.
+- Ưu tiên hoàn thiện và kiểm chứng kiến trúc đang có; không tăng phạm vi hoặc
+  chuyển cloud chỉ để dùng thêm nền tảng. Không tự nâng chuẩn lên production.

@@ -366,3 +366,6 @@ Commit bàn giao xem `git log -1 --oneline`.
   tuyệt đối không hỗ trợ WS. Gateway còn cần WireGuard/UDP và tiến trình lâu dài.
 - Câu hỏi về ba nền tảng là bước tìm hiểu; chưa tạo cloud account/resource,
   migrate DB, thay auth hoặc deploy. Các thay đổi sau push này vẫn chưa push.
+- Chủ dự án nhắc lại nguyên tắc quyết định: tuân theo phiếu giao và tối ưu.
+  Đã lưu vào project-rules.md; ưu tiên cụm Linux/Compose/PostgreSQL và kiểm chứng
+  WorkerVM, cân nhắc cloud theo nhu cầu thực thay vì mặc định thêm ba nền tảng.
