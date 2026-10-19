@@ -9,6 +9,7 @@ from pathlib import Path
 import secrets
 import ssl
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -27,9 +28,11 @@ def run(args, **kwargs):
     return subprocess.run(args, cwd=ROOT, check=True, **kwargs)
 
 
-def credentials():
+def credentials(create=False):
     path = KEYS / 'demo-login.env'
     if not path.exists():
+        if not create:
+            raise RuntimeError('Thiếu keys/demo-login.env; khôi phục đúng tệp tài khoản. Lệnh kiểm tra không tự tạo mật khẩu mới.')
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as stream:
             stream.write(f'DEMO_ADMIN_PASSWORD={secrets.token_urlsafe(24)}\n')
@@ -39,11 +42,15 @@ def credentials():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['up', 'setup', 'check', 'check-cpu', 'check-telegram', 'down', 'status', 'logs'])
+    parser.add_argument('action', choices=['up', 'setup', 'doctor', 'check', 'check-cpu', 'check-telegram', 'down', 'status', 'logs'])
     parser.add_argument('--env-file', type=Path, default=KEYS / 'demo.env')
     parser.add_argument('--project', default='zt_demo')
     args = parser.parse_args()
     env_path = args.env_file.resolve()
+    if args.action == 'doctor':
+        run([sys.executable, str(ROOT / 'deploy/scripts/doctor.py'),
+             '--env-file', str(env_path), '--project', args.project])
+        return
     compose = ['docker', 'compose', '--env-file', str(env_path), '-p', args.project, '--profile', 'demo']
     if args.action == 'up':
         run(['bash', 'deploy/scripts/init-secrets.sh', '--env-file', str(env_path)])
@@ -51,7 +58,7 @@ def main():
         parser.error('Chưa có env demo; chạy up trước.')
     env = read_env(env_path)
     if args.action in ('up', 'setup'):
-        login = credentials()
+        login = credentials(create=args.action == 'up')
         if args.action == 'up':
             run(compose + ['up', '-d', '--build', 'postgres', 'migrator', 'provisioner', 'gateway', 'wireguard_gateway', 'dashboard', 'proxy'])
             # Chờ readiness thực tế; deadline rõ ràng, không giả định thời gian boot.

@@ -11,7 +11,7 @@ Gateway Docker + Windows VM Worker riêng; xem [Windows Worker](docs/WINDOWS_WOR
 
 ## Khởi chạy demo
 
-Cần Linux có kernel WireGuard, Docker Engine + **Docker Compose v2**, Python 3,
+Cần Linux có kernel WireGuard, Docker Engine + **Docker Compose v2**, Python 3.9+,
 OpenSSL và `ssh-keygen`. Tài khoản chạy cần quyền truy cập Docker. Lần build đầu
 cần Internet để tải image/phụ thuộc. Không cần cài Node.js hoặc npm lên host.
 Gateway chạy với UID1000: owner của khóa bind-mount quyền400 phải khớp UID này.
@@ -21,6 +21,7 @@ Từ thư mục repository:
 
 ```sh
 python3 deploy/scripts/demo.py up
+python3 deploy/scripts/demo.py doctor
 python3 deploy/scripts/demo.py check
 python3 deploy/scripts/demo.py status
 ```
@@ -41,10 +42,26 @@ Cụm có tên `zt_demo` và volumes riêng. `.env`, khóa đã có và DB của
 python3 deploy/scripts/demo.py down
 ```
 
-`make up`, `make e2e`, `make status`, `make down` tương ứng các lệnh trên.
+`make up`, `make doctor`, `make e2e`, `make status`, `make down` tương ứng các lệnh trên.
 `make test` chạy Go tests Linux của Agent và Vitest của Gateway trong Docker; DB/fetch của test
 Gateway là giả lập. `make e2e` kiểm tra hệ thống thật và cảnh báo bằng payload
-kiểm thử trong DB tạm riêng. Không dùng `make clean` để dọn dữ liệu kiểm chứng.
+kiểm thử trong DB tạm riêng; có login/logout nên thu hồi phiên của tài khoản demo
+trên cụm được chọn. `make clean` chỉ xóa bytecode Python và cache rỗng; giữ log,
+khóa, tài liệu, symlink và volume DB. `make mock` là dry-run, không gửi HTTP hoặc đo tải Gateway.
+
+Các lệnh Make nhận `PROJECT`, `ENV_FILE` và `PYTHON`. Ví dụ chọn cụm thử đã cấu hình
+cổng/subnet riêng:
+
+```sh
+make doctor PROJECT=zt_completion_check ENV_FILE=keys/completion-check.env
+```
+
+`doctor` chỉ đọc trạng thái container, readiness, DB, tuổi heartbeat, handshake và
+banner SSH; không tạo tài khoản, gửi Telegram, đăng nhập/logout hoặc sửa firewall.
+Lệnh trả mã khác 0 khi phát hiện vấn đề; banner không thay nghiệm thu SSH/PTY
+có xác thực, host-key verification hoặc Zero Inbound từ máy khác. HTTPS probe
+dùng CA demo nên không chứng nhận máy đã tin cậy CA. Lệnh kiểm tra không tự sinh
+mật khẩu nếu thiếu `keys/demo-login.env`; cần khôi phục đúng tệp của cụm cũ.
 
 ## Nhật ký hoạt động
 
