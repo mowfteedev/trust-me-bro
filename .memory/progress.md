@@ -718,3 +718,16 @@ Commit bàn giao xem `git log -1 --oneline`.
   dùng mẫu sớm9MiB làm kết luận. Snapshot6container cuối156,01MiB, không
   gồmOS/daemon/VM. Credential tạm đã xóa;11cổng transport và HTTP artifact
   tạm đều xác nhận đóng, doctor0vấn đề.
+
+## Đóng các thiếu sót sau đánh giá — 20/10/2026
+
+- Chủ dự án cho bắt đầu xử lý danh sách7mục. Giữ minh-thanh, commit theo
+  phần việc, không push/merge; không tạo slide/báo cáo môn học. Đã hỏi một lần
+  về chấp thuận KVM và máy Internet độc lập; không tự suy ra câu trả lời.
+- Tooling: Vitest4.1.12, Dashboard Vite6.4.4/plugin-react4.7.0; không đổi
+  source ứng dụng, assertion hoặc bất kỳ entry dependency runtime nào.
+  Bản sao cô lập: Gateway build+87unit đạt, Dashboard build đạt, cả hai
+  Dockerfile build đạt. Runner không chứa Vitest/Vite/TS/tsx; Nginx-t đạt.
+  Audit mới Gateway all/runtime0; Dashboard9→7 (2moderate/5high) còn OPEN
+  trong chuỗi Tailwind3/CSS/glob. Không override major/migrateCSS chỉ để
+  xóa cảnh báo. Bằng chứng docs/verification/tooling-update.md.
