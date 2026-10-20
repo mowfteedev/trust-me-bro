@@ -45,8 +45,9 @@ class ApiService {
     localStorage.removeItem(USER_STORAGE_KEY);
   }
 
-  // Luôn xóa phiên cục bộ; caller cần phân biệt Gateway đã xác nhận thu hồi hay chưa.
+  // Xóa phiên đã đăng xuất; caller phân biệt Gateway đã xác nhận thu hồi hay chưa.
   public async logout(): Promise<{ serverRevoked: boolean; error?: string }> {
+    const logoutToken = this.token;
     let serverRevoked = false;
     let errorMsg: string | undefined;
     try {
@@ -58,19 +59,20 @@ class ApiService {
       errorMsg = err.message || 'Mất kết nối máy chủ';
       console.warn('⚠️ [API LOGOUT] Máy chủ chưa xác nhận thu hồi phiên do sự cố kết nối:', errorMsg);
     } finally {
-      this.clearSession();
+      if (this.token === logoutToken) this.clearSession();
     }
     return { serverRevoked, error: errorMsg };
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const requestToken = this.token;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string> || {}),
     };
 
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+    if (requestToken) {
+      headers['Authorization'] = `Bearer ${requestToken}`;
     }
 
     const response = await fetch(endpoint, {
@@ -80,8 +82,11 @@ class ApiService {
     });
 
     if (response.status === 401 && endpoint !== '/api/auth/login') {
-      this.clearSession();
-      window.dispatchEvent(new Event('zt-session-expired'));
+      // A response from an old session must not invalidate a newer login.
+      if (this.token === requestToken) {
+        this.clearSession();
+        window.dispatchEvent(new Event('zt-session-expired'));
+      }
       throw new Error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
     }
 
