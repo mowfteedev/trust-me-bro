@@ -68,7 +68,7 @@ class MakeCommandTests(unittest.TestCase):
     def test_cluster_targets_forward_selected_environment(self):
         actions = {'up': 'up', 'down': 'down', 'status': 'status', 'logs': 'logs',
                    'e2e': 'check', 'doctor': 'doctor', 'check-cpu': 'check-cpu',
-                   'check-telegram': 'check-telegram'}
+                   'check-telegram': 'check-telegram', 'maintenance': 'maintenance'}
         for target, action in actions.items():
             with self.subTest(target=target):
                 result = subprocess.run(
@@ -83,6 +83,18 @@ class MakeCommandTests(unittest.TestCase):
 
 
 class CredentialTests(unittest.TestCase):
+    def test_maintenance_uses_existing_role_job_without_demo_credentials(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            env_path = root / 'maintenance.env'
+            env_path.write_text('MAINTENANCE_DATABASE_URL=postgresql://zt_maintenance:fixture@postgres/fixture\n')
+            with patch.object(DEMO, 'KEYS', root), patch.object(DEMO, 'run') as run:
+                DEMO.dispatch('maintenance', env_path, 'zt_fixture', self.fail)
+                run.assert_called_once_with(['docker', 'compose', '--env-file', str(env_path), '-p', 'zt_fixture',
+                                             '--profile', 'demo', '--profile', 'maintenance', 'run', '--rm',
+                                             '--build', '--no-deps', 'maintenance'])
+                self.assertFalse((root / 'demo-login.env').exists())
+
     def test_checks_do_not_create_or_replace_login_credentials(self):
         previous = DEMO.KEYS
         try:

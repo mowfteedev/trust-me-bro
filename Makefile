@@ -3,7 +3,7 @@
 # Đồ án cơ sở ngành — Nhóm 9 (Khoa CNTT - Đại học Công nghiệp Hà Nội)
 # ==============================================================================
 
-.PHONY: help up down test mock clean logs status e2e doctor check-cpu check-telegram
+.PHONY: help up down test mock clean logs status e2e doctor maintenance check-cpu check-telegram
 
 SHELL := /bin/bash
 PYTHON ?= python3
@@ -25,9 +25,10 @@ help:
 	@echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════════╝${RESET}"
 	@echo -e "  ${GREEN}make up${RESET}      - Khởi tạo bí mật runtime và kích hoạt toàn bộ cụm dịch vụ"
 	@echo -e "  ${GREEN}make down${RESET}    - Dừng cụm; giữ nguyên volume DB, khóa và mật khẩu"
-	@echo -e "  ${GREEN}make test${RESET}    - Unit tests Agent và Gateway (DB/fetch giả lập)"
+	@echo -e "  ${GREEN}make test${RESET}    - Contract/source checks và unit Agent/Gateway/Dashboard"
 	@echo -e "  ${GREEN}make e2e${RESET}     - API/SSH thật và DB test riêng; thu hồi phiên tài khoản demo"
 	@echo -e "  ${GREEN}make doctor${RESET}  - Chẩn đoán chỉ đọc cấu hình và cụm đang chạy"
+	@echo -e "  ${GREEN}make maintenance${RESET} - Xóa phân vùng metrics quá 7 ngày bằng zt_maintenance"
 	@echo -e "  ${GREEN}make mock${RESET}    - Dry-run 50 node giả: sinh số liệu, không gửi HTTP/bơm tải Gateway"
 	@echo -e "  ${GREEN}make logs${RESET}    - In tối đa 80 dòng log gần nhất mỗi dịch vụ Gateway/WireGuard/Worker"
 	@echo -e "  ${GREEN}make clean${RESET}   - Chỉ dọn bytecode Python; giữ log, khóa, tài liệu và symlink"
@@ -44,10 +45,14 @@ down:
 	@$(DEMO) down $(DEMO_FLAGS)
 
 test:
+	@echo "Contract/source checks + unit tests; tests/legacy cần topology cũ, không thuộc runner hiện tại."
+	@$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
 	@docker build --target builder -t zt_agent_tests agent
 	@docker run --rm zt_agent_tests go test ./...
 	@docker build --target builder -t zt_course_tests gateway
-	@docker run --rm -v "$(CURDIR)/gateway/tests:/app/tests:ro" zt_course_tests npm test
+	@docker run --rm --user 1000:1000 -e HOME=/tmp -v "$(CURDIR)/gateway/tests:/app/tests:ro" zt_course_tests npm test
+	@docker build --target builder -t zt_dashboard_tests dashboard
+	@docker run --rm zt_dashboard_tests npm test
 	@echo "Unit tests dùng mock DB/fetch; chạy make e2e để kiểm chứng cụm thật."
 
 e2e:
@@ -56,6 +61,9 @@ e2e:
 
 doctor:
 	@$(DEMO) doctor $(DEMO_FLAGS)
+
+maintenance:
+	@$(DEMO) maintenance $(DEMO_FLAGS)
 
 check-cpu:
 	@$(DEMO) check-cpu $(DEMO_FLAGS)

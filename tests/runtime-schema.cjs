@@ -1,4 +1,4 @@
-// Upgrade PostgreSQL thật 007→008 trong DB tạm; không sửa DB demo/người dùng.
+// Upgrade PostgreSQL thật 007→009 trong DB tạm; không sửa DB demo/người dùng.
 // Fastify inject kiểm tra API thật, payload byte/percent là dữ liệu kiểm thử.
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -24,6 +24,8 @@ async function main() {
   process.env.TELEGRAM_MODE = 'dry-run';
   testAdmin = new Pool({ connectionString: migration.toString() });
   const { runMigrations } = require('./dist/services/migration-runner.js');
+  const migrations = fs.readdirSync(path.join(appDir, 'migrations')).filter((file) => file.endsWith('.sql')).sort();
+  assert.ok(migrations.some((file) => /^009_.*\.sql$/.test(file)), 'Missing per-node SSH account migration');
   fs.mkdirSync(path.join(fixtureDir, 'migrations'));
   for (const file of fs.readdirSync(path.join(appDir, 'migrations'))) {
     if (/^00[1-7]_.*\.sql$/.test(file)) {
@@ -63,13 +65,13 @@ async function main() {
   );
   async function snapshot() {
     return {
-      users: (await testAdmin.query('SELECT id,username,password_hash,role,session_version FROM users ORDER BY id')).rows,
-      nodes: (await testAdmin.query('SELECT id,name,ip_address,token_hash,host_key_fingerprint FROM nodes ORDER BY id')).rows,
+      users: (await testAdmin.query('SELECT * FROM users ORDER BY id')).rows,
+      nodes: (await testAdmin.query("SELECT to_jsonb(nodes)-'ssh_username' AS data FROM nodes ORDER BY id")).rows,
       metrics: (await testAdmin.query(`SELECT node_id,cpu_percent,ram_used_bytes,ram_total_bytes,
         disk_used_bytes,disk_total_bytes,network_rx_bytes,network_tx_bytes,uptime_seconds,recorded_at::text
         FROM metrics_history ORDER BY node_id,recorded_at`)).rows,
-      alerts: (await testAdmin.query('SELECT id,node_id,severity,message,resolved FROM alerts ORDER BY id')).rows,
-      audit: (await testAdmin.query('SELECT id,node_id,user_id,action,details FROM audit_logs ORDER BY id')).rows,
+      alerts: (await testAdmin.query('SELECT * FROM alerts ORDER BY id')).rows,
+      audit: (await testAdmin.query('SELECT * FROM audit_logs ORDER BY id')).rows,
       foreignKeys: (await testAdmin.query(`SELECT conrelid::regclass::text relation,conname,pg_get_constraintdef(oid) definition
         FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace ORDER BY relation,conname`)).rows,
     };
@@ -77,8 +79,22 @@ async function main() {
   const before = await snapshot();
   await runMigrations();
   assert.deepEqual(await snapshot(), before);
-  assert.equal((await testAdmin.query('SELECT count(*)::int n FROM schema_migrations')).rows[0].n, 8);
-  console.log('PASS upgrade007→008 giữ UUID, FK, history/bytes/CPU/network/uptime, users/alerts/audit (DB thật)');
+  const applied = await testAdmin.query('SELECT name,applied_at::text FROM schema_migrations ORDER BY name');
+  assert.deepEqual(applied.rows.map((row) => row.name), migrations);
+  assert.equal((await testAdmin.query('SELECT ssh_username FROM nodes WHERE id=$1', [nodeId])).rows[0].ssh_username, null);
+  await testAdmin.query('UPDATE nodes SET ssh_username=$1 WHERE id=$2', ['linux', nodeId]);
+  await assert.rejects(testAdmin.query('UPDATE nodes SET ssh_username=$1 WHERE id=$2', ['root;id', nodeId]),
+    (error) => error.code === '23514' && error.constraint === 'ck_nodes_ssh_username');
+  const upgraded = await snapshot();
+  await runMigrations();
+  assert.deepEqual(await snapshot(), upgraded);
+  assert.deepEqual((await testAdmin.query('SELECT name,applied_at::text FROM schema_migrations ORDER BY name')).rows, applied.rows);
+  assert.equal((await testAdmin.query('SELECT ssh_username FROM nodes WHERE id=$1', [nodeId])).rows[0].ssh_username, 'linux');
+  const newNodeId = crypto.randomUUID();
+  await testAdmin.query(`INSERT INTO nodes (id,name,ip_address,token_hash,token_prefix)
+    VALUES ($1,'schema-new-node','10.100.0.97',$2,'newnode-')`, [newNodeId, crypto.randomBytes(32).toString('hex')]);
+  assert.equal((await testAdmin.query('SELECT ssh_username FROM nodes WHERE id=$1', [newNodeId])).rows[0].ssh_username, null);
+  console.log('PASS upgrade007→009 giữ UUID/FK/history/users/alerts/audit; SSH fallback NULL, account riêng, constraint và rerun không đổi dữ liệu (DB thật)');
   await testAdmin.query("SELECT create_daily_metrics_partition((now() AT TIME ZONE 'UTC')::date + 2)");
   const storedRatios = await testAdmin.query(`SELECT table_name,column_name FROM information_schema.columns
     WHERE table_schema='public' AND (table_name='metrics_history' OR table_name LIKE 'metrics_history_%')
@@ -130,6 +146,39 @@ async function main() {
   assert.ok(visibleHistory.json().data.every((row) => row.cpu_percent !== 99));
   assert.equal((await testAdmin.query('SELECT count(*)::int n FROM metrics_history WHERE node_id=$1', [nodeId])).rows[0].n, 3);
   console.log('PASS mẫu có timestamp tương lai không che mẫu mới; giữ nguyên dữ liệu DB (fixture SQL, không sửa giờ host)');
+
+  const retained = await snapshot();
+  const old = (await testAdmin.query(`SELECT 'metrics_history_y' || to_char(day,'YYYY_MM_DD') AS name,
+    day::text AS start,(day+1)::text AS finish FROM (SELECT (now() AT TIME ZONE 'UTC')::date-15 AS day) dates`)).rows[0];
+  assert.match(old.name, /^metrics_history_y\d{4}_\d{2}_\d{2}$/);
+  await testAdmin.query(`CREATE TABLE public.${old.name} PARTITION OF metrics_history
+    FOR VALUES FROM ('${old.start}') TO ('${old.finish}')`);
+  await testAdmin.query(`INSERT INTO metrics_history (node_id,cpu_percent,ram_used_bytes,ram_total_bytes,
+    disk_used_bytes,disk_total_bytes,network_rx_bytes,network_tx_bytes,uptime_seconds,recorded_at)
+    VALUES ($1,5,100,1000,100,1000,1,1,1,now()-interval '15 days')`, [newNodeId]);
+  const maintenanceUrl = new URL(credentials.maintenance_url);
+  maintenanceUrl.pathname = '/' + database;
+  const appCheck = new Pool({ connectionString: runtime.toString() });
+  const maintenanceCheck = new Pool({ connectionString: maintenanceUrl.toString() });
+  try {
+    const policy = (await testAdmin.query(`SELECT pg_get_userbyid(proowner) AS owner,prosecdef,proconfig
+      FROM pg_proc WHERE oid='public.drop_old_metrics_partitions(integer)'::regprocedure`)).rows[0];
+    assert.equal(policy.owner, 'zt_admin');
+    assert.equal(policy.prosecdef, true);
+    assert.ok(policy.proconfig.includes('search_path=pg_catalog, public, pg_temp'));
+    await assert.rejects(appCheck.query('SELECT drop_old_metrics_partitions(7)'), { code: '42501' });
+    await assert.rejects(maintenanceCheck.query(`DROP TABLE public.${old.name}`), { code: '42501' });
+    const job = require('node:child_process').spawnSync(process.execPath, ['dist/scripts/run-maintenance.js'], {
+      env: { ...process.env, MAINTENANCE_DATABASE_URL: maintenanceUrl.toString(), RETENTION_DAYS: '7' },
+      encoding: 'utf8', timeout: 15000,
+    });
+    assert.equal(job.status, 0, job.stderr || String(job.error || 'Maintenance job failed'));
+    assert.equal((await testAdmin.query('SELECT to_regclass($1) AS relation', [old.name])).rows[0].relation, null);
+    assert.deepEqual(await snapshot(), retained);
+    console.log('PASS job retention thật xóa partition15ngày, giữ metrics/audit/FK; app bị cấm EXECUTE, maintenance bị cấm DROP trực tiếp (DB riêng)');
+  } finally {
+    await Promise.all([appCheck.end(), maintenanceCheck.end()]);
+  }
 }
 main().catch((error) => { console.error('FAIL schema:', error.message); process.exitCode = 1; }).finally(async () => {
   process.chdir(appDir);

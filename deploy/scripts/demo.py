@@ -8,7 +8,7 @@ import demo_actions
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['up', 'setup', 'doctor', 'check', 'check-cpu', 'check-telegram', 'down', 'status', 'logs'])
+    parser.add_argument('action', choices=['up', 'setup', 'doctor', 'check', 'check-cpu', 'check-telegram', 'maintenance', 'down', 'status', 'logs'])
     parser.add_argument('--env-file', type=Path, default=demo_actions.KEYS / 'demo.env')
     parser.add_argument('--project', default='zt_demo')
     args = parser.parse_args()

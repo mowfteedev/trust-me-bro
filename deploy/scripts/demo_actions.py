@@ -76,7 +76,8 @@ def check_demo(compose, env, action, argument_error):
         argument_error('check-telegram cần TELEGRAM_MODE=live, token và chat đã ghép nối; bài này gửi một cảnh báo thử thật.')
     login = credentials()
     test_input = {'admin_password': login['DEMO_ADMIN_PASSWORD'], 'viewer_password': login['DEMO_VIEWER_PASSWORD'],
-                  'migration_url': env['MIGRATION_DATABASE_URL'], 'app_url': env['DATABASE_URL']}
+                  'migration_url': env['MIGRATION_DATABASE_URL'], 'app_url': env['DATABASE_URL'],
+                  'maintenance_url': env['MAINTENANCE_DATABASE_URL']}
     binary_path = None
     try:
         if action == 'check-cpu':
@@ -115,6 +116,8 @@ def dispatch(action, env_path, project, argument_error):
         setup_demo(compose, env, start=action == 'up')
     elif action in ('check', 'check-cpu', 'check-telegram'):
         check_demo(compose, env, action, argument_error)
+    elif action == 'maintenance':
+        run(compose + ['--profile', 'maintenance', 'run', '--rm', '--build', '--no-deps', 'maintenance'])
     elif action == 'down':
         # Bảo toàn volume và mật khẩu; không dùng -v.
         run(compose + ['down'])
