@@ -731,3 +731,11 @@ Commit bàn giao xem `git log -1 --oneline`.
   Audit mới Gateway all/runtime0; Dashboard9→7 (2moderate/5high) còn OPEN
   trong chuỗi Tailwind3/CSS/glob. Không override major/migrateCSS chỉ để
   xóa cảnh báo. Bằng chứng docs/verification/tooling-update.md.
+- CheckerWindows: helper phân loại fullfilter thay vì tin tênCoreNet; thiếu/
+  không rõ filter vẫn failclosed. 30ca tổng hợp đạt trên PS7.4 và PS5.1 thật,
+  parser4script0lỗi. ActiveStore14rule điều khiển,0issue/exit0. Native thêm
+  TCP18746 tênCoreNet giới hạn nguồn host thì exit1 và đúngrule bị nêu; gỡ
+  trongfinally rồi exit0; sau reboot cũng0. Tắt đúng5rule tunnel/multicast
+  không dùng, NS/NA edgeBlock; giữ DHCP/ND/DAD. Không tự cho rule lạ thànhPASS.
+  WinRM tạm hostscoped đã tắt rule; timeout do tựđóngkênh quản trị giữ là
+  timeout, kết quảlocal đọc qua SSHVPN và kiểm chứng lại. Xem windows-checker.md.

@@ -68,7 +68,7 @@ docker run --rm -u "$(id -u):$(id -g)" -e GOCACHE=/tmp/go-build \
 ```
 
 Lấy `zt-agent.exe`, `zt-agent-tests.exe`, `build-info.txt` trong thư mục output;
-kèm `agent/install-windows.ps1` và đủ bốn script
+kèm `agent/install-windows.ps1` và đầy đủ các script
 `deploy/windows/*.ps1`. Chuyển bundle qua kênh tin cậy vào thư mục chỉ quản trị
 viên được ghi. Không chép khóa riêng Gateway sang Worker.
 
@@ -133,9 +133,12 @@ process146–162s. Sau hơn12phút: WorkingSet **9,92MiB**, private **14,03MiB**
 IPv6 độc lập **CHƯA KIỂM CHỨNG**. Không suy cross-build hoặc scanIPv4 nội bộ
 thành các kết quả đó.
 
-Checker vẫn exit1 khi liệt kê Core Networking inbound rules cần rà soát. Đã
-kiểm tra từng rule, giữ các rule mạng hệ điều hành và chạy probe ứng dụng riêng;
-không tắt DHCP/ND hoặc sửa checker để tạo PASS. WinRM tạm phục vụ cài đặt đã đóng.
+Checker phân biệt DHCP/ICMP cần thiết bằng toàn bộ filter; rule ứng dụng lạ hoặc
+filter không đọc được vẫn trả exit1. Đã kiểm tra PowerShell5.1 thật, thêm ruleTCP
+giả tênCoreNet bị phát hiện, gỡ rule thử rồi checker trả0; sau reboot cũng trả0.
+Trên VM lab đã tắt năm rule tunnel/multicast không dùng, giữ DHCP/ND và chặn edge
+traversal của NS/NA. Xem [bằng chứng và giới hạn](verification/windows-checker.md).
+WinRM tạm phục vụ cài đặt đã đóng.
 
 Build Windows chọn snapshot mật mã chính thức `GOFIPS140=v1.0.0`, giữ runtime
 `fips140=off` như trước. Snapshot này tránh vùng BSS32MiB của bộ sinh entropy
