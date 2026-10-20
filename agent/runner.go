@@ -61,7 +61,7 @@ func run(ctx context.Context, cfg config, collect func() (beacon, error), client
 // The binary/OS mappings are additional; an explicit GOMEMLIMIT overrides it.
 func configureMemoryBudget() {
 	if _, configured := os.LookupEnv("GOMEMLIMIT"); !configured {
-		debug.SetMemoryLimit(6 << 20)
+		debug.SetMemoryLimit(defaultMemoryBudget)
 	}
 }
 
@@ -72,7 +72,7 @@ func runAgent(ctx context.Context, cfg config, check bool, logger *log.Logger) e
 	}
 	client := newClient(cfg.HTTPTimeout)
 	defer client.CloseIdleConnections()
-	logger.Printf("started node=%s interface=%s disk=%s (%s host metrics)", cfg.NodeID, cfg.NetworkInterface, cfg.DiskMountPoint, runtime.GOOS)
+	logger.Printf("started node=%s interface=%s disk=%s (%s host metrics; Go soft memory budget %d bytes)", cfg.NodeID, cfg.NetworkInterface, cfg.DiskMountPoint, runtime.GOOS, debug.SetMemoryLimit(-1))
 	// First CPU value needs an elapsed interval, not a fabricated warm-up zero.
 	if wait(ctx, cfg.Interval) {
 		if check {

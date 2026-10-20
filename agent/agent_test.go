@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -224,8 +225,12 @@ func TestMemoryBudgetDefaultAndOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	configureMemoryBudget()
-	if got := debug.SetMemoryLimit(-1); got != 6<<20 {
-		t.Fatalf("default managed-memory budget = %d, want 6 MiB", got)
+	expected := int64(6 << 20)
+	if runtime.GOOS == "windows" {
+		expected = 2 << 20
+	}
+	if got := debug.SetMemoryLimit(-1); got != expected {
+		t.Fatalf("default managed-memory budget = %d, want %d", got, expected)
 	}
 	t.Setenv("GOMEMLIMIT", "12MiB")
 	debug.SetMemoryLimit(12 << 20) // Simulate the runtime's startup env setting.

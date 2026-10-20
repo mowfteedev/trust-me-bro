@@ -777,3 +777,18 @@ Commit bàn giao xem `git log -1 --oneline`.
   không tràn ngang. API/WS là fixture UI có nhãn, không tính thành SSH thật.
   CSSgzip11,80→12,74kB; browser cần hiện đại, đã thửFirefox158. Xem
   dashboard-tooling-final.md, cache theo keys/dashboard-tooling-final-path.
+
+## Chốt ngân sách bộ nhớ Agent Windows — 20/10/2026
+
+- So sánh native LocalService cùng VM/config: ngân sách6MiB có WS13,6875/
+  private14,21875MiB; thử4MiB lợi ích nhỏ; thử2MiB ban đầu WS9,77MiB nhưng
+  sau reboot không giữ được số đó. Chọn mặc định Windows2MiB, Linux vẫn6MiB,
+  giữ overrideGOMEMLIMIT và ghi ngân sách thật lúc startup. Không épGC/trim,
+  đổi collector/chu kỳ hoặc thêm thư viện. Đây là ngân sách mềm, không là
+  trần bộ nhớ cả tiến trình; không gán mọi chênh lệch OS cho thay đổi này.
+- Sau boot:41mẫu/605,61s, WS13,027–13,102MiB, private13,246–13,363MiB,
+  CPUprocess0,390% một nhân. Còn cao hơn mục tiêu khoảng10MB; không chọn mẫu
+  sớm9,77để ghiPASS. Có pha tảiCPUhost thật và các luồngSSH trong cửa sổ đo.
+- NativeWindows18ca đạt; Linux go test-race đạt. Reviewerreadonly không thấy
+  blocker; giữ giải pháp nhỏ và giới hạn đo, không hạ ngân sách tiếp. Hash
+  binary26be1ed…cbb3e2b, config giữ nguyên. Rawcache keys/final-three-path.

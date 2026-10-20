@@ -13,6 +13,7 @@ import (
 const defaultNodeID = "node-worker-01"
 const defaultNetworkInterface = "wg0"
 const defaultDiskMountPoint = "/"
+const defaultMemoryBudget = 6 << 20
 
 func validatePlatformConfig(cfg config) error {
 	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`).MatchString(cfg.NetworkInterface) {

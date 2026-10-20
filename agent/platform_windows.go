@@ -19,6 +19,7 @@ import (
 const defaultNodeID = "node-windows-01"
 const defaultNetworkInterface = "zt-worker"
 const defaultDiskMountPoint = `C:\`
+const defaultMemoryBudget = 2 << 20
 const windowsServiceName = "ZTServerOpsAgent"
 
 func validatePlatformConfig(cfg config) error {
