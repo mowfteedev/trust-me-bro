@@ -1,8 +1,0 @@
-Online trước dừng: PASS
- Container zt_demo-node_worker_01-1 Paused 
-Stale thật sau 17.80s: PASS
-Offline thật sau 32.82s (yêu cầu15–45s): PASS
-Một incident offline thật trong PostgreSQL: PASS
- Container zt_demo-node_worker_01-1 Unpaused 
-Khôi phục Online sau mở agent: PASS
-Incident tự resolved sau heartbeat mới: PASS

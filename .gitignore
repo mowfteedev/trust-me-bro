@@ -35,3 +35,9 @@ Thumbs.db
 *.zip
 *.patch
 evidence*/
+
+# Tài liệu và bộ nhớ chỉ giữ cục bộ
+/docs/
+/.memory/
+/*.md
+!/README.md
