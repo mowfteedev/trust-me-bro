@@ -1,9 +1,10 @@
 # Gateway Linux + Worker Windows VM
 
-**CHƯA KIỂM CHỨNG trên Windows thật.** Hiện không có VMware/VirtualBox hoặc guest
-image. Agent đã cross-build; script được PowerShell parser và một số guard trên
-Linux kiểm tra. Các bước dưới là trình tự cần chạy trong guest, chưa được nghiệm
-thu Win32/SCM/ACL/firewall/SSH/reboot/RAM. Không dùng WSL làm bằng chứng Windows.
+**CHƯA NGHIỆM THU ĐỦ luồng Worker Windows.** Đã cài Windows Server 2022 Standard
+Evaluation Desktop Experience trên KVM, 2 vCPU/4 GiB; OpenSSH service và bài test
+Agent native đã chạy. WireGuard đã cài nhưng VPN/Web SSH/firewall/reboot/RAM còn
+đang kiểm chứng. Đây là guest Windows thật, không phải WSL. Phiếu ghi VMware/
+VirtualBox; KVM chưa được giảng viên xác nhận thay thế.
 
 ```text
 Máy Arch Linux hiện tại
@@ -65,7 +66,7 @@ local đã xem xét theo policy của VM. Thay `Ethernet` bằng tên NIC thật
 
 ```powershell
 Get-NetAdapter
-.\zt-agent-tests.exe -test.v
+.\zt-agent-tests.exe '-test.v'
 .\zt-agent.exe --validate-config --config .\agent-config.json
 .\setup-worker.ps1 -DedicatedVm -TunnelConfigPath .\zt-worker.conf -GatewaySshPublicKeyPath .\bastion_id_ed25519.pub -TransportInterfaceAlias 'Ethernet'
 ```
@@ -151,3 +152,17 @@ Stop-Service ZTServerOpsAgent
 Restore khôi phục sshd và gỡ đúng rule/tunnel từ state có đường dẫn cố định.
 Giữ account/host keys/files; không xóa Agent service hoặc đổi DB/peer Gateway.
 Chạy từ console; không dùng để hoàn tác cấu hình của máy khác.
+
+## OpenSSH chạy debug nhưng service không khởi động
+
+Đã tái hiện trên Windows Server 2022/OpenSSH 8.1.0.1: `sshd -t` và `-ddd -e`
+chạy được dưới Administrator, nhưng service LocalSystem thoát 1067 và log Admin
+trống. Kiểm tra cùng cấu hình dưới SYSTEM báo private host key có quyền không
+hợp lệ, `no hostkeys available`. Khóa tạo bằng Administrator cá nhân có owner/
+ACE hợp lệ với tài khoản đó nhưng bị SYSTEM từ chối.
+
+Bộ cài chuẩn hóa đúng private host key về owner nhóm Administrators, chỉ cấp
+FullControl cho SYSTEM và Administrators. Giữ nguyên bytes/fingerprint của khóa.
+Sau sửa, kiểm tra SYSTEM trả 0, service chạy và một kết nối SSH mới đăng nhập
+thành công. Xem [bằng chứng trước/sau](verification/windows-runtime.txt).
+Không suy lỗi quyền khóa riêng từ ACL của riêng thư mục cha.

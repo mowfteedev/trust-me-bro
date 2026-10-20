@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 #Requires -RunAsAdministrator
 <#
-Run from the local console of a dedicated Windows 10/11 VM, after installing
+Run from the local console of a dedicated Windows 10/11 or Server 2022 VM, after installing
 official WireGuard and the Windows OpenSSH Server optional capability.
 Creates only named ZT firewall rules; preserves other rules and saves sshd config.
 The transport NICs must use NAT with NO inbound port forwarding.
@@ -136,6 +136,8 @@ try {
     Assert-TrustedManagedPath ($hostKey + '.pub')
     & $keygen -A *> $null
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $hostKey)) { throw 'Host key generation failed.' }
+    # A key created by an administrator must also pass sshd's checks as SYSTEM.
+    Set-PrivateAcl $hostKey
     $sshConfig = @"
 Port 22
 AddressFamily inet
@@ -174,5 +176,6 @@ LogLevel VERBOSE
     Write-Host "Copy only the host PUBLIC key back through a trusted path: $publicHostPath"
     Write-Host 'Run check-worker.ps1; unrelated inbound allow rules still require review and independent transport probes.'
 } catch {
-    Write-Error 'Setup stopped. State/backup retained under ProgramData\ZT-ServerOps\worker. Run restore-worker.ps1 at the VM console before retrying.'
+    Write-Warning 'Setup stopped. State/backup retained under ProgramData\ZT-ServerOps\worker. Run restore-worker.ps1 at the VM console before retrying.'
+    throw
 }

@@ -584,3 +584,60 @@ Commit bàn giao xem `git log -1 --oneline`.
 - Windows: libvirt system/session chỉ cóDebian; có ISOs/SERVER_EVAL_x64FRE_en-us.iso.
   Đã hỏi một lần trạng thái/cách chuẩn bị VMWindows trong lúc hoàn thiện Linux;
   chưa tạo guest/càiWindows hoặc nhận cross-build là nativePASS. Không push.
+
+## Windows Server đã cài, chờ bật SSH từ console — 20/10/2026
+
+- Chủ dự án tự cài Windows Server 2022 Standard Evaluation Desktop Experience.
+  VM `windows-server-2022` đang chạy, 2 vCPU/4 GiB, SATA, e1000e, default NAT;
+  Ethernet/IP 192.168.122.101, Gateway transport 192.168.122.1. Debian đang tắt.
+- Đã chuẩn bị khóa setup riêng ignored `keys/windows2022-setup_ed25519` (0400).
+  Script/public key ở `keys/windows2022-bootstrap/`; ISO public-only ở
+  `/home/mowftee/ISOs/zt-windows2022-bootstrap.iso`, label ZT_BOOTSTRAP, đã gắn
+  thay ISO cài trên CD-ROM sdb cả live/config. Đối chiếu byte hai tệp trong ISO
+  khớp nguồn; ISO không chứa private key, token hoặc mật khẩu.
+- Bootstrap cài OpenSSH capability, lưu cấu hình cũ nếu có, dùng key-only cho
+  administrator từ host .1 tới IP transport .101; tắt rule SSH mặc định rộng,
+  thêm rule bootstrap giới hạn host. Đây là quyền setup tạm, cần gỡ khi chốt VPN.
+- CHƯA chạy script trong Windows; host hiện chưa kết nối TCP22. Cần chủ dự án
+  chạy PowerShell Administrator `powershell.exe -NoProfile -ExecutionPolicy Bypass
+  -File D:\bootstrap.ps1` và gửi ảnh fingerprint host key để ghim trước SSH.
+  Không dùng ssh-keyscan chưa đối chứng làm nguồn tin cậy; chưa nghiệm thu Agent,
+  VPN, SSH/RBAC hoặc reboot Windows. Không đổi code ứng dụng và không push.
+- Chủ dự án đã chạy bootstrap và gửi ảnh: capability/keygen và sshd -t đi qua,
+  nhưng Start-Service sshd ở dòng 65 thất bại. Chưa có fingerprint/SSH thành công.
+  Đang lấy OpenSSH/Admin và ACL thư mục ProgramData/ssh để xác định nguyên nhân;
+  chưa coi giả thuyết ACL hoặc lệch phiên bản là lỗi đã xác nhận, chưa sửa mù.
+- Ảnh đối chứng tiếp theo: OpenSSH/Admin không có sự kiện; ACL ProgramData/ssh
+  chỉ SYSTEM/Administrators FullControl, Authenticated Users ReadAndExecute.
+  Không có bằng chứng quyền ghi thư mục quá rộng; chưa sửa ACL. Bước tiếp theo
+  chạy sshd -ddd -e trong console Administrator để đọc lỗi trực tiếp; nếu daemon
+  lắng nghe thì giữ console mở để phân biệt lỗi service với lỗi khởi tạo daemon.
+
+## Sửa lỗi OpenSSH service trên Windows thật — 20/10/2026
+
+- Đối chiếu fingerprint Ed25519 qua ảnh console rồi ghim vào ignored
+  keys/windows2022-known_hosts; SSH quản trị bằng khóa riêng thành công.
+  Debug chỉ phục vụ một kết nối, đã phải chạy lại sau keyscan; sau đó giữ một
+  ControlMaster để lấy log và làm việc, không dùng TCP probe làm mất phiên debug.
+- Service LocalSystem thoát 1067/exit1, không log; admin sshd-t đạt. Đã chạy cùng
+  sshd-t dưới SYSTEM bằng task tạm và nhận lỗi private host key bad permissions /
+  no hostkeys available. Owner/ACE của Administrator cá nhân hợp lệ khi chạy
+  chính user đó nhưng bị SYSTEM từ chối; ACL thư mục cha không phải bằng chứng đủ.
+- Chỉ đổi owner private host key thành nhóm Administrators, chỉ SYSTEM/Admin F;
+  bytes và fingerprint giữ nguyên. SYSTEM-t sau sửa trả0; service Running trên
+  loopback2222 để tách chẩn đoán, rồi khôi phục cấu hình transport .101:22.
+  Kết nối mới độc lập đăng nhập được qua service; đã đóng debug ControlMaster,
+  tạo ControlMaster trên service thật. Các task chẩn đoán đã gỡ.
+- setup-worker.ps1 thêm Set-PrivateAcl cho host key sau keygen; catch giữ lỗi
+  gốc bằng Write-Warning + throw. 5 script parse đạt trên PowerShell5.1 thật.
+  Bootstrap ignored và CD đã cập nhật bản fixed kèm debug.cmd để đỡ gõ.
+- Build lại Agent/tests amd64 từ source; native Windows tests đạt (Win32 collector
+  thật, HTTP loopback giả lập phân biệt). Lượt gọi -test.v không quote bị PS5.1
+  tách tham số; giữ log lỗi, quote và chạy lại, sửa hướng dẫn tương ứng.
+- WireGuard MSI1.1.1 từ nguồn chính thức, Authenticode Valid/WireGuard LLC, cài0.
+  Agent SCM chạy LocalService; chưa coi Running là heartbeat ACK. Tạo ztuser
+  Users-only; mật khẩu ngẫu nhiên giữ private keys/windows2022-ztuser-password.txt
+  0400, không in hoặc đưa Git. Bundle cũ giữ nguyên; bản deploy riêng đổi endpoint
+  sang host NAT .1, đăng ký .3/host pin/ztuser qua CLI, giữ hai node/tài khoản cũ.
+- Rawcache ~/.cache/zt-windows2022-20261020T061725Z/. VPN/Web SSH/telemetry/reboot/
+  firewall Windows đang tiếp tục kiểm chứng. Không push, vẫn minh-thanh.

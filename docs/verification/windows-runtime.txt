@@ -1,0 +1,72 @@
+Windows Server 2022 native SSH service evidence — 2026-10-20
+
+
+system-key-test-before.txt
+SYSTEM_SSHD_CONFIG_TEST_EXIT=1
+sshd.exe : @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+At C:\ProgramData\ZT-ServerOps-Bootstrap\system-key-diagnostic.ps1:2 char:1
++ & 'C:\Windows\System32\OpenSSH\sshd.exe' -t -f 'C:\ProgramData\ssh\ss ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (@@@@@@@@@@@@@@@...@@@@@@@@@@@@@@@:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+Permissions for 'C:/ProgramData/ssh/ssh_host_ed25519_key' are too open.
+It is required that your private key files are NOT accessible by others.
+This private key will be ignored.
+Unable to load host key "C:/ProgramData/ssh/ssh_host_ed25519_key": bad permissions
+Unable to load host key: C:/ProgramData/ssh/ssh_host_ed25519_key
+sshd: no hostkeys available -- exiting.
+
+STDERR
+
+
+hostkey-permission-fix.txt
+HOST_KEY_BYTES_PRESERVED
+
+
+Owner : BUILTIN\Administrators
+Sddl  : O:BAG:S-1-5-21-1856518109-674837874-2621549477-513D:PAI(A;;FA;;;SY)(A;;FA;;;BA)
+
+
+
+SYSTEM_SSHD_CONFIG_TEST_EXIT=0
+
+
+State     : Running
+StartName : LocalSystem
+ProcessId : 3672
+ExitCode  : 0
+
+
+
+
+LocalAddress LocalPort OwningProcess
+------------ --------- -------------
+127.0.0.1         2222          3672
+
+
+256 SHA256:bPQcTnBDiyzLqzyZ8DVhe/1ToY2DZki0Mn/33NBt79s administrator@WIN-V08UMRQ6D7U (ED25519)
+
+STDERR
+
+
+service-restored.txt
+
+
+State     : Running
+StartName : LocalSystem
+ProcessId : 5996
+ExitCode  : 0
+
+
+
+
+LocalAddress    LocalPort OwningProcess
+------------    --------- -------------
+192.168.122.101        22          5996
+
+
+
+STDERR
