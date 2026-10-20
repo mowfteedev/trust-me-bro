@@ -51,6 +51,7 @@ const envSchema = z.object({
   NODE_STALE_THRESHOLD_SECONDS: z.coerce.number().int().min(3).default(15),
   NODE_OFFLINE_THRESHOLD_SECONDS: z.coerce.number().int().min(15).max(45).default(30),
   CPU_ALERT_THRESHOLD_PERCENT: z.coerce.number().min(1).max(100).default(85),
+  CPU_RECOVERY_THRESHOLD_PERCENT: z.coerce.number().positive().max(100).default(75),
 
   // Dịch vụ thông báo khẩn cấp On-Call qua Telegram (OTP sinh động, không dùng mặc định cố định)
   TELEGRAM_BOT_TOKEN: z.string().optional().default(''),
@@ -67,6 +68,9 @@ const envSchema = z.object({
 }).refine((env) => env.NODE_OFFLINE_THRESHOLD_SECONDS + env.SWEEPER_INTERVAL_MS / 1000 <= 45, {
   message: 'Ngưỡng OFFLINE cộng chu kỳ quét phải <= 45 giây theo phiếu giao',
   path: ['NODE_OFFLINE_THRESHOLD_SECONDS'],
+}).refine((env) => env.CPU_RECOVERY_THRESHOLD_PERCENT < env.CPU_ALERT_THRESHOLD_PERCENT, {
+  message: 'CPU_RECOVERY_THRESHOLD_PERCENT phải nhỏ hơn ngưỡng cảnh báo CPU',
+  path: ['CPU_RECOVERY_THRESHOLD_PERCENT'],
 });
 
 const parseResult = envSchema.safeParse(process.env);

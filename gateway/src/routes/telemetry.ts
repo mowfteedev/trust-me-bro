@@ -239,7 +239,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
               [node.id, node.name, JSON.stringify({ cpu_percent: beacon.cpu.percent, threshold: config.CPU_ALERT_THRESHOLD_PERCENT })]
             );
           }
-        } else {
+        } else if (beacon.cpu.percent < config.CPU_RECOVERY_THRESHOLD_PERCENT) {
           await client.query(
             `UPDATE alerts SET resolved = true, resolved_at = now()
              WHERE node_id = $1 AND resolved = false AND message LIKE 'CPU_HIGH:%';`, [node.id]

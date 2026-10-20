@@ -37,15 +37,24 @@ async function main() {
     method: 'POST', url: '/api/telemetry/beacon', headers: { 'x-node-token': nodeToken },
     payload: { ...payload(cpu), node_id: nodeName },
   });
-  assert.equal((await beacon(99)).statusCode, 200);
-  assert.equal((await beacon(99)).statusCode, 200);
-  let rows = (await testAdmin.query("SELECT * FROM alerts WHERE message LIKE 'CPU_HIGH:%' AND resolved=false")).rows;
-  assert.equal(rows.length, 1);
-  console.log('PASS CPU vượt ngưỡng: 1 incident, không spam mỗi heartbeat (payload giả lập + DB thật)');
+  assert.equal((await beacon(84.8)).statusCode, 200);
+  assert.equal((await testAdmin.query("SELECT count(*)::int n FROM alerts WHERE message LIKE 'CPU_HIGH:%'")).rows[0].n, 0);
+  for (const cpu of [85, 85.2, 84.8, 85.1, 75]) {
+    assert.equal((await beacon(cpu)).statusCode, 200);
+    const rows = (await testAdmin.query("SELECT * FROM alerts WHERE message LIKE 'CPU_HIGH:%'")).rows;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].resolved, false);
+  }
+  assert.equal((await testAdmin.query("SELECT count(*)::int n FROM audit_logs WHERE action='CPU_HIGH'")).rows[0].n, 1);
+  console.log('PASS CPU mở ở85%, giữ incident tại75–85%, không spam audit (payload giả lập + DB thật)');
+  assert.equal((await beacon(74.9)).statusCode, 200);
+  assert.equal((await testAdmin.query("SELECT count(*)::int n FROM alerts WHERE message LIKE 'CPU_HIGH:%' AND resolved=false")).rows[0].n, 0);
+  assert.equal((await beacon(80)).statusCode, 200);
+  assert.equal((await testAdmin.query("SELECT count(*)::int n FROM alerts WHERE message LIKE 'CPU_HIGH:%'")).rows[0].n, 1);
+  assert.equal((await beacon(85)).statusCode, 200);
+  assert.equal((await testAdmin.query("SELECT count(*)::int n FROM alerts WHERE message LIKE 'CPU_HIGH:%'")).rows[0].n, 2);
   assert.equal((await beacon(10)).statusCode, 200);
-  rows = (await testAdmin.query("SELECT * FROM alerts WHERE message LIKE 'CPU_HIGH:%' AND resolved=false")).rows;
-  assert.equal(rows.length, 0);
-  console.log('PASS CPU hồi phục: resolved trong DB thật');
+  console.log('PASS CPU chỉ resolve dưới75%, trong dải đệm không mở lại; vượt85% tạo incident mới (DB thật)');
   assert.equal((await beacon(10, 'wrong-token')).statusCode, 401);
   assert.equal((await beacon(10, token, 'another-node')).statusCode, 403);
   console.log('PASS token sai/giả mạo node bị từ chối');
