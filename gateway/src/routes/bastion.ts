@@ -1,16 +1,11 @@
-import { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { WebSocket } from 'ws';
 import { z } from 'zod';
 import { authenticate, authorize, AuthUserPayload } from '../middlewares/auth.middleware.js';
-import { createBastionTicket, attachBastionSession } from '../services/bastion.js';
+import { createBastionTicket } from '../services/bastion/tickets.js';
+import { attachBastionSession } from '../services/bastion/session.js';
 import { query } from '../services/db.js';
-
-/**
- * ==============================================================================
- * TUYẾN ĐIỀU HƯỚNG WEB SSH BASTION PTY (routes/bastion.ts)
- * Dự án: ZT-ServerOps (do-an-co-so-nganh)
- * Phụ trách: backend (chủ trì), security, tester
- * ==============================================================================
- */
+import { normalizeClientIp } from '../utils/client-ip.js';
 
 const TicketRequestSchema = z.object({
   node_id: z.string().min(1),
@@ -39,7 +34,7 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const { node_id } = parseResult.data;
       const user = req.user as AuthUserPayload;
 
-      // Giới hạn thời hạn ticket theo thời hạn JWT còn lại (tối đa 30s) (R04 Remediation)
+      // Giới hạn thời hạn ticket theo thời hạn JWT còn lại (tối đa 30s)
       const now = Date.now();
       const authExpiresAt = user.authExpiresAt || (user.exp ? user.exp * 1000 : now + 30000);
       const remainingSeconds = Math.floor((authExpiresAt - now) / 1000);
@@ -58,7 +53,7 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const ticket = createBastionTicket(node_id, user.id, user.session_version, ttlSeconds, authExpiresAt);
 
       // Ghi nhận sự kiện cấp vé Bastion vào audit_logs - BẮT BUỘC THÀNH CÔNG (FAIL-CLOSED)
-      const clientIp = (req.ip || '127.0.0.1').replace(/^::ffff:/, '');
+      const clientIp = normalizeClientIp(req.ip);
       try {
         await query(
           `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
@@ -87,14 +82,8 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   /**
    * WebSocket handler dùng chung cho cả /ws/terminal/:node_id và /api/bastion/ws/terminal/:node_id
    */
-  const handleWsTerminal = (connection: any, req: any) => {
+  const handleWsTerminal = (socket: WebSocket, req: FastifyRequest) => {
     const { node_id } = req.params as { node_id: string };
-    const socket = connection?.socket || connection;
-
-    if (!socket || typeof socket.on !== 'function') {
-      req.log.error('WebSocket connection không hợp lệ hoặc thiếu đối tượng socket');
-      return;
-    }
 
     // Lắng nghe gói tin đầu tiên để xác thực vé One-Time Ticket
     const authTimeout = setTimeout(() => {
@@ -114,7 +103,7 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         const payload = JSON.parse(firstMessage.toString('utf-8'));
         if (payload.type === 'AUTH' && typeof payload.ticket === 'string') {
           // Bắt đầu gán luồng phiên Bastion
-          attachBastionSession(socket, node_id, payload.ticket);
+          attachBastionSession(socket, node_id, payload.ticket, req.ip);
         } else {
           socket.send(JSON.stringify({ type: 'ERROR', message: 'Gói tin đầu tiên bắt buộc phải là vé AUTH' }));
           socket.close(4401, 'Unauthorized');

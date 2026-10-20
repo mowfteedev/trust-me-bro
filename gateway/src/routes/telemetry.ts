@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { query, getClient } from '../services/db.js';
 import { hashToken, timingSafeCompare } from '../utils/crypto.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
+import { config } from '../config/env.js';
+import { telegramService } from '../services/telegram.js';
 
 /**
  * ==============================================================================
@@ -13,7 +15,7 @@ import { authenticate } from '../middlewares/auth.middleware.js';
  *
  * LÝ DO PHI TRỰC GIÁC (RATIONALE):
  * 1. Tra cứu Node qua chỉ mục B-Tree UNIQUE Index trên token_hash với truy vấn điểm:
- *    WHERE token_hash = $1 LIMIT 1, đạt độ phức tạp O(1) và thời gian thực thi < 1ms,
+ *    WHERE token_hash = $1 LIMIT 1, tra cứu B-Tree O(log n),
  *    loại trừ hoàn toàn việc tải toàn bộ bảng lên RAM quét vòng lặp (BUG-001).
  * 2. So sánh chuỗi băm bằng timingSafeCompare để chống Timing Attacks (BUG-002).
  * 3. Hỗ trợ linh hoạt cả hai định dạng tải trọng: lồng nhau chuẩn contracts/telemetry.schema.json
@@ -23,27 +25,28 @@ import { authenticate } from '../middlewares/auth.middleware.js';
 
 // Schema kiểm thực tải trọng chuẩn sau khi đã chuẩn hóa
 const NormalizedBeaconSchema = z.object({
-  node_id: z.string().min(3).max(64),
-  timestamp: z.number().int().positive(),
+  node_id: z.string().regex(/^[a-zA-Z0-9_-]{3,64}$/),
+  timestamp: z.number().int().safe().positive(),
   cpu: z.object({
     percent: z.number().min(0).max(100),
-    load_avg: z.array(z.number()).length(3).optional().default([0, 0, 0]),
+    // Windows has no Linux load average. Absence is not a measured zero.
+    load_avg: z.array(z.number().finite().nonnegative()).length(3).optional(),
   }),
   memory: z.object({
     total_bytes: z.number().int().positive(),
     used_bytes: z.number().int().nonnegative(),
     percent: z.number().min(0).max(100),
-  }),
+  }).refine((m) => m.used_bytes <= m.total_bytes, { message: 'Memory used exceeds total' }),
   disk: z.object({
     total_bytes: z.number().int().positive(),
     used_bytes: z.number().int().nonnegative(),
     percent: z.number().min(0).max(100),
-  }),
+  }).refine((d) => d.used_bytes <= d.total_bytes, { message: 'Disk used exceeds total' }),
   network: z.object({
     rx_bytes: z.number().int().nonnegative(),
     tx_bytes: z.number().int().nonnegative(),
   }),
-  uptime_seconds: z.number().int().nonnegative().default(0),
+  uptime_seconds: z.number().int().nonnegative(),
 });
 
 /**
@@ -57,30 +60,30 @@ function normalizePayload(raw: any) {
     const m = raw.metrics;
     return {
       node_id: raw.node_id,
-      timestamp: raw.timestamp || Date.now(),
+      timestamp: raw.timestamp,
       cpu: m.cpu,
       memory: m.memory,
       disk: m.disk,
       network: {
-        rx_bytes: m.network?.rx_bytes_total ?? m.network?.rx_bytes ?? 0,
-        tx_bytes: m.network?.tx_bytes_total ?? m.network?.tx_bytes ?? 0,
+        rx_bytes: m.network?.rx_bytes_total ?? m.network?.rx_bytes,
+        tx_bytes: m.network?.tx_bytes_total ?? m.network?.tx_bytes,
       },
-      uptime_seconds: m.uptime_seconds ?? 0,
+      uptime_seconds: m.uptime_seconds,
     };
   }
 
   // Trường hợp tải trọng phẳng ở root
   return {
     node_id: raw.node_id,
-    timestamp: raw.timestamp || Date.now(),
+    timestamp: raw.timestamp,
     cpu: raw.cpu,
     memory: raw.memory,
     disk: raw.disk,
     network: {
-      rx_bytes: raw.network?.rx_bytes_total ?? raw.network?.rx_bytes ?? 0,
-      tx_bytes: raw.network?.tx_bytes_total ?? raw.network?.tx_bytes ?? 0,
+      rx_bytes: raw.network?.rx_bytes_total ?? raw.network?.rx_bytes,
+      tx_bytes: raw.network?.tx_bytes_total ?? raw.network?.tx_bytes,
     },
-    uptime_seconds: raw.uptime_seconds ?? 0,
+    uptime_seconds: raw.uptime_seconds,
   };
 }
 
@@ -105,29 +108,13 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
     const inputHash = hashToken(rawToken.trim());
 
     try {
-      // 3. Tra cứu điểm chính xác qua chỉ mục B-Tree UNIQUE Index (Tốc độ O(1), < 1ms)
+      // 3. Tra cứu điểm qua chỉ mục B-Tree UNIQUE trên token_hash.
       const nodeRes = await query(
-        'SELECT id, name, ip_address, token_hash, status FROM nodes WHERE token_hash = $1 LIMIT 1;',
+        'SELECT id, name, ip_address, token_hash, status, is_token_revoked FROM nodes WHERE token_hash = $1 LIMIT 1;',
         [inputHash]
       );
 
       if (nodeRes.rows.length === 0) {
-        // Kiểm tra xem có node nào mang token_prefix này mà đã bị revoked không (N04 REMEDIATION)
-        const prefix = rawToken.trim().slice(0, 8);
-        const revokedCheck = await query(
-          "SELECT id FROM nodes WHERE token_prefix = $1 AND (token_hash LIKE 'REVOKED_%' OR status = 'REVOKED') LIMIT 1;",
-          [prefix]
-        );
-        if (revokedCheck.rows.length > 0) {
-          return reply.status(401).send({
-            type: 'https://tools.ietf.org/html/rfc7807',
-            title: 'Mã xác thực đã bị thu hồi',
-            status: 401,
-            code: 'REVOKED_NODE_TOKEN',
-            detail: 'Mã token của máy chủ con này đã bị vô hiệu hóa hoặc thu hồi',
-          });
-        }
-
         return reply.status(401).send({
           type: 'https://tools.ietf.org/html/rfc7807',
           title: 'Mã xác thực không hợp lệ',
@@ -139,7 +126,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
 
       const node = nodeRes.rows[0];
 
-      if (node.token_hash?.startsWith('REVOKED_') || node.status === 'REVOKED') {
+      if (node.is_token_revoked || node.token_hash?.startsWith('REVOKED_') || node.status === 'REVOKED') {
         return reply.status(401).send({
           type: 'https://tools.ietf.org/html/rfc7807',
           title: 'Mã xác thực đã bị thu hồi',
@@ -189,35 +176,34 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
       }
 
       // 7. Ghi nhận số liệu và cập nhật Liveness trong 1 ACID Transaction duy nhất
+      let cpuAlertMessage: string | undefined;
       const client = await getClient();
       try {
         await client.query('BEGIN');
+        // Serialize beacons of one node so threshold alerts are emitted once per incident.
+        await client.query('SELECT id FROM nodes WHERE id = $1 FOR UPDATE;', [node.id]);
         await client.query(
           `INSERT INTO metrics_history (
             node_id,
             cpu_percent,
             ram_used_bytes,
             ram_total_bytes,
-            ram_percent,
             disk_used_bytes,
             disk_total_bytes,
-            disk_percent,
             network_rx_bytes,
             network_tx_bytes,
             uptime_seconds,
             recorded_at
           ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, (now() AT TIME ZONE 'UTC')
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, (now() AT TIME ZONE 'UTC')
           );`,
           [
             node.id,
             beacon.cpu.percent,
             beacon.memory.used_bytes,
             beacon.memory.total_bytes,
-            beacon.memory.percent,
             beacon.disk.used_bytes,
             beacon.disk.total_bytes,
-            beacon.disk.percent,
             beacon.network.rx_bytes,
             beacon.network.tx_bytes,
             beacon.uptime_seconds,
@@ -230,12 +216,48 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
            WHERE id = $1;`,
           [node.id]
         );
+        // A fresh authenticated beacon also resolves a previous loss-of-signal incident.
+        await client.query(
+          `UPDATE alerts SET resolved = true, resolved_at = now()
+           WHERE node_id = $1 AND resolved = false AND message LIKE 'NODE_OFFLINE:%';`,
+          [node.id]
+        );
+        if (beacon.cpu.percent >= config.CPU_ALERT_THRESHOLD_PERCENT) {
+          const active = await client.query(
+            `SELECT id FROM alerts WHERE node_id = $1 AND resolved = false
+             AND message LIKE 'CPU_HIGH:%' LIMIT 1;`, [node.id]
+          );
+          if (active.rows.length === 0) {
+            cpuAlertMessage = `CPU_HIGH: ${node.name} CPU ${beacon.cpu.percent}% >= ${config.CPU_ALERT_THRESHOLD_PERCENT}%.`;
+            await client.query(
+              `INSERT INTO alerts (node_id, severity, message) VALUES ($1, 'WARNING', $2);`,
+              [node.id, cpuAlertMessage]
+            );
+            await client.query(
+              `INSERT INTO audit_logs (node_id, action, target, details)
+               VALUES ($1, 'CPU_HIGH', $2, $3);`,
+              [node.id, node.name, JSON.stringify({ cpu_percent: beacon.cpu.percent, threshold: config.CPU_ALERT_THRESHOLD_PERCENT })]
+            );
+          }
+        } else {
+          await client.query(
+            `UPDATE alerts SET resolved = true, resolved_at = now()
+             WHERE node_id = $1 AND resolved = false AND message LIKE 'CPU_HIGH:%';`, [node.id]
+          );
+        }
         await client.query('COMMIT');
       } catch (txErr) {
         await client.query('ROLLBACK');
         throw txErr;
       } finally {
         client.release();
+      }
+
+      // Telegram delivery must not delay the 3-second telemetry heartbeat.
+      if (cpuAlertMessage) {
+        void telegramService.sendAlert(node.name, 'WARNING', cpuAlertMessage).catch((err) => {
+          req.log.warn({ err }, 'Không thể gửi cảnh báo CPU; cảnh báo đã lưu trong DB');
+        });
       }
 
       return reply.status(200).send({
@@ -251,7 +273,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
         title: 'Lỗi xử lý số liệu',
         status: 500,
         code: 'INTERNAL_SERVER_ERROR',
-        detail: 'Không thể ghi nhận số liệu đo xa vào cơ sở dữ liệu: ' + (err.message || 'Lỗi không xác định'),
+        detail: 'Không thể ghi nhận số liệu đo xa. Xem log Gateway để biết chi tiết.',
       });
     }
   };
@@ -274,13 +296,17 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
               m.cpu_percent,
               m.ram_used_bytes, m.ram_total_bytes, m.ram_percent,
               m.ram_used_bytes AS memory_used_bytes, m.ram_total_bytes AS memory_total_bytes,
-              m.disk_used_bytes, m.disk_total_bytes, m.disk_percent
+              m.disk_used_bytes, m.disk_total_bytes, m.disk_percent,
+              m.network_rx_bytes, m.network_tx_bytes, m.uptime_seconds, m.recorded_at
        FROM nodes n
        LEFT JOIN LATERAL (
-         SELECT mh.cpu_percent, mh.ram_used_bytes, mh.ram_total_bytes, mh.ram_percent,
-                mh.disk_used_bytes, mh.disk_total_bytes, mh.disk_percent
+         SELECT mh.cpu_percent, mh.ram_used_bytes, mh.ram_total_bytes,
+                LEAST(100.0, ROUND(100.0 * mh.ram_used_bytes / mh.ram_total_bytes, 2))::real AS ram_percent,
+                mh.disk_used_bytes, mh.disk_total_bytes,
+                LEAST(100.0, ROUND(100.0 * mh.disk_used_bytes / mh.disk_total_bytes, 2))::real AS disk_percent,
+                mh.network_rx_bytes, mh.network_tx_bytes, mh.uptime_seconds, mh.recorded_at
          FROM metrics_history mh
-         WHERE mh.node_id = n.id
+         WHERE mh.node_id = n.id AND mh.recorded_at <= NOW()
          ORDER BY mh.recorded_at DESC
          LIMIT 1
        ) m ON true
@@ -300,9 +326,14 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
         cpu_percent: Number(row.cpu_percent),
         memory_used_bytes: Number(row.ram_used_bytes),
         memory_total_bytes: Number(row.ram_total_bytes),
+        ram_percent: Number(row.ram_percent),
+        disk_percent: Number(row.disk_percent),
+        network_rx_bytes: Number(row.network_rx_bytes),
+        network_tx_bytes: Number(row.network_tx_bytes),
+        uptime_seconds: Number(row.uptime_seconds),
         disk_used_bytes: Number(row.disk_used_bytes),
         disk_total_bytes: Number(row.disk_total_bytes),
-        recorded_at: row.last_seen || new Date().toISOString(),
+        recorded_at: row.recorded_at,
       } : undefined,
     }));
 
@@ -321,17 +352,28 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
 
     const metricsRes = await query(
       `SELECT m.node_id, m.cpu_percent,
-              m.ram_used_bytes, m.ram_total_bytes, m.ram_percent,
+              m.ram_used_bytes, m.ram_total_bytes,
+              LEAST(100.0, ROUND(100.0 * m.ram_used_bytes / m.ram_total_bytes, 2))::real AS ram_percent,
               m.ram_used_bytes AS memory_used_bytes, m.ram_total_bytes AS memory_total_bytes,
-              m.disk_used_bytes, m.disk_total_bytes, m.disk_percent,
+              m.disk_used_bytes, m.disk_total_bytes,
+              LEAST(100.0, ROUND(100.0 * m.disk_used_bytes / m.disk_total_bytes, 2))::real AS disk_percent,
               m.network_rx_bytes, m.network_tx_bytes, m.uptime_seconds, m.recorded_at
        FROM metrics_history m
        JOIN nodes n ON m.node_id = n.id
-       WHERE (n.id::text = $1 OR n.name = $1)
+       WHERE (n.id::text = $1 OR n.name = $1) AND m.recorded_at <= NOW()
        ORDER BY m.recorded_at DESC
        LIMIT 100;`,
       [node_id]
     );
+
+    // PostgreSQL BIGINT arrives as strings; keep the JSON/TypeScript contract numeric,
+    // consistently with latest_metric used by the dashboard.
+    const byteFields = ['ram_used_bytes', 'ram_total_bytes', 'memory_used_bytes',
+      'memory_total_bytes', 'disk_used_bytes', 'disk_total_bytes',
+      'network_rx_bytes', 'network_tx_bytes', 'uptime_seconds'];
+    for (const row of metricsRes.rows) {
+      for (const field of byteFields) row[field] = Number(row[field]);
+    }
 
     return reply.status(200).send({
       success: true,

@@ -1,6 +1,7 @@
 import { config } from '../config/env.js';
 import { generateNumericOtp } from '../utils/crypto.js';
 import { query } from './db.js';
+import { formatTelegramAlert } from './telegram-message.js';
 
 /**
  * ==============================================================================
@@ -16,7 +17,10 @@ import { query } from './db.js';
  * Lưu trữ trạng thái ghép nối trong bảng system_settings để duy trì tính liên tục sau khi khởi động lại.
  */
 
-class TelegramService {
+export class TelegramService {
+  private readonly mode = config.TELEGRAM_MODE;
+  private stopped = false;
+  private isPolling = false;
   private botToken: string;
   private pairOtp: string;
   private pairedChatId: string | null = null;
@@ -29,13 +33,13 @@ class TelegramService {
     const configuredOtp = config.TELEGRAM_PAIR_OTP;
     this.pairOtp = (configuredOtp && configuredOtp !== '889900') ? configuredOtp : generateNumericOtp(6);
 
-    if (this.botToken) {
+    if (this.mode === 'live' && this.botToken) {
       console.log('🤖 [TELEGRAM BOT] Đã kích hoạt dịch vụ thông báo On-Call.');
       console.log(`🔐 [TELEGRAM OTP] Mã ghép nối quản trị viên (Pairing OTP): \x1b[33m${this.pairOtp}\x1b[0m`);
       console.log(`💬 [TELEGRAM HƯỚNG DẪN] Gửi tin nhắn: /pair ${this.pairOtp} tới Bot để nhận cảnh báo.`);
-      this.startPolling();
+
     } else {
-      console.log('ℹ️ [TELEGRAM BOT] TELEGRAM_BOT_TOKEN chưa được thiết lập. Tính năng thông báo tạm tắt.');
+      console.log(`[TELEGRAM] Chế độ ${this.mode}; dry-run chỉ ghi log giả lập, không gửi ra ngoài.`);
     }
   }
 
@@ -43,6 +47,7 @@ class TelegramService {
    * Khởi tạo và nạp chatId đã ghép nối từ bảng system_settings
    */
   public async init(): Promise<void> {
+    if (this.mode !== 'live' || !this.botToken) return;
     try {
       const res = await query(
         "SELECT value FROM system_settings WHERE key = 'telegram_paired_chat_id' LIMIT 1;"
@@ -54,6 +59,7 @@ class TelegramService {
     } catch (err: any) {
       console.warn('⚠️ [TELEGRAM WARNING] Không thể nạp chat ID đã ghép nối từ DB:', err.message);
     }
+    this.startPolling();
   }
 
   /**
@@ -74,6 +80,7 @@ class TelegramService {
    * Ghép nối thủ công bằng mã OTP và lưu vào CSDL (Bắt buộc hoàn thành lưu trữ trước khi báo thành công - P1)
    */
   public async pairWithOtp(chatId: string, inputOtp: string): Promise<boolean> {
+    if (this.mode !== 'live' || this.stopped) return false;
     // Khóa chống chiếm quyền (Anti-Hijack Guard): Không cho phép ghi đè khi đã ghép nối thành công
     if (this.pairedChatId !== null && this.pairedChatId !== chatId) {
       console.warn(`⚠️ [TELEGRAM SECURITY] Từ chối ghép nối từ Chat ID ${chatId} do bot đã có quản trị viên.`);
@@ -112,50 +119,58 @@ class TelegramService {
    * Gửi thông điệp cảnh báo sự cố khẩn cấp tới quản trị viên
    */
   public async sendAlert(nodeName: string, severity: 'INFO' | 'WARNING' | 'CRITICAL', message: string): Promise<boolean> {
+    if (this.stopped || this.mode === 'disabled') return false;
+    const text = formatTelegramAlert(nodeName, severity, message);
+    if (this.mode === 'dry-run') {
+      console.log('[TELEGRAM DRY-RUN / GIẢ LẬP — KHÔNG GỬI]', text);
+      return true;
+    }
     if (!this.botToken || !this.pairedChatId) {
+      console.warn('[TELEGRAM] Chưa có token/ghép nối; cảnh báo chỉ lưu DB.');
       return false;
     }
 
-    const icons: Record<string, string> = {
-      INFO: 'ℹ️',
-      WARNING: '⚠️',
-      CRITICAL: '🚨',
-    };
-
-    const text = `${icons[severity] || '🔔'} *[CẢNH BÁO HỆ THỐNG - ${severity}]*\n` +
-                 `🖥️ *Máy chủ:* \`${nodeName}\`\n` +
-                 `📝 *Nội dung:* ${message}\n` +
-                 `⏱️ *Thời điểm:* \`${new Date().toISOString()}\``;
-
-    try {
-      const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: this.pairedChatId,
-          text,
-          parse_mode: 'Markdown',
-        }),
-      });
-
-      return res.ok;
-    } catch (err: any) {
-      console.error('⚠️ [TELEGRAM WARNING] Gặp lỗi khi gửi thông báo tới Telegram:', err.message);
-      return false;
+    // Three bounded attempts; caller runs this after DB commit without blocking ingestion.
+    for (let attempt = 1; attempt <= 3 && !this.stopped; attempt++) {
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: this.pairedChatId, text }),
+          signal: AbortSignal.timeout(config.TELEGRAM_REQUEST_TIMEOUT_MS),
+        });
+        const data: any = await res.json();
+        if (res.ok && data.ok === true) {
+          console.info('[TELEGRAM SENT]', JSON.stringify({
+            node: nodeName, severity, message_id: data.result?.message_id ?? null,
+          }));
+          return true;
+        }
+        // Invalid configuration/recipient is permanent; retry only rate limits and server errors.
+        if (res.status >= 400 && res.status < 500 && res.status !== 429) break;
+      } catch {
+        // Never log the request URL/error text, which can contain the bot token.
+      }
+      if (attempt < 3 && !this.stopped) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+      }
     }
+    console.warn('[TELEGRAM] Gửi thất bại sau retry giới hạn; cảnh báo vẫn được lưu trong DB.');
+    return false;
   }
 
   /**
    * Lắng nghe tin nhắn cập nhật từ Telegram để xử lý lệnh /pair <OTP>
    */
   private startPolling(): void {
-    if (!this.botToken) return;
+    if (this.mode !== 'live' || !this.botToken || this.pollInterval || this.stopped) return;
 
     this.pollInterval = setInterval(async () => {
+      if (this.isPolling || this.stopped) return;
+      this.isPolling = true;
       try {
         const url = `https://api.telegram.org/bot${this.botToken}/getUpdates?offset=${this.lastUpdateId + 1}&timeout=2`;
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(config.TELEGRAM_REQUEST_TIMEOUT_MS) });
         if (!res.ok) return;
 
         const data: any = await res.json();
@@ -187,17 +202,21 @@ class TelegramService {
         }
       } catch {
         // Im lặng bỏ qua lỗi mạng định kỳ khi polling
+      } finally {
+        this.isPolling = false;
       }
     }, 5000);
   }
 
   private async replyTelegram(chatId: string, text: string): Promise<void> {
+    if (this.mode !== 'live' || this.stopped) return;
     try {
       const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
       await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, text }),
+        signal: AbortSignal.timeout(config.TELEGRAM_REQUEST_TIMEOUT_MS),
       });
     } catch {
       // Bỏ qua lỗi gửi phản hồi
@@ -205,6 +224,7 @@ class TelegramService {
   }
 
   public stop(): void {
+    this.stopped = true;
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;

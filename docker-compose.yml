@@ -10,11 +10,10 @@ services:
   # ----------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
-    container_name: zt_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-zt_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-SecurePassword123!}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Chạy deploy/scripts/init-secrets.sh trước}"
       POSTGRES_DB: ${POSTGRES_DB:-zt_serverops}
     volumes:
       - zt_postgres_data:/var/lib/postgresql/data
@@ -39,15 +38,61 @@ services:
     build:
       context: ./gateway
       dockerfile: Dockerfile
-    container_name: zt_migrator
     restart: "no"
     environment:
-      DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgres://${POSTGRES_USER:-zt_admin}:${POSTGRES_PASSWORD:-SecurePassword123!}@postgres:5432/${POSTGRES_DB:-zt_serverops}}
-      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: "${MIGRATION_DATABASE_URL:?LỖI: MIGRATION_DATABASE_URL bắt buộc phải được thiết lập trong .env}"
+      NODE_ENV: ${NODE_ENV:-production}
     command: ["npm", "run", "migrate"]
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - zt_internal_net
+
+  # ----------------------------------------------------------------------------
+  # 1.6. DỊCH VỤ CẤP PHÁT MẬT KHẨU VAI TRÒ CSDL THỰC TẾ (ZT_PROVISIONER - R3-01)
+  # Phân quyền: Sử dụng quyền admin zt_admin để gán mật khẩu ngẫu nhiên cho zt_app
+  # ----------------------------------------------------------------------------
+  provisioner:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      MIGRATION_DATABASE_URL: "${MIGRATION_DATABASE_URL:?LỖI: MIGRATION_DATABASE_URL bắt buộc phải được thiết lập trong .env}"
+      DATABASE_URL: "${DATABASE_URL:?LỖI: DATABASE_URL bắt buộc phải được thiết lập trong .env}"
+      MAINTENANCE_DATABASE_URL: "${MAINTENANCE_DATABASE_URL:?LỖI: MAINTENANCE_DATABASE_URL bắt buộc phải được thiết lập trong .env}"
+      NODE_ENV: ${NODE_ENV:-production}
+    command: ["node", "dist/scripts/provision-roles.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    networks:
+      - zt_internal_net
+
+  # ----------------------------------------------------------------------------
+  # 1.7. DỊCH VỤ BẢO TRÌ PHÂN VÙNG DỮ LIỆU ĐỊNH KỲ (ZT_MAINTENANCE)
+  # Phân quyền: Sử dụng vai trò chuyên trách zt_maintenance (N03 & R3-05 Remediation)
+  # ----------------------------------------------------------------------------
+  maintenance:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    profiles: ["maintenance"]
+    restart: "no"
+    environment:
+      MAINTENANCE_DATABASE_URL: "${MAINTENANCE_DATABASE_URL:?LỖI: MAINTENANCE_DATABASE_URL bắt buộc phải được thiết lập trong .env}"
+      RETENTION_DAYS: 7
+    command: ["node", "dist/scripts/run-maintenance.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      provisioner:
+        condition: service_completed_successfully
     networks:
       - zt_internal_net
 
@@ -58,7 +103,6 @@ services:
     build:
       context: ./gateway
       dockerfile: Dockerfile
-    container_name: zt_gateway
     restart: unless-stopped
     environment:
       # Cấu hình mạng dịch vụ Fastify
@@ -66,19 +110,25 @@ services:
       GATEWAY_PORT: 3000
       NODE_ENV: ${NODE_ENV:-production}
       # Danh tính và Xác thực
-      JWT_SECRET: ${JWT_SECRET:-ThayDoiChuoiBiMatNayBangChuoiNgauNhienDaiToiThieu32KyTu!}
+      JWT_SECRET: "${JWT_SECRET:?LỖI: JWT_SECRET bắt buộc phải được thiết lập trong .env}"
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
-      # Kết nối CSDL: CHỈ SỬ DỤNG VAI TRÒ ÍT QUYỀN zt_app (N02 REMEDIATION)
-      DATABASE_URL: ${DATABASE_URL:-postgres://zt_app:SecureAppRole2026!@postgres:5432/zt_serverops}
+      # Only the designated Caddy peer may supply forwarded client addresses.
+      TRUSTED_PROXY_IP: ${PROXY_INTERNAL_IP:-172.30.88.254}
+      # Kết nối CSDL: CHỈ SỬ DỤNG VAI TRÒ ÍT QUYỀN zt_app (N02 & R3-01 REMEDIATION)
+      DATABASE_URL: "${DATABASE_URL:?LỖI: DATABASE_URL bắt buộc phải được thiết lập trong .env}"
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-20}
       DB_IDLE_TIMEOUT_MS: ${DB_IDLE_TIMEOUT_MS:-30000}
       # Web SSH Bastion
       BASTION_SSH_KEY_PATH: ${BASTION_SSH_KEY_PATH:-./keys/bastion_id_ed25519}
-      BASTION_DEFAULT_USER: ${BASTION_DEFAULT_USER:-root}
+      BASTION_DEFAULT_USER: ${BASTION_DEFAULT_USER:-ztuser}
       BASTION_CONNECT_TIMEOUT_MS: ${BASTION_CONNECT_TIMEOUT_MS:-10000}
       # Giám sát Liveness Sweeper
       SWEEPER_INTERVAL_MS: ${SWEEPER_INTERVAL_MS:-5000}
       NODE_OFFLINE_THRESHOLD_SECONDS: ${NODE_OFFLINE_THRESHOLD_SECONDS:-30}
+      NODE_STALE_THRESHOLD_SECONDS: ${NODE_STALE_THRESHOLD_SECONDS:-15}
+      CPU_ALERT_THRESHOLD_PERCENT: ${CPU_ALERT_THRESHOLD_PERCENT:-85}
+      TELEGRAM_MODE: ${TELEGRAM_MODE:-dry-run}
+      TELEGRAM_REQUEST_TIMEOUT_MS: ${TELEGRAM_REQUEST_TIMEOUT_MS:-5000}
       # Telegram Bot & WireGuard
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_PAIR_OTP: ${TELEGRAM_PAIR_OTP:-}
@@ -89,12 +139,17 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
+      provisioner:
+        condition: service_completed_successfully
     volumes:
       - ./keys/bastion_id_ed25519:/app/keys/bastion_id_ed25519:ro
       - zt_audit_logs:/app/logs/audit
     networks:
       - zt_ingress_net
       - zt_internal_net
+      - zt_wg_transport
+    ports:
+      - "${WG_BIND_IP:-0.0.0.0}:${WG_HOST_PORT:-51820}:51820/udp"
     expose:
       - "3000"
 
@@ -105,7 +160,6 @@ services:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
-    container_name: zt_dashboard
     restart: unless-stopped
     networks:
       - zt_ingress_net
@@ -117,11 +171,10 @@ services:
   # ----------------------------------------------------------------------------
   proxy:
     image: caddy:2-alpine
-    container_name: zt_proxy
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "${PROXY_BIND_IP:-127.0.0.1}:${HTTP_PORT:-80}:80"
+      - "${PROXY_BIND_IP:-127.0.0.1}:${HTTPS_PORT:-443}:443"
     volumes:
       - ./deploy/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -130,49 +183,77 @@ services:
       - gateway
       - dashboard
     networks:
-      - zt_ingress_net
+      zt_ingress_net:
+        ipv4_address: ${PROXY_INTERNAL_IP:-172.30.88.254}
 
   # ----------------------------------------------------------------------------
   # 5. MÁY CHỦ CON MÔ PHỎNG PHÁT SÓNG THỰC TẾ (WORKER DAEMON AGENT)
   # ----------------------------------------------------------------------------
-  node_worker_01:
-    build:
-      context: ./agent
-      dockerfile: Dockerfile
-    container_name: zt_worker_node_01
+  wireguard_gateway:
+    build: ./deploy/wireguard
     restart: unless-stopped
+    # Only this helper changes interfaces/firewall inside the Gateway namespace.
+    network_mode: service:gateway
+    cap_add: [NET_ADMIN]
     environment:
-      NODE_ID: node-worker-01
-      NODE_TOKEN: ${NODE_TOKEN_01:-secret-token-worker-01}
-      GATEWAY_URL: http://gateway:3000
-      BEACON_INTERVAL_SECONDS: "3.0"
-      JITTER_RATIO: "0.1"
+      WG_ROLE: gateway
+    volumes:
+      - ./keys/wg0-gateway.conf:/etc/wireguard/wg0.conf:ro
     depends_on:
-      - gateway
+      gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wg", "show", "wg0"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  node_worker_01:
+    profiles: [demo]
+    build:
+      context: .
+      dockerfile: deploy/demo/worker.Dockerfile
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    environment:
+      NODE_ID: ${NODE_ID_01:-node-worker-01}
+      NODE_TOKEN: "${NODE_TOKEN_01:-}"
+      GATEWAY_URL: http://10.100.0.1:3000
+      BEACON_INTERVAL_SECONDS: "3.0"
+      JITTER_RATIO: "0.0"
+      NETWORK_INTERFACE: wg0
+      DISK_MOUNT_POINT: /
+    volumes:
+      - ./keys/wg0-node.conf:/etc/wireguard/wg0.conf:ro
+      - ./keys/bastion_id_ed25519.pub:/run/zt/authorized_keys:ro
+      - ./keys/worker_ssh_host_ed25519:/run/zt/ssh_host_ed25519_key:ro
+    depends_on:
+      wireguard_gateway:
+        condition: service_healthy
+    # No published port and no direct access to ingress or database networks.
     networks:
-      - zt_ingress_net
+      - zt_wg_transport
 
 # ------------------------------------------------------------------------------
 # 6. MẠNG NỘI BỘ VÀ KHỐI LƯU TRỮ VĨNH CỬU (NETWORKS & VOLUMES)
 # ------------------------------------------------------------------------------
 networks:
+  zt_wg_transport:
+    driver: bridge
   # Mạng biên tiếp nhận lưu lượng từ Caddy chuyển tiếp vào Gateway & Dashboard
   zt_ingress_net:
-    name: zt_ingress_net
     driver: bridge
+    ipam:
+      config:
+        - subnet: ${INGRESS_SUBNET:-172.30.88.0/24}
 
   # Mạng nội bộ tuyệt mật nối Gateway với CSDL PostgreSQL (Cấm truy cập Internet)
   zt_internal_net:
-    name: zt_internal_net
     driver: bridge
     internal: true
 
 volumes:
   zt_postgres_data:
-    name: zt_postgres_data
   zt_audit_logs:
-    name: zt_audit_logs
   caddy_data:
-    name: zt_caddy_data
   caddy_config:
-    name: zt_caddy_config

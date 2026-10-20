@@ -155,11 +155,30 @@ WHERE username IN ('admin', 'viewer')
     OR password_hash LIKE '99b3aba269d84d5f21bf59f235b7bd03%'
   );
 
--- Vô hiệu hóa token worker mẫu mà KHÔNG DELETE NODE (N04 REMEDIATION - Bảo toàn lịch sử metrics/alerts/audit)
+-- Bổ sung trường trạng thái thu hồi riêng biệt và mở rộng VARCHAR(128) cho token_hash (N04 REMEDIATION)
+ALTER TABLE public.nodes ADD COLUMN IF NOT EXISTS is_token_revoked BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.nodes ALTER COLUMN token_hash TYPE VARCHAR(128);
+
+-- Vô hiệu hóa token worker mẫu mà KHÔNG DELETE NODE (Bảo toàn 100% UUID và FK metrics/alerts/audit)
 UPDATE public.nodes
-SET token_hash = 'REVOKED_' || token_hash
+SET is_token_revoked = TRUE,
+    updated_at = (now() AT TIME ZONE 'UTC')
 WHERE token_prefix = 'secret-t'
   AND (
     token_hash = '10a3ce77a769aabf8361db2ba4aab0af15bdb1352c84f66dea2280049de5cecc'
     OR token_hash LIKE '10a3ce77a769%'
   );
+
+-- 9. PHÂN QUYỀN VAI TRÒ BẢO TRÌ ĐỊNH KỲ (MAINTENANCE PRINCIPAL):
+-- Tách bạch nhiệm vụ DDL DROP partition sang chủ thể zt_maintenance riêng biệt
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'zt_maintenance') THEN
+    CREATE ROLE zt_maintenance WITH LOGIN PASSWORD 'SecureMaintenance2026!';
+  END IF;
+END
+$$;
+GRANT CONNECT ON DATABASE zt_serverops TO zt_maintenance;
+GRANT USAGE ON SCHEMA public TO zt_maintenance;
+GRANT EXECUTE ON FUNCTION public.drop_old_metrics_partitions(integer) TO zt_maintenance;
+

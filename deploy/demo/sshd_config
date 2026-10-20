@@ -1,0 +1,13 @@
+Port 22
+ListenAddress 10.100.0.2
+HostKey /run/zt/ssh_host_ed25519_key
+AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+AllowUsers ztuser
+AllowTcpForwarding no
+X11Forwarding no
+PermitTunnel no
+LogLevel VERBOSE
+Subsystem sftp internal-sftp

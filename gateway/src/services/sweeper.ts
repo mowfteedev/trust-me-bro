@@ -1,4 +1,4 @@
-import { query } from './db.js';
+import { query, getClient } from './db.js';
 import { config } from '../config/env.js';
 import { telegramService } from './telegram.js';
 
@@ -64,50 +64,132 @@ export async function runSweeperCycle(): Promise<{
       }
     }
 
-    // 3. Quét phát hiện các Endpoint Hosts bị mất kết nối (Liveness Check)
+    // HEALTHY = Online, WARNING = Stale, OFFLINE = Offline. CPU alerts are separate.
+    await query(
+      `UPDATE nodes SET status = 'WARNING', updated_at = now()
+       WHERE status = 'HEALTHY' AND last_seen < now() - make_interval(secs => $1)
+         AND last_seen >= now() - make_interval(secs => $2);`,
+      [config.NODE_STALE_THRESHOLD_SECONDS, config.NODE_OFFLINE_THRESHOLD_SECONDS]
+    );
+
     const thresholdSec = config.NODE_OFFLINE_THRESHOLD_SECONDS;
     const offlineNodesRes = await query(
       `SELECT id, name, ip_address, last_seen
        FROM nodes
-       WHERE (last_seen IS NULL OR last_seen < (now() AT TIME ZONE 'UTC') - make_interval(secs => $1))
+       WHERE (last_seen IS NULL OR last_seen < now() - make_interval(secs => $1))
          AND status != 'OFFLINE';`,
       [thresholdSec]
     );
 
     for (const node of offlineNodesRes.rows) {
+      const alertMsg = `NODE_OFFLINE: Máy chủ con ${node.name} (${node.ip_address}) không phản hồi quá ${thresholdSec}s.`;
+      const client = await getClient();
+      let markedOffline = false;
+      try {
+        await client.query('BEGIN');
+        // Recheck age under the row lock: pg Date parsing loses timestamp microseconds,
+        // so equality against the JavaScript last_seen value is not a reliable guard.
+        const updateRes = await client.query(
+          `UPDATE nodes SET status = 'OFFLINE', updated_at = now()
+           WHERE id = $1 AND status != 'OFFLINE'
+             AND (last_seen IS NULL OR last_seen < now() - make_interval(secs => $2));`,
+          [node.id, thresholdSec]
+        );
+        markedOffline = (updateRes.rowCount ?? 0) > 0;
+        if (markedOffline) {
+          await client.query(
+            `INSERT INTO alerts (node_id, severity, message) VALUES ($1, 'CRITICAL', $2);`,
+            [node.id, alertMsg]
+          );
+          await client.query(
+            `INSERT INTO audit_logs (node_id, action, target, details)
+             VALUES ($1, 'NODE_OFFLINE', $2, $3);`,
+            [node.id, node.name, JSON.stringify({ ip: node.ip_address, last_seen: node.last_seen })]
+          );
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+      if (!markedOffline) continue;
       offlineNodesDetected.push(node.name);
+      // Bounded Telegram retries run independently of the liveness sweep.
+      void telegramService.sendAlert(node.name, 'CRITICAL', alertMsg).catch((err) => {
+        console.warn('[TELEGRAM] Gửi cảnh báo offline thất bại; cảnh báo đã lưu DB:', err.message);
+      });
+      console.warn(`🚨 [LIVENESS ALERT] Đã chuyển máy chủ ${node.name} sang trạng thái OFFLINE.`);
+    }
 
-      // Cập nhật trạng thái Node thành OFFLINE có kiểm tra điều kiện an toàn (Optimistic Guard chống Race Condition)
-      const updateRes = await query(
-        `UPDATE nodes
-         SET status = 'OFFLINE', updated_at = (now() AT TIME ZONE 'UTC')
-         WHERE id = $1 AND (last_seen = $2 OR (last_seen IS NULL AND $2 IS NULL));`,
-        [node.id, node.last_seen]
+    // 4. Đối soát và dọn dẹp các phiên audit mồ côi dựa trên Shared Lease Fencing & Heartbeat (R3-04 Remediation)
+    try {
+      const expiredLeasesRes = await query(
+        `SELECT l.session_id, l.user_id, l.node_id, l.instance_id, l.status, l.close_reason, l.lease_expires_at, l.created_at
+         FROM bastion_session_leases l
+         WHERE (l.status = 'CLOSED' OR l.lease_expires_at < (now() AT TIME ZONE 'UTC'))
+           AND l.status != 'RECONCILED'
+           AND NOT EXISTS (
+             SELECT 1 FROM audit_logs end_log
+             WHERE end_log.action = 'BASTION_SESSION_END'
+               AND end_log.details->>'session_id' = l.session_id::text
+           )
+         LIMIT 20;`
       );
 
-      if ((updateRes.rowCount ?? 0) === 0) {
-        // Node đã kịp gửi beacon mới giữa lúc SELECT và UPDATE -> bỏ qua không ghi đè trạng thái
-        continue;
+      for (const lease of expiredLeasesRes.rows) {
+        if (!lease.session_id) continue;
+        const sessionIdStr = String(lease.session_id);
+        const reason = lease.status === 'CLOSED'
+          ? (lease.close_reason || 'Session closed by owner (Reconciled)')
+          : 'Lease Expired (Heartbeat lost / Gateway instance crash)';
+
+        // Ghi nhận Audit Log BASTION_SESSION_END với điều kiện Idempotent (ngăn ngừa duplicate từ nhiều instance)
+        // Reuse the matching START peer IP. A missing START/IP stays NULL.
+        await query(
+          `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
+           SELECT $1, 'BASTION_SESSION_END', 'bastion', $2, (
+             SELECT start_log.ip_address FROM audit_logs start_log
+             WHERE start_log.action = 'BASTION_SESSION_START'
+               AND start_log.details->>'session_id' = $3
+               AND start_log.user_id = $1
+             ORDER BY start_log.created_at ASC, start_log.id ASC
+             LIMIT 1
+           )
+           WHERE NOT EXISTS (
+             SELECT 1 FROM audit_logs
+             WHERE action = 'BASTION_SESSION_END'
+               AND details->>'session_id' = $3
+           );`,
+          [
+            lease.user_id,
+            JSON.stringify({
+              session_id: sessionIdStr,
+              node_id: lease.node_id,
+              instance_id: lease.instance_id,
+              reason,
+              lease_expires_at: lease.lease_expires_at,
+              reconciled_at: new Date().toISOString(),
+            }),
+            sessionIdStr,
+          ]
+        );
+
+        // Đánh dấu lease đã được đối soát thành công
+        await query(
+          `UPDATE bastion_session_leases
+           SET status = 'RECONCILED',
+               closed_at = COALESCE(closed_at, (now() AT TIME ZONE 'UTC')),
+               close_reason = COALESCE(close_reason, $2)
+           WHERE session_id = $1::uuid;`,
+          [lease.session_id, reason]
+        );
+
+        console.warn(`🧹 [AUDIT RECONCILER] Đã đối soát và bù đắp END log cho phiên session_id: ${sessionIdStr} (Lý do: ${reason})`);
       }
-
-      // Ghi nhận sự cố vào bảng alerts
-      const alertMsg = `Máy chủ con ${node.name} (${node.ip_address}) không phản hồi quá ${thresholdSec}s. Chuyển trạng thái sang OFFLINE!`;
-      await query(
-        `INSERT INTO alerts (node_id, severity, message, triggered_at)
-         VALUES ($1, 'CRITICAL', $2, (now() AT TIME ZONE 'UTC'));`,
-        [node.id, alertMsg]
-      ).catch(() => {});
-
-      // Ghi log kiểm toán bất biến
-      await query(
-        `INSERT INTO audit_logs (action, target, details)
-         VALUES ('NODE_OFFLINE', $1, $2);`,
-        [node.name, JSON.stringify({ ip: node.ip_address, last_seen: node.last_seen })]
-      ).catch(() => {});
-
-      // Bắn cảnh báo khẩn cấp On-Call qua Telegram Bot
-      await telegramService.sendAlert(node.name, 'CRITICAL', alertMsg);
-      console.warn(`🚨 [LIVENESS ALERT] Đã chuyển máy chủ ${node.name} sang trạng thái OFFLINE.`);
+    } catch (reconcileErr: any) {
+      console.warn('⚠️ [SWEEPER RECONCILE] Lỗi kiểm tra đối soát audit log lease:', reconcileErr.message);
     }
   } catch (err: any) {
     console.error('❌ [SWEEPER ERROR] Sự cố trong vòng lặp Sweeper:', err.message);

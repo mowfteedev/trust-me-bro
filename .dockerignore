@@ -1,0 +1,12 @@
+.git
+.memory
+.env
+.env.*
+keys
+**/node_modules
+**/dist
+**/__pycache__
+evidence*
+*.zip
+*.patch
+*.log

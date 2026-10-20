@@ -1,0 +1,3 @@
+# Preserve the exact imported skill snapshot and unedited terminal evidence.
+/.memory/mowftee-guild/** -whitespace
+/docs/verification/*.txt -whitespace

@@ -10,8 +10,8 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Tận dụng lớp bộ đệm của Docker (Docker Layer Caching)
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY . .
 RUN npm run build
