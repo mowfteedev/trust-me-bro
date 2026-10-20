@@ -56,3 +56,16 @@ npm test -- --maxWorkers=2
   chưa tính chúng là bằng chứng bot đã nhận tin nhắn định dạng mới.
 
 Log kiểm tra cục bộ: `~/.cache/zt-telegram-content-1xghh26y/verification-final.log`.
+
+## Luồng thật sau khi cập nhật Gateway
+
+- Ngày20/10, reboot Windows thật tạo một incident `NODE_OFFLINE` lúc
+  `12:31:11Z`; Telegram API xác nhận gửi `message_id=40`. Incident tự resolve
+  lúc `12:32:55Z` khi Agent nhận lại heartbeat.
+- Hai PowerShell job dùng CPU thật trong45s, không hạ ngưỡng85%: có10mẫu CPU100%,
+  một incident/audit `CPU_HIGH` lúc `12:36:37Z`, Telegram xác nhận `message_id=41`;
+  tự resolve lúc `12:37:18Z`. Đây là số CPU hệ điều hành, không phải CPU Agent.
+- Gateway đang chạy formatter mới. API acknowledgement xác nhận Telegram đã
+  chấp nhận tin, không chứng minh người dùng đã đọc. Không gửi thêm tin tùy ý.
+
+Tóm tắt bằng chứng thật nằm trong [kiểm chứng cuối](windows-final.md).

@@ -133,7 +133,11 @@ process146–162s. Sau hơn12phút: WorkingSet **9,92MiB**, private **14,03MiB**
 private14,30MiB; không coi9,92MiB là trần. CPUWindows thật đã vượt85%, có một
 incident/audit/Telegramack rồiresolve. Đã probeIPv4/IPv6 link-local từDebian với
 TCP/UDP listener/control thật; Internet độc lập/IPv6global **CHƯA KIỂM CHỨNG**.
-Xem [đối chiếu mới và giới hạn phép đo](verification/closure.md).
+Các số trên là lịch sử trước lần chỉnh ngân sách bộ nhớ cuối. Bản cuối dùng
+ngân sách mềm Go2MiB, vẫn đo khoảng13MiB WorkingSet sau boot: **chưa đạt ổn định
+khoảng10MB**. Phép đo boot liên tục mới xác nhận tự phục hồi khoảng149s từ lúc
+yêu cầu, gồm10s chờ tắt; từ boot đến heartbeat mới khoảng133s. Không khởi động
+dịch vụ thủ công. Xem [số đo mới và giới hạn](verification/windows-final.md).
 
 Checker phân biệt DHCP/ICMP cần thiết bằng toàn bộ filter; rule ứng dụng lạ hoặc
 filter không đọc được vẫn trả exit1. Đã kiểm tra PowerShell5.1 thật, thêm ruleTCP
@@ -144,7 +148,10 @@ WinRM tạm phục vụ cài đặt đã đóng.
 
 Build Windows chọn snapshot mật mã chính thức `GOFIPS140=v1.0.0`, giữ runtime
 `fips140=off` như trước. Snapshot này tránh vùng BSS32MiB của bộ sinh entropy
-mới; không đổi giới hạn Go heap, không ép GC hoặc trim WorkingSet. Build dùng Go
+mới. Lượt tối ưu build đầu giữ ngân sách Go6MiB; lượt cuối đặt mặc định Windows
+2MiB, Linux giữ6MiB và tôn trọng `GOMEMLIMIT` nếu đã cấu hình. Đây là ngân sách
+mềm cho phần bộ nhớ Go quản lý, không phải trần RAM tiến trình; không ép GC hoặc
+trim WorkingSet. Build dùng Go
 1.27.3; TLS1.2/1.3, từ chối chứng chỉ không tin cậy và chế độ FIPS off đã kiểm tra
 trên Windows thật. Snapshot cũ có thể thiếu tính năng mật mã mới; build sẽ báo
 lỗi nếu toolchain tương lai bỏ hỗ trợ, không tự đổi sang bản khác.

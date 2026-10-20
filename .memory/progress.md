@@ -792,3 +792,24 @@ Commit bàn giao xem `git log -1 --oneline`.
 - NativeWindows18ca đạt; Linux go test-race đạt. Reviewerreadonly không thấy
   blocker; giữ giải pháp nhỏ và giới hạn đo, không hạ ngân sách tiếp. Hash
   binary26be1ed…cbb3e2b, config giữ nguyên. Rawcache keys/final-three-path.
+
+## Đóng phép đo reboot và kiểm chứng bản cuối — 20/10/2026
+
+- Reboot liên tục có systemd-inhibit chặn sleep: yêu cầu12:30:28Z, boot
+  12:30:42.5Z; Stale ở tuổi18,390s, Offline33,564s; Healthy mới với uptime132s.
+  Tự Running cảWG/sshd/Agent, không starttay. SSH có xác thực/hostpin quaVPN
+  sẵn sàng sau148,93s từ yêu cầu (gồm10s chờtắt); khoảng133,38s boot→Healthy
+  quan sát. Clock lệch0,000014s; watcher/observernative hoàn tất, không dùng
+  khoảngngắt473s/PID0 của lượt trước làmPASS. Giữ delayed-auto đanghoạtđộng.
+- BảnGatewayTelegram/Dashboard mới đã build và chạy trên demo thật. Windows
+  vàDebian mỗiVM16/16; Firefox1587/7 gồmWin32NT/ztuser thật, đóngWebSocket,
+  RBACViewer. uv khôngresolveSelenium nên dùngvenv đãcài, giữ assertions.
+- CPUWindows2PSjob45s thật:10mẫu100%, đúngmộtincident/audit CPU_HIGH, Telegram
+  ack41 vàresolve; rebootOfflineack40. Khoảngcáchmẫukhi100%3,675–5,006s,
+  khônggán3scho mọi tải. Nội dungVietnamese/UTC+7 từformatterđangchạy được
+  kiểmtra cục bộ, khônggửi tin tùyý hoặc nóiacklà ngườiđãđọc.
+- Nativecheckercuối0; WinRMStopped/rulesdisabled, listener5985/18745 vàHTTP
+  artifact18743 khôngcòn. Taskđo/cleanup tựgỡ, credentialAdmin tạmđãxóa.
+  Bundledeployriêng/canonicalStage cậpnhật binaryđãđo; bundlegốc/env/login/
+  khóaGatewaygiữnguyên. Giữ nguyên9báocáo untracked, khôngstage. README/DEMO/
+  WINDOWS_WORKER vàwindows-final.md/JSON/ảnh cậpnhật đúnggiớihạn; khôngpush.

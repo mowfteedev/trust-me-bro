@@ -298,10 +298,11 @@ chúng có kỳ vọng cũ như Agent Python, khóa600, timeout10s, tỷ lệ RA
 Chúng không được dùng để gán PASS cho chức năng hiện tại. Riêng test nâng cấp
 008 dùng `tests/runtime-schema.cjs`; không sửa test cũ để che lỗi.
 
-Audit20/10 sau nâng Vitest4/Vite6: **0 package Gateway toàn cây/runtime bị cảnh báo**;
-Gateway build+87unit và haiDockerfile đạt. Dashboard còn **7 package dev**
-(2moderate,5high) thuộc chuỗiTailwind3/CSS/glob, vẫnOPEN. Không coi audit0 của
-Gateway là toàn hệ thống sạch lỗ hổng. [Audit và giới hạn](docs/verification/tooling-update.md).
+Audit20/10 sau nâng Vitest4/Vite6 và Tailwind4: Gateway và Dashboard đều có
+**0 cảnh báo trong cây dependency toàn bộ và runtime** tại thời điểm kiểm tra.
+Gateway build+98unit, Dashboard build và Dockerfile đạt. Tailwind4 giữ giao diện
+qua 24 trường hợp so sánh ảnh; cần trình duyệt hiện đại. Audit0 không chứng minh
+ứng dụng hết mọi lỗ hổng. [Tooling Dashboard và giới hạn](docs/verification/dashboard-tooling-final.md).
 
 ## Tài liệu và giới hạn
 
@@ -321,7 +322,9 @@ Debian VM đã kiểm chứng chức năng và reboot; Agent RSS lượt20/10 l�
 (10924KiB trong6mẫu/10s), chưa đo đủ RAM toàn mô hình gồm OS/daemon/hypervisor.
 Agent Windows sau tối ưu build20/10: mẫu146–162s có WorkingSet9,00–9,07MiB;
 sau hơn12phút là9,92MiB, private14,03MiB, giảm khoảng78%/70% so với bản trước. [Số đo native](docs/verification/agent-memory.json).
-Đo lại saureboot: WindowsWorkingSet13,71MiB/private14,30MiB, chưa bảođảm mốc10MB.
+Lượt cuối dùng ngân sách mềm Go2MiB trên Windows (Linux giữ6MiB); sau reboot
+WorkingSet vẫn khoảng13MiB, chưa đạt ổn định mục tiêu khoảng10MB. Không épGC hoặc
+trim bộ nhớ để làm đẹp số. [Số đo mới, CPU và thời gian phục hồi](docs/verification/windows-final.md).
 Sáucontainer6snapshot100,43–105,27MiB; AgentDebianRSS8,93MiB. Các số dịch vụ
 đang quan sát nằm dưới ngân sách500MB–1GB, không phải hardcap. Nếu tính cảOS,
 riêng haiOSguest đã khoảng1,60GiB nên mô hình hiện tại không đạt1GB theo cách tính đó.

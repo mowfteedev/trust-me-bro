@@ -1,5 +1,10 @@
 # Đối chiếu các thiếu sót — 20/10/2026
 
+Đây là mốc kiểm tra trước lượt sửa cuối. Kết quả cập nhật:
+[tooling Dashboard](dashboard-tooling-final.md), [Telegram](telegram-content.md),
+[RAM và phép đo reboot liên tục](windows-final.md). Giữ các phép đo thất bại
+dưới đây làm lịch sử, không dùng chúng thay kết quả mới.
+
 Code kiểm chứng: `acf639b` trên `minh-thanh`, Gateway Compose `zt_demo`,
 Debian12 và Windows Server2022 KVM thật. Số đo, thời gian và scope ở
 [JSON bằng chứng](closure-evidence.json). Không dùng kết quả này để chứng nhận

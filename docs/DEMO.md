@@ -169,5 +169,13 @@ WorkingSet khoảng9MiB trong cửa sổ đo cũ. Saureboot bảnmới đo13,71M
 private14,30MiB. CPUWindows thật, Telegram và IPv4/IPv6 link-local giữa haiVM đã
 thử; ingress Internet độc lập vẫn chưa kiểmchứng. Xem [đối chiếu mới](verification/closure.md).
 
+Lượt cuối: Dashboard Tailwind4 giữ giao diện, audit dependency0; haiVM vẫn đạt
+16/16 luồng thật và Firefox7/7 với Web SSH Windows. Windows tự phục hồi khoảng
+149s sau yêu cầu reboot (gồm10s chờ tắt); phát hiện mất heartbeat là phép đo
+riêng, khoảng34s. Ngân sách mềm Go2MiB không làm RAM tiến trình xuống2MiB:
+WorkingSet sau boot vẫn khoảng13MiB. Xem [bằng chứng cuối](verification/windows-final.md).
+Telegram thật đã nhận cả cảnh báo Offline và CPU theo
+[nội dung tiếng Việt mới](verification/telegram-content.md), kèm giờ UTC+7.
+
 Kết thúc bằng `python3 deploy/scripts/demo.py down` nếu muốn dừng; dữ liệu demo
 được giữ để chạy lại. Không merge vào main hoặc deploy production.
