@@ -129,9 +129,11 @@ Sau tối ưu build ngày20/10, Agent LocalService đo WorkingSet **9,00–9,07M
 (trước45,73MiB), private bytes **13,65–13,71MiB** (trước46,08MiB), ở tuổi
 process146–162s. Sau hơn12phút: WorkingSet **9,92MiB**, private **14,03MiB**.
 Đây là các phép đo khác nhau, không phải giới hạn cứng mọi tải. Không chứng nhận mốcRAM
-500MB–1GB cho toàn mô hình. CPU cao riêng trên Windows VM và ingress từ Internet/
-IPv6 độc lập **CHƯA KIỂM CHỨNG**. Không suy cross-build hoặc scanIPv4 nội bộ
-thành các kết quả đó.
+500MB–1GB cho toàn mô hình gồmOS. Lần đo saureboot có WorkingSet13,71MiB,
+private14,30MiB; không coi9,92MiB là trần. CPUWindows thật đã vượt85%, có một
+incident/audit/Telegramack rồiresolve. Đã probeIPv4/IPv6 link-local từDebian với
+TCP/UDP listener/control thật; Internet độc lập/IPv6global **CHƯA KIỂM CHỨNG**.
+Xem [đối chiếu mới và giới hạn phép đo](verification/closure.md).
 
 Checker phân biệt DHCP/ICMP cần thiết bằng toàn bộ filter; rule ứng dụng lạ hoặc
 filter không đọc được vẫn trả exit1. Đã kiểm tra PowerShell5.1 thật, thêm ruleTCP

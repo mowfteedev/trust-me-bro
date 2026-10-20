@@ -739,3 +739,22 @@ Commit bàn giao xem `git log -1 --oneline`.
   không dùng, NS/NA edgeBlock; giữ DHCP/ND/DAD. Không tự cho rule lạ thànhPASS.
   WinRM tạm hostscoped đã tắt rule; timeout do tựđóngkênh quản trị giữ là
   timeout, kết quảlocal đọc qua SSHVPN và kiểm chứng lại. Xem windows-checker.md.
+- WindowsCPU thật: haiPSjob45s, giữngưỡng85;11mẫu100%, mộtincident/audit và
+  Telegramack32, tựresolve. Khoảngcách mẫu khi100%:3,772–4,351s, không gán
+ 3s cho mọi tải. Không dùng beacon giả hoặc hạ ngưỡng.
+- Rebootbinarymới: Boot11:35:20→11:43:02Z, hashA4024F…A36AC5C giữnguyên;
+  WG/sshd/Agent tựlên, khôngstartthủcông. Checkpoint đầuFAILED/PID0 (loại
+  sốmemoryPID0); watcherFAILED do uptimebound và khoảngngắt473s. Giữ lỗi,
+  không tínhPASS thời gianphụchồi. Admininspection mớiRunning/PIDthật/checker0;
+  Windows16/16 và Debian16/16 thật đạt sauđó, doctor0.
+- Mạnglab: Debian→Windows24TCPIPv4/v6LL đềuclosed/blocked; listenerTCP/UDP18745
+  thật có4loopbackcontrols nhận,6UDP từDebian khôngnhận; neighborMAC đúng và
+  REACHABLE. Windows→Debian8TCPv4/v6LL khôngkếtnốiđược. Không thay Internet.
+- RAM6snapshot6container100,43–105,27MiB (mean102,89),0OOM; DebianAgentRSS8,93MiB;
+  Windowsmẫucuối6/10sWS13,71/private14,30MiB. Không dùng số9,92cũ làmtrần.
+  GuestOS230,35+1406,39MiB, riênghaiOS đã~1,60GiB. Ứngdụng dưới ngân sách
+  500MB–1GB theo scope dịchvụ; nếu gồmOS thì khôngđạt1GB, không doublecountAgent.
+- WinRMtạm rulesdisabled/serviceStopped, listener18745/5985 khôngcòn; credential
+  và fixtureuser tạm đãxóa, helperuploadtreo đãdừng. Privatebundledeploy cậpnhật,
+  bundlegốc giữlại. BáocáoV2 được sửa ngoài scope tronglúc làm; khôngreset/stage.
+  KVMchấpthuận, máyInternet và7cảnhbáoTailwind3 cònmở. closure.md/JSON ghi rõ.

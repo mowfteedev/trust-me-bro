@@ -26,7 +26,7 @@ trình duyệt và terminal máy chủ.
 | 6 | Xem handshake/transfer WireGuard | Có peer handshake và lưu lượng; không xuất private key |
 | 7 | Tạm dừng worker theo lệnh dưới | Stale khoảng15–20s, Offline khoảng30–35s; live gửi Telegram, dry-run ghi log giả lập |
 | 8 | Khôi phục worker | Tự về Online; incident offline resolved, không cần reset DB |
-| 9 | Trình bày test CPU | Payload CPU 99% trong **DB test riêng**, incident một lần, về 10% thì resolve; không giả thành tải CPU vật lý |
+| 9 | Xem audit/incident CPU và bằng chứng Windows thật | CPU100% vượt ngưỡng85%, một incident/audit, Telegramack rồiresolve; xem `verification/closure.md` |
 | 10 | Logout và giải thích giới hạn | JWT cũ bị từ chối, phiên SSH bị thu hồi; nêu phạm vi RAM/VM và cách thử Telegram |
 
 Lệnh mạng đã dùng trong kiểm chứng:
@@ -165,7 +165,9 @@ python3 deploy/scripts/verify-vm.py --node-name node-windows-01 --shell windows 
 phiên các tài khoản demo. Xem [Windows Worker](WINDOWS_WORKER.md) và
 [bằng chứng/giới hạn](verification/windows-runtime.txt). Lượt tối ưu build tiếp
 theo đạt18 test native Windows,16 luồng thật và dừng/bật service có ACK mới;
-WorkingSet khoảng9MiB. Chưa thử CPU cao riêng trên VM hoặc ingress Internet/IPv6 độc lập.
+WorkingSet khoảng9MiB trong cửa sổ đo cũ. Saureboot bảnmới đo13,71MiB,
+private14,30MiB. CPUWindows thật, Telegram và IPv4/IPv6 link-local giữa haiVM đã
+thử; ingress Internet độc lập vẫn chưa kiểmchứng. Xem [đối chiếu mới](verification/closure.md).
 
 Kết thúc bằng `python3 deploy/scripts/demo.py down` nếu muốn dừng; dữ liệu demo
 được giữ để chạy lại. Không merge vào main hoặc deploy production.

@@ -263,11 +263,11 @@ Chỉ CLI đăng ký cục bộ với `--ssh-user` được cập nhật tài kh
 
 | Yêu cầu | Hiện trạng | Bằng chứng | Việc còn thiếu |
 |---|---|---|---|
-| WireGuard M2M, Zero Inbound worker | Docker, Debian và Windows có VPN thật, SSH chỉ qua VPN | `network-resources.txt`, `debian-vm.md`, `windows-runtime.txt`; probe transport VM | Chưa thử từ Internet/IPv6 độc lập |
+| WireGuard M2M, Zero Inbound worker | Docker, Debian và Windows có VPN thật, SSH chỉ qua VPN | Probe IPv4/IPv6 link-local giữa haiVM; TCP/UDP có listener/control thật, xem `closure.md` | Chưa thử từ Internet độc lập/IPv6global |
 | ADMIN/VIEWER, Web SSH/PTY | Viewer nhận403; Admin chạy lệnh, resize, đóng; logout thu hồi phiên | 16 luồng thật trên Debian/Windows trước và sau reboot; Firefox terminal thật | Không cấp quyền quản trị OS cho Web SSH |
 | CPU/RAM/disk/network/uptime, dashboard | Collector Go thật, RX/TX một giao diện, giải thích phạm vi đo | Runtime thật + browser | Xem số đo RAM bên dưới |
 | Heartbeat3s, Online/Stale/Offline | Ngưỡng15/30s, quét5s; hai VM tự phục hồi | Debian: Stale16,60s/Offline31,67s; Windows reboot:18,79s/33,96s | Không coi thời gian boot là chu kỳ heartbeat |
-| Cảnh báo CPU/offline, Telegram | Live đã ghép nối; incident/audit, resolve và tránh lặp | CPU host thật và Telegram ack18/10; Debian Offline thật, một incident resolved và một Telegram ack20/10 | Chưa thử CPU cao riêng trên VM |
+| Cảnh báo CPU/offline, Telegram | Live đã ghép nối; incident/audit, resolve và tránh lặp | CPUWindows100% vượt85%, một incident/audit/Telegram ack rồiresolve; DebianOffline thật | CPU100% làm khoảng cách mẫu tăng3,77–4,35s |
 | PostgreSQL, chuẩn hóa dữ liệu | Migration008 bỏ tỷ lệ RAM/disk lưu dư; API tính từ bytes | Test nâng007→008 giữ UUID/FK/lịch sử; fresh DB cũng chạy | Không đổi migration cũ |
 | VM và Docker | Docker + Debian và Windows VM KVM chạy đồng thời | `DEBIAN_WORKER.md`, `WINDOWS_WORKER.md`, log trong `verification/` | Phiếu ghi VMware/VirtualBox; KVM chưa được xác nhận thay thế |
 
@@ -298,11 +298,10 @@ chúng có kỳ vọng cũ như Agent Python, khóa600, timeout10s, tỷ lệ RA
 Chúng không được dùng để gán PASS cho chức năng hiện tại. Riêng test nâng cấp
 008 dùng `tests/runtime-schema.cjs`; không sửa test cũ để che lỗi.
 
-Audit19/10 sau nâng Fastify5/JWT mới: **0 package Gateway runtime bị cảnh báo**,
-thay kết quả4package của bản18/10. Toàn cây Gateway còn **5 package tooling**
-(2moderate,1high,2critical) trong chuỗi Vitest; runtime Docker đã loại dev dependencies.
-Dashboard chưa thay dependency trong lượt này. Không coi runtime audit0 là toàn bộ
-hệ thống sạch lỗ hổng. [Phiên bản, audit và giới hạn](docs/verification/dependency-review.md).
+Audit20/10 sau nâng Vitest4/Vite6: **0 package Gateway toàn cây/runtime bị cảnh báo**;
+Gateway build+87unit và haiDockerfile đạt. Dashboard còn **7 package dev**
+(2moderate,5high) thuộc chuỗiTailwind3/CSS/glob, vẫnOPEN. Không coi audit0 của
+Gateway là toàn hệ thống sạch lỗ hổng. [Audit và giới hạn](docs/verification/tooling-update.md).
 
 ## Tài liệu và giới hạn
 
@@ -322,7 +321,11 @@ Debian VM đã kiểm chứng chức năng và reboot; Agent RSS lượt20/10 l�
 (10924KiB trong6mẫu/10s), chưa đo đủ RAM toàn mô hình gồm OS/daemon/hypervisor.
 Agent Windows sau tối ưu build20/10: mẫu146–162s có WorkingSet9,00–9,07MiB;
 sau hơn12phút là9,92MiB, private14,03MiB, giảm khoảng78%/70% so với bản trước. [Số đo native](docs/verification/agent-memory.json).
-Đây không phải giới hạn cứng; chưa chứng minh RAM toàn mô hình500MB–1GB gồm OS/VM.
+Đo lại saureboot: WindowsWorkingSet13,71MiB/private14,30MiB, chưa bảođảm mốc10MB.
+Sáucontainer6snapshot100,43–105,27MiB; AgentDebianRSS8,93MiB. Các số dịch vụ
+đang quan sát nằm dưới ngân sách500MB–1GB, không phải hardcap. Nếu tính cảOS,
+riêng haiOSguest đã khoảng1,60GiB nên mô hình hiện tại không đạt1GB theo cách tính đó.
+Xem [đối chiếu mới, scope và kết quả chưa đạt](docs/verification/closure.md).
 VMware/VirtualBox và thử inbound từ Internet độc lập còn cần xác nhận. Telegram live đã
 ghép nối và thử gửi; môi trường mới vẫn mặc định dry-run. Slide và báo cáo môn học
 nằm ngoài công việc phiên này. Không nhận bản này là hệ thống production.
