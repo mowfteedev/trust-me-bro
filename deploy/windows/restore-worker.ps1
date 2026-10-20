@@ -41,8 +41,8 @@ if ($state.TunnelInstalled) {
     if ($state.TunnelName -ne 'zt-worker') { throw 'Unexpected tunnel name; preserve and review manually.' }
     $wireguard = Join-Path $env:ProgramFiles 'WireGuard\wireguard.exe'
     if (Get-Service -Name ('WireGuardTunnel$' + $state.TunnelName) -ErrorAction SilentlyContinue) {
-        & $wireguard /uninstalltunnelservice $state.TunnelName *> $null
-        if ($LASTEXITCODE -ne 0) { throw 'Could not remove the ZT tunnel service; state retained.' }
+        $tunnelProcess = Start-Process -FilePath $wireguard -ArgumentList @('/uninstalltunnelservice', $state.TunnelName) -Wait -PassThru
+        if ($tunnelProcess.ExitCode -ne 0) { throw 'Could not remove the ZT tunnel service; state retained.' }
     }
 }
 $suffix = '.restored-' + (Get-Date -Format 'yyyyMMddHHmmss')

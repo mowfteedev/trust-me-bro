@@ -1,0 +1,34 @@
+{
+  "browser": "158.0",
+  "checks": [
+    {
+      "name": "Admin login with both Docker and Windows nodes",
+      "pass": true
+    },
+    {
+      "name": "VM detail shows selected Windows node",
+      "pass": true
+    },
+    {
+      "name": "Browser API has real VM memory and disk capacities",
+      "pass": true
+    },
+    {
+      "name": "Real browser terminal executes on Windows as ztuser",
+      "pass": true
+    },
+    {
+      "name": "Closing terminal closes its WebSocket",
+      "pass": true
+    },
+    {
+      "name": "Viewer sees VM without Web SSH controls",
+      "pass": true
+    },
+    {
+      "name": "No browser JavaScript errors",
+      "pass": true
+    }
+  ],
+  "scope": "Live Windows VM through HTTPS Dashboard; no mocked telemetry"
+}

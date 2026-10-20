@@ -41,7 +41,7 @@ async function terminal(nodeId, ticket, command, expected, expectedUser) {
             clearTimeout(timeout); socket.close(); reject(new Error('SSH account in READY differs from expected node account')); return;
           }
           socket.send(JSON.stringify({ type: 'RESIZE', rows: 32, cols: 100 }));
-          socket.send(command + '\n');
+          socket.send(command + (credentials.shell === 'windows' ? '\r' : '\n'));
           return;
         }
       } catch {}

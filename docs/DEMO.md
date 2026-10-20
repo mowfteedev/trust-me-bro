@@ -109,7 +109,8 @@ fingerprint SSH. Gateway giữ khóa SSH nên vẫn là điểm tin cậy quan t
 không tuyên bố an toàn tuyệt đối. SSH shell demo không có root. Snapshot RAM
 Python trước đây khoảng23MiB; Agent Go mới khoảng10,3–10,6MiB RSS trong các lượt đo,
 gần mục tiêu khoảng10MB nhưng không cam kết dưới10MB mọi tải. Bản18/10 thêm hỗ trợ
-Windows/config/diagnostic chung đo LinuxRSS khoảng11,0MiB; WindowsRAM chưa đo.
+Windows/config/diagnostic chung đo LinuxRSS khoảng11,0MiB; WindowsWorkingSet
+lượt20/10 khoảng46MiB, chưa đạt mục tiêu khoảng10MB.
 Docker worker có VPN/SSH
 thật nhưng chưa phải bằng chứng VMware/VirtualBox; xem [VM_SETUP.md](VM_SETUP.md).
 Số liệu `/proc` trong container phản ánh kernel/namespace đang chạy, không nên
@@ -135,19 +136,33 @@ median3,020s, Stale16,60s/Offline31,67s và phục hồi sau khi dừng/bật Ag
 cảnh báo Offline có Telegram API ack. Thao tác dừng Agent thật trên cụm live có
 thể gửi thông báo. Xem [Debian Worker](DEBIAN_WORKER.md) và
 [bằng chứng](verification/debian-vm.md). Phiếu ghi VMware/VirtualBox, còn lượt này
-chạy KVM; chưa xác nhận tương đương. Internet độc lập và Windows vẫn chưa thử.
+chạy KVM; chưa xác nhận tương đương. Ingress từ Internet độc lập vẫn chưa thử.
 
-## Khi có Windows VM thật
+## Windows VM đang chạy
 
-Theo [Windows Worker](WINDOWS_WORKER.md), giữ Gateway hiện tại và thêm peer riêng
-`.3`; không đổi Worker Docker `.2` thành nhãn Windows. Chỉ đưa nodeWindows vào
-demo sau khi có heartbeat và SSH thật. Terminal Windows dùng PowerShell/Windows
-commands, không dùng `id` hoặc `stty` để kết luận Windows lỗi.
+Windows Server2022 `node-windows-01` đã chạy thật ở`.3`, giữ Docker`.2` và
+Debian`.4`. Bật VM trong virt-manager, chờ khoảng2–3phút cho WireGuard/Agent/SSH
+tự lên; `demo.py doctor` phải thấy heartbeat và SSH banner. Trong dashboard chọn
+nodeWindows, mở **Web SSH**, chạy:
 
-Luồng `verify-vm.py` đã chuẩn bị nhưng nhánh Windows **CHƯA KIỂM CHỨNG**.
-Khởi động VM mới, kiểm tra Win32 số liệu/WorkingSet, reboot/service/firewall,
-Viewer/logout và cảnh báo trước khi trình diễn. Không giới thiệu cross-build
-hoặc parser như kết quả chạy Windows.
+```powershell
+hostname
+whoami
+powershell -NoProfile -Command "[Environment]::OSVersion.Platform"
+```
+
+Thấy `node-windows-01`, `node-windows-01\ztuser`, `Win32NT`. Dashboard hiển thị
+RAM/disk của guest Windows; Viewer chỉ xem thông số. Web SSH không có quyền
+Administrators. Luồng kiểm tra thật đã chạy trước/sau reboot:
+
+```sh
+python3 deploy/scripts/verify-vm.py --node-name node-windows-01 --shell windows --ssh-user ztuser
+```
+
+Đạt16/16 luồng API/SSH/audit/logout và7/7 Firefox sau reboot. Lệnh verify thu hồi
+phiên các tài khoản demo. Xem [Windows Worker](WINDOWS_WORKER.md) và
+[bằng chứng/giới hạn](verification/windows-runtime.txt). RAM Agent Windows còn
+cao hơn mục tiêu; chưa thử CPU cao riêng trên VM hoặc ingress Internet/IPv6 độc lập.
 
 Kết thúc bằng `python3 deploy/scripts/demo.py down` nếu muốn dừng; dữ liệu demo
 được giữ để chạy lại. Không merge vào main hoặc deploy production.

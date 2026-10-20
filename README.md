@@ -6,9 +6,10 @@ vào `main`. Phạm vi là mô hình môn học chạy được và giải thíc
 Gateway giữ Fastify 5/TypeScript, Dashboard giữ React/TypeScript, DB giữ PostgreSQL.
 Mini-Agent dùng Go và thư viện chuẩn; phiếu giao không cố định ngôn ngữ Agent.
 Mô hình đã chạy thật: Arch Linux chạy Gateway Docker, Worker Docker `.2` và
-[Worker Debian 12](docs/DEBIAN_WORKER.md) `.4` trên KVM/virt-manager. Phiếu giao
-ghi VMware/VirtualBox; chưa xác nhận việc dùng KVM thay thế. Collector/service
-Windows đã cross-build, **chưa kiểm chứng trên Windows VM**.
+[Worker Debian 12](docs/DEBIAN_WORKER.md) `.4` và
+[Windows Server2022](docs/WINDOWS_WORKER.md) `.3` trên KVM/virt-manager, có telemetry
+và Web SSH thật, đã thử reboot. Phiếu giao ghi VMware/VirtualBox; chưa xác nhận
+việc dùng KVM thay thế.
 
 ## Tổ chức mã nguồn
 
@@ -245,10 +246,12 @@ migrator và từ chối ghi đè định danh. Không đưa private Gateway key
 `deploy/scripts/verify-vm.py --help` mô tả bài thử API/SSH/audit/logout cho VM.
 Lệnh verify thu hồi phiên các tài khoản demo trên Gateway được chọn.
 
-Bộ cài local trong `keys/windows-worker-01/` đã tạo; thư mục này có secrets và
-được Git loại trừ. **Chưa register Windows node và chưa chạy native Windows**;
-cross-build, parser hay DB test không thay thế bằng chứng guest.
-Xem [trình tự cài và kiểm chứng](docs/WINDOWS_WORKER.md).
+Bộ cài local trong `keys/windows-worker-01/` và bản sao cài thực tế
+`keys/windows2022-deploy/` có secrets, được Git loại trừ. Windows đã đăng ký `.3`,
+chạy Agent LocalService, WireGuard và SSH bằng `ztuser` không có quyền quản trị.
+Sau reboot đạt16/16 kiểm tra thật và7/7 kiểm tra Firefox; chờ khoảng2–3phút cho
+service khởi động trễ. Xem [trình tự cài và kiểm chứng](docs/WINDOWS_WORKER.md),
+[log thực tế](docs/verification/windows-runtime.txt).
 
 Web SSH dùng `nodes.ssh_username` khi được cấu hình riêng, còn NULL giữ tài khoản
 mặc định. Debian `.4` và Docker `.2` hiện cùng dùng tài khoản riêng `ztuser`.
@@ -260,13 +263,13 @@ Chỉ CLI đăng ký cục bộ với `--ssh-user` được cập nhật tài kh
 
 | Yêu cầu | Hiện trạng | Bằng chứng | Việc còn thiếu |
 |---|---|---|---|
-| WireGuard M2M, Zero Inbound worker | Docker và Debian VM có VPN kernel, SSH chỉ qua VPN | `network-resources.txt`, `debian-vm.md`; transport VM bị chặn | Chưa thử từ Internet độc lập |
-| ADMIN/VIEWER, Web SSH/PTY | Viewer nhận403; Admin chạy lệnh, resize, đóng; logout thu hồi phiên | 16 luồng thật trên Debian trước/sau reboot; Firefox terminal thật | Windows VM chưa kiểm chứng |
+| WireGuard M2M, Zero Inbound worker | Docker, Debian và Windows có VPN thật, SSH chỉ qua VPN | `network-resources.txt`, `debian-vm.md`, `windows-runtime.txt`; probe transport VM | Chưa thử từ Internet/IPv6 độc lập |
+| ADMIN/VIEWER, Web SSH/PTY | Viewer nhận403; Admin chạy lệnh, resize, đóng; logout thu hồi phiên | 16 luồng thật trên Debian/Windows trước và sau reboot; Firefox terminal thật | Không cấp quyền quản trị OS cho Web SSH |
 | CPU/RAM/disk/network/uptime, dashboard | Collector Go thật, RX/TX một giao diện, giải thích phạm vi đo | Runtime thật + browser | Xem số đo RAM bên dưới |
-| Heartbeat3s, Online/Stale/Offline | Ngưỡng15/30s, quét5s | Debian: heartbeat median3,020s; Stale16,60s, Offline31,67s; tự phục hồi | Windows VM chưa kiểm chứng |
+| Heartbeat3s, Online/Stale/Offline | Ngưỡng15/30s, quét5s; hai VM tự phục hồi | Debian: Stale16,60s/Offline31,67s; Windows reboot:18,79s/33,96s | Không coi thời gian boot là chu kỳ heartbeat |
 | Cảnh báo CPU/offline, Telegram | Live đã ghép nối; incident/audit, resolve và tránh lặp | CPU host thật và Telegram ack18/10; Debian Offline thật, một incident resolved và một Telegram ack20/10 | Chưa thử CPU cao riêng trên VM |
 | PostgreSQL, chuẩn hóa dữ liệu | Migration008 bỏ tỷ lệ RAM/disk lưu dư; API tính từ bytes | Test nâng007→008 giữ UUID/FK/lịch sử; fresh DB cũng chạy | Không đổi migration cũ |
-| VM và Docker | Docker + Debian VM KVM đã chạy đồng thời | `DEBIAN_WORKER.md`, `verification/debian-vm.md` | Phiếu ghi VMware/VirtualBox; KVM chưa được xác nhận thay thế |
+| VM và Docker | Docker + Debian và Windows VM KVM chạy đồng thời | `DEBIAN_WORKER.md`, `WINDOWS_WORKER.md`, log trong `verification/` | Phiếu ghi VMware/VirtualBox; KVM chưa được xác nhận thay thế |
 
 Bổ sung19/10: Makefile nhận đúng project/env, cleanup giữ log/keys, có `make doctor`
 chỉ đọc; Gateway Fastify5/JWT mới qua68unit và16luồng API/SSH thật trong cụm riêng.
@@ -306,7 +309,7 @@ hệ thống sạch lỗ hổng. [Phiên bản, audit và giới hạn](docs/ver
 - [Kịch bản demo và xử lý lỗi](docs/DEMO.md).
 - [Log và ảnh kiểm chứng](docs/verification/).
 - [Triển khai máy ảo](docs/VM_SETUP.md), [Debian Worker](docs/DEBIAN_WORKER.md): đã kiểm chứng KVM guest.
-- [Windows Worker](docs/WINDOWS_WORKER.md): **chưa kiểm chứng Windows guest**.
+- [Windows Worker](docs/WINDOWS_WORKER.md): Windows Server2022 thật, SSH/telemetry/reboot đã kiểm tra.
 - [API](contracts/openapi.yaml): các endpoint đang hỗ trợ được ghi trong đặc tả.
 
 Các luồng chính đã chạy thật trong cụm Docker; xem log và ảnh trong `docs/verification/`.
@@ -317,6 +320,8 @@ VmSize (không gian địa chỉ ảo) và Docker stats. Snapshot container18/10
 không tính OS/Docker daemon/hypervisor và không phải benchmark.
 Debian VM đã kiểm chứng chức năng và reboot; Agent RSS lượt20/10 là10,67MiB
 (10924KiB trong6mẫu/10s), chưa đo đủ RAM toàn mô hình gồm OS/daemon/hypervisor.
+Agent Windows WorkingSet khoảng46MiB, cao hơn mục tiêu khoảng10MB; không dùng
+số đo Linux thay cho Windows hoặc khẳng định toàn mô hình đạt500MB–1GB.
 VMware/VirtualBox và thử inbound từ Internet độc lập còn cần xác nhận. Telegram live đã
 ghép nối và thử gửi; môi trường mới vẫn mặc định dry-run. Slide và báo cáo môn học
 nằm ngoài công việc phiên này. Không nhận bản này là hệ thống production.

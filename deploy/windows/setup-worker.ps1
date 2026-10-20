@@ -115,8 +115,8 @@ try {
     # native setup so even a partially failed installation remains reversible.
     $state.TunnelInstalled = $true
     $state | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $statePath -Encoding UTF8
-    & $wireguard /installtunnelservice $privateTunnel *> $null
-    if ($LASTEXITCODE -ne 0) { throw 'WireGuard service installation failed.' }
+    $tunnelProcess = Start-Process -FilePath $wireguard -ArgumentList @('/installtunnelservice', ('"' + $privateTunnel + '"')) -Wait -PassThru
+    if ($tunnelProcess.ExitCode -ne 0) { throw 'WireGuard service installation failed.' }
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     do {
         $vpn = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -eq $VpnAddress -and $_.InterfaceAlias -eq $tunnelName })
@@ -163,11 +163,10 @@ LogLevel VERBOSE
     New-NetFirewallRule -Name $ruleNames[0] -DisplayName 'ZT SSH via Gateway VPN only' -Direction Inbound -Action Allow -Enabled True -Profile Any -Protocol TCP -LocalPort 22 -LocalAddress $VpnAddress -RemoteAddress $GatewayVpnAddress -InterfaceAlias $tunnelName | Out-Null
     # No LocalAddress restriction: this blocks TCP/22 on both IPv4 and IPv6 transport.
     New-NetFirewallRule -Name $ruleNames[1] -DisplayName 'ZT block SSH on transport NICs' -Direction Inbound -Action Block -Enabled True -Profile Any -Protocol TCP -LocalPort 22 -InterfaceAlias $TransportInterfaceAlias | Out-Null
-    # sshd binds a VPN IP: preserve prior dependencies and wait for the tunnel at boot.
+    # Tunnel Running can precede address assignment; delayed startup avoids the bind race.
     $dependencies = @($state.SshdDependencies) + @('WireGuardTunnel$' + $tunnelName)
-    & "$env:WINDIR\System32\sc.exe" config sshd depend= ($dependencies -join '/') *> $null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not set sshd tunnel startup dependency.' }
-    Set-Service -Name sshd -StartupType Automatic
+    & "$env:WINDIR\System32\sc.exe" config sshd depend= ($dependencies -join '/') start= delayed-auto *> $null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not set sshd tunnel dependency and delayed startup.' }
     Start-Service -Name sshd
     $publicHostPath = Join-Path $root 'ssh_host_ed25519_key.pub'
     Copy-Item -LiteralPath ($hostKey + '.pub') -Destination $publicHostPath

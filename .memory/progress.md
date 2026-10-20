@@ -641,3 +641,42 @@ Commit bàn giao xem `git log -1 --oneline`.
   sang host NAT .1, đăng ký .3/host pin/ztuser qua CLI, giữ hai node/tài khoản cũ.
 - Rawcache ~/.cache/zt-windows2022-20261020T061725Z/. VPN/Web SSH/telemetry/reboot/
   firewall Windows đang tiếp tục kiểm chứng. Không push, vẫn minh-thanh.
+
+## Hoàn tất Worker Windows Server2022 thật — 20/10/2026
+
+- Tiếp tục trực tiếp cấu hình VM theo ủy quyền Administrator của chủ dự án.
+  Chỉ minh-thanh; không push/merge, không làm slide/báo cáo môn học. Không lưu
+  mật khẩu vào memory/Git; tệp credential tạm riêng được xóa sau thao tác.
+- VM node-windows-01, build20348.587, KVM2vCPU/4GiB/60GiB, NIC NAT
+  192.168.122.101; Windows peer10.100.0.3, giữ Docker.2 và Debian.4.
+  Register bằng CLI với host key tin cậy, ssh_username=ztuser. Agent SCM
+  LocalService, WireGuard signed MSI1.1.1, SSH key-only/VPN-only, ztuser
+  không thuộc Administrators. Đã rà soát và tắt40 inbound rules không cần
+  cho lab; giữ Core Networking. WinRM tạm host-scoped đã đóng.
+- Sửa lỗi PS5.1 StrictMode: WireGuard GUI không tạo LASTEXITCODE; setup và
+  restore dùng Start-Process -Wait -PassThru/ExitCode. Đã phục hồi đúng
+  sau setup dở dang rồi cài thành công; parser nativePS5.1 đạt.
+- Reboot đầu tìm thêm lỗi thật: dependency tunnel có đúng nhưng sshd bind
+  VPN IP trước khi địa chỉ sẵn sàng, exit1067/Cannot bind any address.
+  Dùng SCM delayed-auto cùng dependency; reboot thứ hai WG/Agent/sshd
+  tự lên, xác nhận service Running và SSH thực thi trước khi login console.
+- Native Go tests Windows16 ca top-level đạt, Win32 collector thật; HTTP
+  tests là loopback fixtures. verify-vm Windows16/16 trước/sau reboot;
+  Firefox7/7 sau boot. Harness chỉ đổi LF→CR trên Windows ConPTY, giữ
+  assertions; Debian regression16/16 vẫn đạt. demo.py up và doctor exit0.
+- Reboot thứ hai: Stale ở tuổi heartbeat18.791s, Offline33.958s, Healthy
+  lại với uptime130s. Probe IPv4 từ host ngoài VPN chặn11cổng TCP gồm
+  SSH/SMB/RDP/WinRM. Không suy thành chứng nhận Internet/IPv6/UDP.
+- RAM Windows Agent: trước reboot WorkingSet45.93–45.99MiB; sau boot
+  47837184bytes (~45.62MiB), private48406528bytes (~46.16MiB). CHƯA đạt
+  mục tiêu khoảng10MB; chưa chứng minh RAM toàn mô hình500MB–1GB. KVM
+  chưa được giảng viên xác nhận thay VMware/VirtualBox; CPU cao riêng
+  Windows và ingress Internet/IPv6/UDP độc lập CHƯA KIỂM CHỨNG.
+- check-worker vẫn exit1 do Core Networking inbound inventory đã rà soát;
+  không sửa checker để tạo PASS. Thu thập SCM bằng Administrator;
+  ztuser bị từ chối WMI/Get-Service, giữ đúng phân quyền này.
+- Giữ8 báo cáo chưa track, env/login/bundle Windows gốc bằng so sánh hash;
+  giữ định danh/mật khẩu/role của user và token/hostpin/user của hai node cũ.
+  README, DEMO, WINDOWS_WORKER và verification/windows-runtime.txt +2ảnh +
+  browserJSON cập nhật đúng kết quả thật. Cache thô: đường dẫn private trong
+  keys/windows2022-evidence-path. Không đưa secrets hoặc bundle vào Git.

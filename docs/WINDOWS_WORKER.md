@@ -1,51 +1,64 @@
-# Gateway Linux + Worker Windows VM
+# Gateway Linux + Worker Windows
 
-**CHƯA NGHIỆM THU ĐỦ luồng Worker Windows.** Đã cài Windows Server 2022 Standard
-Evaluation Desktop Experience trên KVM, 2 vCPU/4 GiB; OpenSSH service và bài test
-Agent native đã chạy. WireGuard đã cài nhưng VPN/Web SSH/firewall/reboot/RAM còn
-đang kiểm chứng. Đây là guest Windows thật, không phải WSL. Phiếu ghi VMware/
-VirtualBox; KVM chưa được giảng viên xác nhận thay thế.
+Ngày20/10/2026 đã chạy Windows Server2022 Standard Evaluation Desktop Experience
+(build20348.587) thật trên KVM: 2vCPU,4GiBRAM,60GiB disk. Gateway vẫn ở Linux;
+Windows là Worker, không phải máy chạy toàn bộ Gateway. Phiếu ghi VMware/
+VirtualBox; việc dùng KVM thay thế chưa được giảng viên xác nhận.
 
 ```text
-Máy Arch Linux hiện tại
-├── Docker: Gateway + DB + Dashboard/Caddy + WireGuard (10.100.0.1)
-├── Worker Docker cũ: 10.100.0.2, giữ nguyên
-└── VMware/VirtualBox: Windows VM, NIC NAT, không port forwarding
-    └── WireGuard + OpenSSH + Mini-Agent: 10.100.0.3
+Arch Linux
+├── Docker: Gateway + PostgreSQL + Dashboard/Caddy + WireGuard 10.100.0.1
+├── Worker Docker 10.100.0.2
+├── Debian12 KVM node-linux-01 10.100.0.4
+└── Windows Server2022 KVM node-windows-01 10.100.0.3
+    └── NIC NAT → WireGuard + OpenSSH + Go Agent native
 ```
 
-## Chuẩn bị
+## Mở lại mô hình đã cài
 
-- Windows64-bit, PowerShell64-bit5.1+, VM workgroup chuyên dụng. Cài
-  [WireGuard chính thức](https://www.wireguard.com/install/) và
-  [OpenSSH Server](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse).
-  Chưa chạy cài hypervisor/OS/capability trong phiên này.
-- Có tài khoản local `ztuser`, enabled, không thuộc Administrators. SSH chỉ dùng
-  key; mật khẩu local giữ riêng. `BASTION_DEFAULT_USER` Gateway mặc định là `ztuser`.
-- NIC dùng NAT, không forward cổng Worker. Biết đủ tên NIC transport thật từ
-  `Get-NetAdapter`. Firewall profiles enabled/default inbound Block, NIC không
-  được miễn firewall. Thực hiện bộ cài từ console VM có quyền quản trị.
-- Endpoint WireGuard là IPv4 của host Arch mà VM truy cập được, cổngUDP51820.
-  Tên Docker `gateway` và localhost của guest không phải endpoint của host.
-  Script không sửa firewall host/router hoặc mở PostgreSQL/Fastify ra Internet.
-
-## Bundle trên Gateway
-
-`register-node.py --help` và `prepare --help` đã chạy. Ví dụ tạo bundle, thay
-endpoint bằng IP thật:
+Bật hai VM trong virt-manager, giữ NIC NAT và không thêm port forwarding.
+Từ repository trên host:
 
 ```sh
-python3 deploy/scripts/register-node.py prepare --gateway-endpoint 192.168.1.10:51820
+python3 deploy/scripts/demo.py up
+python3 deploy/scripts/demo.py doctor
 ```
 
-Phiên này đã tạo thật `keys/windows-worker-01/` bằng khóa riêng mới, endpoint LAN
-hiện tại; chưa xác nhận guest truy cập được. Mode thư mục0700/tệp0600; chạy lại
-từ chối ghi đè. **Không đổi DB hoặc peer Gateway.** Bundle chứa token, config
-Agent, `zt-worker.conf`, metadata và public key Bastion. Bản local còn có exe,
-test exe, script và `SHA256SUMS.txt`. Chuyển nguyên bundle qua kênh tin cậy; không
-đưa vào Git/chat/ảnh hoặc chép private Gateway key sang Worker.
+Mở **https://localhost**, đăng nhập `demo-admin` bằng mật khẩu trong
+`keys/demo-login.env`, chọn `node-windows-01` rồi **Web SSH**. Agent và SSH dùng
+Automatic (Delayed Start): chờ khoảng2–3phút sau khi boot trước khi demo.
+Windows chạy lệnh PowerShell/Windows, ví dụ:
 
-Nếu build lại, lệnh đã chạy trên Linux:
+```powershell
+hostname
+whoami
+powershell -NoProfile -Command "[Environment]::OSVersion.Platform"
+```
+
+Kết quả định danh là `node-windows-01`, `node-windows-01\ztuser`, `Win32NT`.
+Tài khoản Web SSH không thuộc Administrators. Tài khoản ứng dụng Admin khác tài
+khoản quản trị hệ điều hành; không mở SSH quản trị trực tiếp qua NIC transport.
+
+## Cài Worker mới
+
+Cần Windows64-bit workgroup, PowerShell64-bit5.1+, tài khoản local `ztuser`
+enabled và không thuộc Administrators. Cài
+[WireGuard chính thức](https://www.wireguard.com/install/) và
+[OpenSSH Server](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse).
+Bản WireGuard dùng trong lượt này là1.1.1, Authenticode hợp lệ của WireGuard LLC;
+OpenSSH inbox8.1.0.1. Không thêm thư viện Go hay dịch vụ phụ vào dự án.
+
+Trên host, chuẩn bị bundle bằng CLI sẵn có. Xem `--help` trước khi đổi cấu hình;
+CLI từ chối ghi đè định danh có sẵn. Ví dụ endpoint NAT của host trong lượt này:
+
+```sh
+python3 deploy/scripts/register-node.py prepare --gateway-endpoint 192.168.122.1:51820
+```
+
+`keys/windows-worker-01/` chứa token/khóa riêng, không đưa vào Git hoặc ảnh.
+Lượt cài thực tế dùng bản sao riêng `keys/windows2022-deploy/`, giữ bundle gốc.
+Build Windows executable và test executable từ source Agent hiện tại. Cần Go1.23+
+cho đoạn dưới; lượt này đã build trong container `golang:1.27-alpine`:
 
 ```sh
 cd agent
@@ -53,16 +66,12 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o /tmp/zt-agent-windows.test.exe .
 ```
 
-Chép executable thành `zt-agent.exe`, test exe thành `zt-agent-tests.exe`, cùng
-`agent/install-windows.ps1` và đủ bốn script `deploy/windows/*.ps1` vào bundle.
-arm64 cũng cross-build được; chọn đúng kiến trúc guest. Cross-build không phải
-PASS native Windows.
+Chuyển executable thành `zt-agent.exe`, test executable thành
+`zt-agent-tests.exe`; kèm `agent/install-windows.ps1` và đủ bốn script
+`deploy/windows/*.ps1`. Chuyển bundle qua kênh tin cậy vào thư mục chỉ quản trị
+viên được ghi. Không chép khóa riêng Gateway sang Worker.
 
-## Trong guest — các lệnh chưa chạy Windows
-
-Mở PowerShell64-bit có quyền quản trị ở thư mục bundle, cho phép chạy script
-local đã xem xét theo policy của VM. Thay `Ethernet` bằng tên NIC thật, truyền
-đủ danh sách nếu nhiều NIC:
+Tại console Windows, PowerShell Administrator ở thư mục bundle:
 
 ```powershell
 Get-NetAdapter
@@ -71,98 +80,77 @@ Get-NetAdapter
 .\setup-worker.ps1 -DedicatedVm -TunnelConfigPath .\zt-worker.conf -GatewaySshPublicKeyPath .\bastion_id_ed25519.pub -TransportInterfaceAlias 'Ethernet'
 ```
 
-Test executable có ca gọi Win32 collector thật và các ca HTTP loopback giả lập;
-phải phân biệt hai loại kết quả. Nó không tự cấu hình SSH/firewall/service.
-Setup giữ backup/state, cài tunnel `zt-worker`, bind SSH ở `.3`, chỉ nhận `ztuser`
-từ Gateway `.1` bằng khóa, tắt password/forwarding. Nó chỉ tạo hai rule ZT: cho
-SSH qua VPN và chặn TCP22 qua NIC transport cả IPv4/IPv6; giữ rule khác. `sshd`
-phụ thuộc tunnel để có IP khi boot. Guard từ chối junction/reparse, owner hoặc
-state không tin cậy; lần setup sau không ghi đè state cũ.
+Truyền đủ NIC transport thật. Setup giữ state/backup, bindSSH tại VPN`.3`, chỉ
+nhận key của `ztuser` từ Gateway`.1`, tắt password/forwarding và chặn TCP22 trên
+transport cảIPv4/IPv6. Script giữ những rule khác: cần rà soát riêng, không coi
+chạy script xong là đã đóng toàn bộ ingress. Các profile firewall phải enabled,
+default inbound Block. Không tự chạy lại khi đã có state.
 
-Chép **chỉ host PUBLIC key** về Gateway qua console/shared folder tin cậy:
-`C:\ProgramData\ZT-ServerOps\worker\ssh_host_ed25519_key.pub`.
-Không lấy fingerprint từ `ssh-keyscan` trên đường chưa xác thực.
-
-Trên Gateway, dùng đường dẫn public key đã chép về:
+Chép **chỉ SSH host PUBLIC key** qua kênh tin cậy về host:
+`C:\ProgramData\ZT-ServerOps\worker\ssh_host_ed25519_key.pub`, rồi đăng ký:
 
 ```sh
-python3 deploy/scripts/register-node.py register --host-public-key keys/windows-worker-01/ssh_host_ed25519_key.pub
+python3 deploy/scripts/register-node.py register --host-public-key keys/windows-worker-01/ssh_host_ed25519_key.pub --ssh-user ztuser
 ```
 
-CLI dùng stdin qua one-shot migrator, chặn trùng name/IP/token/fingerprint;
-append/apply peer `.3` không restart Gateway. Backup private Gateway nằm ngoài
-Worker bundle. **Chưa register Windows thật** vì chưa có host key guest; kiểm tra
-CLI idempotence/xung đột đã chạy trên PostgreSQL thật trong DB tạm.
-
-Trở lại Windows:
+CLI append peer riêng`.3`, giữ nodeDocker`.2` và Debian`.4`; không restart Gateway.
+Không dùng `ssh-keyscan` trên đường chưa xác thực làm nguồn tin cậy ban đầu.
+Trở lại console Windows:
 
 ```powershell
 .\zt-agent.exe --check --config .\agent-config.json
 .\install-windows.ps1 -BinaryPath .\zt-agent.exe -ConfigPath .\agent-config.json
-Get-Content 'C:\ProgramData\ZT-ServerOps\agent\logs\agent.log' -Tail 20
+Get-Service ZTServerOpsAgent
+Get-Content 'C:\ProgramData\ZT-ServerOps\agent\logs\agent.log' -Tail 10
 .\check-worker.ps1
 ```
 
-`--check` lấy một mẫu thật, không gửi HTTP. Service `ZTServerOpsAgent` chạy
-LocalService, config/token chỉ đọc, log xoay2x1MiB. Cài lại giữ config trừ khi
-dùng `-UpdateConfig`. LocalService là identity dùng chung, không bảo vệ trước
-admin hoặc mọi service cùng identity. Xác nhận `beacon ACK` và mẫu mới trên
-dashboard; `Running` chưa chứng minh đã gửi được dữ liệu.
+`--check` chỉ lấy mẫu thật, không gửi HTTP. Service `ZTServerOpsAgent` chạy
+LocalService, config/token chỉ đọc, log xoay2x1MiB. Phải có `beacon ACK` và mẫu mới
+qua Gateway; chỉ thấy Running chưa chứng minh gửi được dữ liệu.
+Native test có cả Win32 collector thật và HTTP loopback giả lập; không gộp hai
+loại thành kiểm chứng hệ thống thật.
 
-Disk Windows dùng total/available theo tài khoản API, có xét NTFS quota. RX/TX
-là byte tích lũy trên tunnel được chọn, uptime thuộc Windows; bỏ Linux load_avg.
-Checker đọc listener, service, cấu hình sshd hiệu lực, scope firewall, Gateway và
-WorkingSet Agent. Rule Windows khác có thể khiến exit1; phải xem từng mục, không
-tắt mù rule mạng cần thiết. Kết quả local không chứng nhận Zero Inbound Internet.
-
-## Kiểm chứng trước demo
-
-Sau khi VM có heartbeat thật:
+## Kiểm chứng và giới hạn
 
 ```sh
-python3 deploy/scripts/verify-vm.py --node-name node-windows-01 --shell windows
+python3 deploy/scripts/verify-vm.py --node-name node-windows-01 --shell windows --ssh-user ztuser
 ```
 
-Lệnh đợi nodeVM Online, kiểm tra telemetry/Admin/Viewer, chạy PowerShell và nhận
-marker `Win32NT`, audit START/END, logout đóng SSH và thu hồi JWT. **Nó đăng xuất
-demo-admin/demo-viewer trên Gateway được chọn.** Nhánh Windows chưa chạy; nhánh
-Linux đã kiểm tra trên Docker thật. Không đổi nhãn node Docker thànhVM để tạo PASS.
+Lệnh này thu hồi phiên demo-admin/demo-viewer. Đã đạt16/16 luồng thật trước
+và sau reboot: telemetry, RBAC, SSH/PTY, audit START/END, đóng terminal và logout.
+Firefox đạt7/7 kiểm tra trên dashboard thật sau reboot. Bằng chứng, kết quả reboot và giới
+hạn nằm trong [log Windows](verification/windows-runtime.txt).
+Ảnh thật: [dashboard](verification/windows-dashboard.png),
+[Web SSH Windows](verification/windows-terminal.png).
 
-Ghi thêm bằng chứng VM/hypervisor vào `docs/verification/`:
+Windows Agent đo WorkingSet khoảng46MiB: **chưa đạt mục tiêu khoảng10MB**;
+WorkingSet khác private bytes và RAM toàn hệ thống. Không chứng nhận mốcRAM
+500MB–1GB cho toàn mô hình. CPU cao riêng trên Windows VM và ingress từ Internet/
+IPv6 độc lập **CHƯA KIỂM CHỨNG**. Không suy cross-build hoặc scanIPv4 nội bộ
+thành các kết quả đó.
 
-1. NIC/NAT không port forwarding; handshake khác0, transfer tăng.
-2. Đối chiếu năm nhóm số liệu với Windows, heartbeat3s.
-3. SSH qua dashboard hoạt động; từ máy độc lập ngoài VPN phải bị chặn. Kiểm tra
-   IPv6 và Internet nếu tuyên bố đóng Internet ingress; local scan chưa đủ.
-4. Dừng Agent: Stale/Offline15–45s, một incident/Telegram; bật lại Online/resolve.
-   Thử CPU với tải/ngưỡng thật, không gọi payload99% giả lập là CPU vật lý.
-5. Reboot: tunnel/sshd/Agent tự lên và có ACK mới. Đo RAM Agent/cụm dịch vụ;
-   RAM Windows OS/hypervisor ghi riêng, không tăng RAM chỉ để lấp mốc500MB.
+Checker vẫn exit1 khi liệt kê Core Networking inbound rules cần rà soát. Đã
+kiểm tra từng rule, giữ các rule mạng hệ điều hành và chạy probe ứng dụng riêng;
+không tắt DHCP/ND hoặc sửa checker để tạo PASS. WinRM tạm phục vụ cài đặt đã đóng.
 
-Mục chưa chạy giữ **CHƯA KIỂM CHỨNG**. Không xuất private keys/token/password,
-OTP/chatID hoặc `wg showconf` trong bằng chứng.
+## Hai lỗi khởi động đã gặp
 
-## Hoàn tác trong guest — chưa chạy Windows
+- Host private key tạo dưới Administrator cá nhân có thể qua `sshd -t` với tài
+  khoản đó nhưng bị LocalSystem từ chối, service thoát1067. Bộ cài chuẩn hóa
+  owner sang nhóm Administrators, chỉ SYSTEM/Administrators FullControl, giữ
+  nguyên bytes/fingerprint. Đã kiểm tra cùng cấu hình dưới SYSTEM trước/sau sửa.
+- WireGuard service Running có thể trước lúc VPN IP sẵn sàng. Dependency riêng
+  chưa đủ: OpenSSH báo `Cannot bind any address` sau reboot. Setup dùng dependency
+  cùng Automatic (Delayed Start), giữ nguyên listener chỉ trên VPN.
+
+## Hoàn tác từ console
 
 ```powershell
 Stop-Service ZTServerOpsAgent
 .\restore-worker.ps1
 ```
 
-Restore khôi phục sshd và gỡ đúng rule/tunnel từ state có đường dẫn cố định.
-Giữ account/host keys/files; không xóa Agent service hoặc đổi DB/peer Gateway.
-Chạy từ console; không dùng để hoàn tác cấu hình của máy khác.
-
-## OpenSSH chạy debug nhưng service không khởi động
-
-Đã tái hiện trên Windows Server 2022/OpenSSH 8.1.0.1: `sshd -t` và `-ddd -e`
-chạy được dưới Administrator, nhưng service LocalSystem thoát 1067 và log Admin
-trống. Kiểm tra cùng cấu hình dưới SYSTEM báo private host key có quyền không
-hợp lệ, `no hostkeys available`. Khóa tạo bằng Administrator cá nhân có owner/
-ACE hợp lệ với tài khoản đó nhưng bị SYSTEM từ chối.
-
-Bộ cài chuẩn hóa đúng private host key về owner nhóm Administrators, chỉ cấp
-FullControl cho SYSTEM và Administrators. Giữ nguyên bytes/fingerprint của khóa.
-Sau sửa, kiểm tra SYSTEM trả 0, service chạy và một kết nối SSH mới đăng nhập
-thành công. Xem [bằng chứng trước/sau](verification/windows-runtime.txt).
-Không suy lỗi quyền khóa riêng từ ACL của riêng thư mục cha.
+Restore chỉ xử lý config/service/rule/tunnel có state, giữ account/hostkeys/files;
+không gỡ Agent hoặc đổi DB/peer Gateway. Đã thử phục hồi sau lỗi setup dở dang;
+không tuyên bố đã thử gỡ toàn bộ cấu hình cuối cùng đang phục vụ demo.
