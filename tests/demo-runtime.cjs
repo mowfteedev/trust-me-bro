@@ -23,11 +23,12 @@ async function login(username, password) {
   assert.equal(response.status, 200);
   return response.body.token;
 }
-async function terminal(nodeId, ticket, command, expected) {
+async function terminal(nodeId, ticket, command, expected, expectedUser) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(`ws://10.100.0.1:3000/ws/terminal/${nodeId}`, { localAddress: '10.100.0.1', headers: { 'X-Forwarded-For': '192.0.2.99' } });
     const timeout = setTimeout(() => { socket.terminate(); reject(new Error('Terminal timeout')); }, 30000);
     let output = '';
+    let rendered = '';
     let complete = false;
     socket.on('open', () => socket.send(JSON.stringify({ type: 'AUTH', ticket })));
     socket.on('message', (data) => {
@@ -36,6 +37,9 @@ async function terminal(nodeId, ticket, command, expected) {
         const frame = JSON.parse(text);
         if (frame.type === 'ERROR') { clearTimeout(timeout); socket.close(); reject(new Error(frame.message)); return; }
         if (frame.type === 'READY') {
+          if (frame.ssh_username !== expectedUser) {
+            clearTimeout(timeout); socket.close(); reject(new Error('SSH account in READY differs from expected node account')); return;
+          }
           socket.send(JSON.stringify({ type: 'RESIZE', rows: 32, cols: 100 }));
           socket.send(command + '\n');
           return;
@@ -43,14 +47,14 @@ async function terminal(nodeId, ticket, command, expected) {
       } catch {}
       output += text;
       // Windows ConPTY may emit ANSI control sequences around line breaks.
-      const rendered = output.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+      rendered = output.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
         .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\r/g, '');
       if (rendered.includes(expected)) { complete = true; socket.close(); }
     });
     socket.on('error', (error) => { clearTimeout(timeout); reject(error); });
     socket.on('close', () => {
       clearTimeout(timeout);
-      if (complete) resolve(output); else reject(new Error('Terminal đóng trước kết quả lệnh'));
+      if (complete) resolve(rendered); else reject(new Error('Terminal đóng trước kết quả lệnh'));
     });
   });
 }
@@ -90,12 +94,17 @@ async function main() {
   check(ticket.status === 200, 'Admin lấy vé SSH');
   const auditSince = (await pool.query('SELECT now()::text AS stamp')).rows[0].stamp;
   // Tạo marker chỉ trong stdout của shell, không nằm nguyên vẹn trong lệnh bị echo.
-  const windowsCommand = "[Console]::WriteLine(('ZT_'+'REAL_'+'WINDOWS_OK')); [Console]::WriteLine([Environment]::OSVersion.Platform); whoami";
+  const windowsCommand = "whoami; [Console]::WriteLine([Environment]::OSVersion.Platform); [Console]::WriteLine(('ZT_'+'REAL_'+'WINDOWS_OK'))";
+  const expectedUser = credentials.ssh_user || 'ztuser';
+  assert.match(expectedUser, /^[A-Za-z_][A-Za-z0-9_.-]{0,31}$/);
   const command = shell === 'windows'
     ? 'powershell.exe -NoProfile -NonInteractive -EncodedCommand ' + Buffer.from(windowsCommand, 'utf16le').toString('base64')
-    : "printf 'ZT_%s_OK\\n' REAL; id; stty size";
-  const output = await terminal(node.id, ticket.body.ticket, command, shell === 'windows' ? 'ZT_REAL_WINDOWS_OK\nWin32NT' : 'ZT_REAL_OK\nuid=');
-  check(output.toLowerCase().includes('ztuser'), `WebSocket→SSH→PTY thực thi lệnh thật qua WireGuard (${shell})`);
+    : "id; whoami; stty size; printf '\\nZT_%s_OK\\n' REAL";
+  const output = await terminal(node.id, ticket.body.ticket, command, shell === 'windows' ? '\nZT_REAL_WINDOWS_OK\n' : '\nZT_REAL_OK\n', expectedUser);
+  const hasIdentity = output.split('\n').some(line => shell === 'windows'
+    ? line.split('\\').at(-1)?.toLowerCase() === expectedUser.toLowerCase()
+    : line === expectedUser);
+  check(hasIdentity && (shell !== 'windows' || output.includes('\nWin32NT\n')), `WebSocket→SSH→PTY thực thi lệnh thật qua WireGuard (${shell}, user=${expectedUser})`);
   await waitFor(async () => {
     const events = await pool.query(
       `SELECT details->>'session_id' AS session_id FROM audit_logs

@@ -147,7 +147,7 @@ Chỉnh **`keys/demo.env`** cho cụm demo, không chỉnh `.env` cũ theo phỏ
 | `HTTP_PORT`, `HTTPS_PORT` | 80, 443 | Đổi nếu host đang dùng cổng này |
 | `PROXY_BIND_IP` | 127.0.0.1 | Web console cục bộ; không mở Internet |
 | `PROXY_INTERNAL_IP`, `INGRESS_SUBNET` | 172.30.88.254, 172.30.88.0/24 | IP Caddy được Gateway tin; IP phải thuộc subnet, không trùng peer khác |
-| `BASTION_DEFAULT_USER` | ztuser | Tài khoản SSH trên máy con |
+| `BASTION_DEFAULT_USER` | ztuser | Tài khoản SSH mặc định khi node không có `ssh_username` riêng |
 | `NODE_STALE_THRESHOLD_SECONDS` | 15 | Mất nhịp sang Stale |
 | `NODE_OFFLINE_THRESHOLD_SECONDS` | 30 | Mất nhịp sang Offline, giới hạn 15–45s |
 | `SWEEPER_INTERVAL_MS` | 5000 | Chu kỳ kiểm tra trạng thái |
@@ -249,6 +249,12 @@ Bộ cài local trong `keys/windows-worker-01/` đã tạo; thư mục này có 
 được Git loại trừ. **Chưa register Windows node và chưa chạy native Windows**;
 cross-build, parser hay DB test không thay thế bằng chứng guest.
 Xem [trình tự cài và kiểm chứng](docs/WINDOWS_WORKER.md).
+
+Web SSH dùng `nodes.ssh_username` khi được cấu hình riêng, còn NULL giữ tài khoản
+mặc định. Debian `.4` và Docker `.2` hiện cùng dùng tài khoản riêng `ztuser`.
+Chỉ CLI đăng ký cục bộ với `--ssh-user` được cập nhật tài khoản sau khi kiểm tra
+đúng định danh/host key; không có lựa chọn user từ trình duyệt. Terminal hiển thị
+`user@node` từ READY thật. Xem [Debian Worker](docs/DEBIAN_WORKER.md).
 
 ## Đối chiếu và kiểm chứng
 

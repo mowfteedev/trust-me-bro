@@ -25,15 +25,19 @@ def main():
     parser.add_argument('--project', default='zt_demo')
     parser.add_argument('--node-name', default='node-windows-01')
     parser.add_argument('--shell', choices=['windows', 'linux'], default='windows')
+    parser.add_argument('--ssh-user', default='ztuser', help='Expected OS account returned by the real terminal.')
     args = parser.parse_args()
     if not re.fullmatch(r'[a-zA-Z0-9_-]{3,64}', args.node_name):
         parser.error('Invalid node name.')
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]{0,31}', args.ssh_user):
+        parser.error('Invalid SSH user.')
     if not args.env_file.is_file():
         parser.error('Gateway environment file is missing.')
     login = read_env(ROOT / 'keys/demo-login.env')
     credentials = {'admin_password': login['DEMO_ADMIN_PASSWORD'],
                    'viewer_password': login['DEMO_VIEWER_PASSWORD'],
-                   'node_name': args.node_name, 'node_type': 'VM', 'shell': args.shell}
+                   'node_name': args.node_name, 'node_type': 'VM', 'shell': args.shell,
+                   'ssh_user': args.ssh_user}
     # Secrets only enter child stdin, never argv, persisted fixture files or logs.
     script = 'const credentials = ' + json.dumps(credentials) + ';\n'
     script += (ROOT / 'tests/demo-runtime.cjs').read_text()

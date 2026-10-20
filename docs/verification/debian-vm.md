@@ -61,3 +61,46 @@ quyền600 trùng hash ban đầu. DB thêm node/telemetry/audit/sự cố thậ
 thay đổi theo các lần logout đã kiểm tra, không xoay mật khẩu hoặc token cũ.
 Các tệp staging do lượtsetup tạo trong guest đã dọn; không lưu mật khẩu VM,
 token, chatID hoặc private key trong bằng chứng/Git. Không push trong lượt này.
+
+## Nghiệm thu tài khoản Web SSH riêng — 20/10/2026
+
+Chốt **`ztuser`** cho Web SSH trên Debian, `linux` giữ vai trò quản trị. Migration 009
+thêm SSH account tùy chọn theo node, NULL giữ mặc định; CLI chỉ cập nhật sau khi
+khớp định danh/token/host pin. Không có bộ đồng bộ tệp hoặc lựa chọn user từ browser.
+READY gửi tài khoản đã cấu hình; terminal hiện `ztuser@node-linux-01`.
+
+| Kiểm tra | Kết quả / bằng chứng |
+|---|---|
+| API/auth/RBAC/telemetry/SSH/PTY/audit/logout trên VM | 16/16 đạt, username trong READY và kết quả whoami đều là ztuser |
+| Browser Firefox 158 | 8/8 đạt: user/header, cùng a.txt, ghi hai chiều, mobile 375px, Docker và không có lỗi JavaScript |
+| Đối chiếu tệp | Cùng `/home/ztuser/a.txt` cho cùng SHA256 qua Web SSH và lệnh console chạy dưới ztuser |
+| Ghi hai chiều | Tệp thử riêng trong home ztuser: console→Web và Web→console đúng nội dung; đã xóa sau thử |
+| Tách quyền | ztuser không có sudo; không đọc được `/home/linux/a.txt` hoặc tệp env của Agent (root, quyền 600) |
+| Khóa Bastion | Đăng nhập ztuser được; đăng nhập linux bị từ chối xác thực, host key vẫn được kiểm tra |
+| VPN/firewall/service | WG/Agent/SSH/nft active và enabled; SSH chỉ nghe `.4:22`, chỉ dùng khóa, tắt root login; input/forward DROP |
+| Bảo toàn | Hai a.txt gốc, quyền home, 13 tệp có sẵn và định danh/token/pin/tài khoản/password/role không đổi |
+| Build/unit/DB của đợt thay đổi | Gateway/Dashboard build đạt; 87 Vitest dùng mock đạt; DB tạm thật nâng 008→009, CLI đăng ký/cập nhật tài khoản/chạy lại/xung đột đều đạt |
+
+Console ở lượt này là lệnh thực thi qua **QEMU guest-agent trong guest thật** với
+`sudo -iu ztuser`, độc lập kênh Web SSH. Không phải gõ trực tiếp cửa sổ virt-manager
+và không phải mock. Public Bastion key tạm cấp cho linux trong phương án thử trước
+đã gỡ đúng dòng; authorized_keys của linux khớp backup ban đầu, khóa quản trị riêng
+vẫn dùng được. Hai a.txt có nội dung khác nhau được giữ nguyên, không copy/đổi quyền
+để tạo kết quả khớp.
+
+Lượt browser đầu có lỗi helper truyền fixture qua sudo login shell làm mất newline;
+ảnh cho thấy Web SSH hiển thị đúng dữ liệu thực đó. Đã sửa cách truyền byte của
+fixture, kiểm tra byte trước khi đọc qua web và chạy lại đủ 8 trường hợp; không sửa
+ứng dụng hoặc nới assertion. Root `sudo -l -U ztuser` trả 0 khi truy vấn thành công
+nhưng thông báo không có quyền; kiểm chứng dựa cả policy và lần chạy sudo thật
+dưới ztuser bị từ chối, không suy quyền từ riêng exitcode của truy vấn root.
+
+- [Log runtime, quyền, VPN và DB](ssh-user-runtime.txt).
+- [Kết quả browser](ssh-user-browser.json).
+- [Terminal tài khoản riêng](ssh-user-terminal.png), [mobile 375px](ssh-user-mobile.png).
+
+Rawcache: `/home/mowftee/.cache/zt-linux-ztuser-20261020T051217Z/`.
+Build/unit/DB của cùng đợt ở `/home/mowftee/.cache/zt-ssh-user-20261020T045302Z/`.
+Windows mới có ISO, chưa có guest được đăng ký trong libvirt tại thời điểm kiểm tra;
+không sử dụng kết quả Linux để chứng nhận Windows. Các giới hạn hypervisor theo
+phiếu, Internet độc lập và RAM toàn mô hình đã nêu ở trên vẫn giữ nguyên.

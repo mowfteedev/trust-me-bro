@@ -141,6 +141,29 @@ async function readySession() {
   return { socket, stream: mock.stream as TestStream, client: mock.clients[0] };
 }
 
+describe('SSH account belongs to the target node', () => {
+  it('uses the node account instead of the Gateway default and reports it after SSH opens', async () => {
+    mock.query.mockImplementation(async (sql: string) => ({
+      rows: sql.includes('FROM users') ? [user] : sql.includes('FROM nodes') ? [{ ...node, ssh_username: 'linux' }] : [], rowCount: 1,
+    }));
+    const { socket, client } = await readySession();
+    expect(client.connect).toHaveBeenCalledWith(expect.objectContaining({ username: 'linux' }));
+    const frame = socket.send.mock.calls.map(([data]) => JSON.parse(data)).find(data => data.type === 'READY');
+    expect(frame.ssh_username).toBe('linux');
+    const start = mock.query.mock.calls.find(([sql]) => sql.includes("'BASTION_SESSION_START'"));
+    expect(JSON.parse(start![1][1]).ssh_username).toBe('linux');
+  });
+
+  it('preserves the configured default for an older node with no account override', async () => {
+    mock.query.mockImplementation(async (sql: string) => ({
+      rows: sql.includes('FROM users') ? [user] : sql.includes('FROM nodes') ? [{ ...node, ssh_username: null }] : [], rowCount: 1,
+    }));
+    const { socket, client } = await readySession();
+    expect(client.connect).toHaveBeenCalledWith(expect.objectContaining({ username: 'test-worker' }));
+    expect(socket.send).toHaveBeenCalledWith(expect.stringContaining('"ssh_username":"test-worker"'));
+  });
+});
+
 describe('idempotent cleanup and bounded stream backpressure', () => {
   it('rearms one drain listener without dropping or replaying queued input', async () => {
     const { socket, stream } = await readySession();

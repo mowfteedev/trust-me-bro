@@ -148,3 +148,20 @@
   vì vậy chỉ xác nhận KVM chạy chức năng; không tự kết luận khớp hypervisor.
 - Quyền setup không phải quyền push mới hoặc chuyển cloud/triển khai production.
   Giữ nhánh minh-thanh, commit cục bộ theo phần việc; không tự push thêm.
+
+## Chủ dự án duyệt dùng tài khoản console qua Web SSH — 20/10/2026
+
+- Sau đối chiếu a.txt, chủ dự án đã đồng ý phương án SSH account theo từng node:
+  Debian dùng linux như console, Docker giữ ztuser. Không cần sao chép/đồng bộ tệp.
+- Chỉ cấu hình tài khoản đích và public key; giữ key-only/VPN/host pin, không cấp
+  root/NOPASSWD, không chỉnh hoặc hợp nhất hai a.txt cá nhân. Hiển thị user@node
+  thật trên terminal, không để người dùng trình duyệt tùy chọn SSH username.
+
+## Chốt tài khoản SSH riêng và kiểm chứng Linux — 20/10/2026
+
+- Chỉ đạo mới nhất thay phương án dùng linux: giữ ztuser riêng cho Web SSH, linux
+  dành cho quản trị. Trên console dùng sudo -iu ztuser để đối chiếu cùng home/tệp.
+- Chủ dự án yêu cầu kiểm chứng Linux thật trước, nếu đạt mới chuyển sang Windows.
+  Không thay quyền/copy hai a.txt để tạo kết quả khớp. Gỡ đúng quyền Bastion tạm
+  thêm cho linux; giữ khóa quản trị riêng, password/root login tắt và không sudo
+  cho ztuser. Còn giữ nguyên minh-thanh, commit theo việc và không push.

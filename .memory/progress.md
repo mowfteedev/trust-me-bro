@@ -531,3 +531,56 @@ Commit bàn giao xem `git log -1 --oneline`.
 - Rawcache ~/.cache/zt-ssh-context-20261019T194518Z/; không đưa nội dung tệp cá nhân
   vào Git. Login kiểm tra không logout tài khoản demo, không thu hồi phiên của chủ
   dự án. Không đổi ứng dụng nên không build lại. Vẫn minh-thanh, không push.
+
+## Đang cân nhắc tài khoản SSH — 20/10/2026
+
+- Sau khi chủ dự án đồng ý phương án theo node, đã thêm migration009 với
+  ssh_username nullable, CLI --ssh-user xác minh định danh trước cập nhật, fallback
+  user chung cho node cũ; READY và tiêu đề terminal báo đúng user@node.
+- Đã áp dụng lên demo: Debian .4 dùng linux, Docker .2 giữ fallbackztuser. Public
+  Bastion key thêm cho linux chỉ từ Gateway.1, không đổi password/root/sudo policy
+  hoặc quyền/tệp a.txt. Cấu hình cũ có backup ~/.ssh/authorized_keys.before-webssh-linux.
+- Build Gateway/Dashboard và87 Vitest đạt. PostgreSQL DB tạm kiểm tra nâng008→009,
+  registration/profile update/idempotency/invalid usernames/identity conflicts đạt.
+  Hai DB tạm đã dọn. Main users/password/roles/node identities/token/pin và13file
+  ban đầu giữ hash; profileLinux là thay đổi có chủ đích. Doctor0.
+- Runtime thật16/16 cho VM userlinux và16/16 Docker userztuser. Firefox158 đạt8/8:
+  READY/header đúnguser, đọc cùng a.txt, ghi console→Web vàWeb→console với tệp thử
+  riêng, mobile375 không tràn, đổi sangDocker vẫnztuser, khôngJSerror. Fixture đã
+  xóa; a.txt gốc không sửa. Lượt browser đầu regex chưa chuẩn hóa CR/ANSI nên timeout
+  dù output đúng trên ảnh; đã giữ log/ảnh đầu và sửa harness ngoài repo, không sửaapp.
+- Rawcache ~/.cache/zt-ssh-user-20261020T045302Z/. Reviewer độc lập chỉ đọc không
+  thấy blocker. Các thay đổi đang CHƯA COMMIT/PUSH, docs đang được cập nhật.
+- Chủ dự án ngắt lượt để hỏi nhận xét kỹ thuật về phương án dùng userztuser riêng.
+  ztuser đã tồn tại, chỉ thuộc groupztuser; linux thuộc sudo. Câu hỏi mới chưa phải
+  lệnh chuyển cấu hình ngược lại; tại thời điểm kiểm tra demo vẫn dùnglinux choVM.
+
+## Chốt ztuser và kiểm chứng VM Linux — 20/10/2026
+
+- Chủ dự án đồng ý tài khoản SSH riêng rồi yêu cầu kiểm chứng Linux trước khi
+  chuyển Windows. Đã register lại node-linux-01 với --ssh-user ztuser qua CLI
+  xác minh định danh; Docker giữ fallbackztuser, không đổi khóa/token/IP/hostpin.
+- Gỡ đúng dòng public Bastion key do lượt thử thêm cho linux, không khôi phục mù
+  hoặc xóa khóa khác. Authorized_keys khớp backup trước thử; khóa setup quản trị
+  riêng vẫn hoạt động. Bastion key SSH vào linux bị từ chối đúng authentication.
+- VM thật đạt16/16 API/RBAC/telemetry/SSHPTY/audit/logout, READY và whoami làztuser.
+  Firefox158 đạt8/8: user/header đúng, SHA a.txt khớp, ghi console→Web vàWeb→console
+  trên tệp thử riêng, mobile375, Docker không ảnh hưởng, khôngJSerror. Fixtuređãxóa.
+- Console đối chứng dùng QEMU guest-agent sudo -iu ztuser trong guest thật, không
+  mock hoặc giả nhận gõ trực tiếp virt-manager. Hai a.txt cá nhân giữ hash/quyền.
+  Lượt helper đầu mất newline khi truyền fixture qua sudo login shell; đã sửa
+  truyền byte, giữ ảnh/log lỗi, không nới assertion hoặc sửa ứng dụng để che lỗi.
+- Root sudo-l policy báo ztuser không được sudo; thực thi sudo dướiztuser trả1.
+  Rootquery có thể trả0 dù userkhông có grants, không dùng exitcode đó làm chứng
+  có quyền. ztuser không đọc homeLinux700/envAgent600. WG/SSH/nft/Agent active+
+  enabled, SSH chỉ ngheVPN.4:22, password/root-off. Doctor0 cho cảhai node.
+- Giữ13file ban đầu/env/key/report và DB users/password/roles/nodeidentity/token/
+  pin. Source/code mới được giữ ở phạm vi nhỏ, migrationnullable và CLI tùy chọn
+  đã chạy thật. Build/87unit/DB upgrade+registration của cùng đợt vẫn áp dụng vì
+  sourceứngdụng không thay sau khi build; không chạy thêm benchmark hoặc CPUlab.
+- DEBIAN_WORKER/DEMO/README cập nhật theo trạng thái cuốiztuser, hợp đồngREADY và
+  bằng chứng bổ sung trong debian-vm.md +ssh-user-runtime/browser +2ảnh. Rawcache
+  ~/.cache/zt-linux-ztuser-20261020T051217Z/ vàzt-ssh-user-20261020T045302Z/.
+- Windows: libvirt system/session chỉ cóDebian; có ISOs/SERVER_EVAL_x64FRE_en-us.iso.
+  Đã hỏi một lần trạng thái/cách chuẩn bị VMWindows trong lúc hoàn thiện Linux;
+  chưa tạo guest/càiWindows hoặc nhận cross-build là nativePASS. Không push.

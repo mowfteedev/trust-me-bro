@@ -120,11 +120,14 @@ gọi toàn bộ là tài nguyên của một VM riêng.
 Ngày20/10 đã thêm `node-linux-01` (`10.100.0.4`) trên Debian12 KVM, giữ nodeDocker
 `.2`. Bật VM trong virt-manager, chạy `demo.py doctor`, mở https://localhost,
 chọn nodeDebian và **Web SSH**. Chạy `hostname; whoami; uname -sr`: thấy
-`node-linux-01`, `ztuser`, Linux. Dashboard hiển thị RAM/disk của guest riêng.
+`node-linux-01`, `ztuser`, Linux. Tiêu đề terminal là `ztuser@node-linux-01`.
+Trên console VM dùng `sudo -iu ztuser` để đọc cùng `/home/ztuser/a.txt` với Web SSH;
+`/home/linux/a.txt` là tệp riêng của quản trị viên. Docker cũng dùng `ztuser`.
+Dashboard hiển thị RAM/disk của guest riêng.
 Logout đóng phiên SSH đang mở; Viewer chỉ xem thông số. Bài kiểm tra tự động:
 
 ```sh
-python3 deploy/scripts/verify-vm.py --node-name node-linux-01 --shell linux
+python3 deploy/scripts/verify-vm.py --node-name node-linux-01 --shell linux --ssh-user ztuser
 ```
 
 Lệnh này đăng xuất các phiên demo-admin/demo-viewer. Đã kiểm tra reboot, heartbeat

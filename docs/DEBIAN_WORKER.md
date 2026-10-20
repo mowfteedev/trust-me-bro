@@ -12,7 +12,7 @@ Không cần cài Docker, Node.js hoặc Go lên Worker.
 | Worker Debian mới | `node-linux-01`, `10.100.0.4`, WireGuard `wg0` |
 | VM | libvirt `debian12`, 2 vCPU, RAM cấp 1536 MiB, disk 15 GiB |
 | NIC transport lúc setup | `enp1s0`, DHCP `192.168.122.233` |
-| SSH ứng dụng | `ztuser`, chỉ public key từ Gateway; không có sudo |
+| SSH ứng dụng | `ztuser`, chỉ public key từ Gateway, không có quyền sudo |
 | Quản trị VM | `linux`, khóa setup riêng, chỉ truy cập qua Gateway/VPN |
 
 ## Dùng VM đã cấu hình
@@ -25,16 +25,40 @@ python3 deploy/scripts/demo.py doctor
 
 Mở **https://localhost**, đăng nhập `demo-admin`, chọn `node-linux-01` và mở
 **Web SSH**. Chạy `hostname; whoami; uname -sr`: kết quả là `node-linux-01`,
-`ztuser`, Linux. Viewer xem được thông số nhưng không được mở SSH.
+`ztuser`, Linux. Tiêu đề terminal hiển thị `ztuser@node-linux-01` sau khi kết nối.
+Viewer xem được thông số nhưng không được mở SSH.
 Mật khẩu Dashboard ở `keys/demo-login.env`; mật khẩu VM không phải mật khẩu web.
 
-Web SSH đăng nhập hệ điều hành bằng **`ztuser`**, thư mục ban đầu `/home/ztuser`.
-Console VM thường đăng nhập **`linux`**, thư mục `/home/linux`. Vì vậy `cat a.txt`
-ở hai phiên có thể đọc hai tệp khác nhau; dùng `whoami; pwd; readlink -f a.txt`
-để xác định tệp. Đọc `/home/ztuser/a.txt` từ console cho cùng nội dung như Web SSH
-đọc tệp đó. `/home/linux` có quyền700 nên `ztuser` không truy cập được. Quyền
-ADMIN của Dashboard cho phép mở SSH, không tự đổi tài khoản Linux thành root
-hoặc tài khoản đang đăng nhập console. Không đổi quyền thư mục cá nhân để đồng bộ.
+Console quản trị thường dùng **`linux`**, Web SSH dùng **`ztuser`** riêng.
+Để đối chiếu cùng tệp trên console VM:
+
+```sh
+sudo -iu ztuser
+whoami; pwd; readlink -f a.txt
+```
+
+Console và Web SSH lúc này cùng thao tác `/home/ztuser/a.txt`, không cần sao chép
+hoặc đồng bộ tệp. Sau khi một phiên lưu, phiên kia đọc lại thấy thay đổi; editor
+đang mở cần tải lại nội dung. `/home/linux/a.txt` là tệp khác, được giữ riêng với
+home quyền 700. ADMIN của Dashboard được mở SSH, không tự có root/sudo trong VM.
+
+## Tài khoản SSH riêng từng node
+
+Migration 009 thêm `nodes.ssh_username`; node cũ để NULL tiếp tục dùng
+`BASTION_DEFAULT_USER` (`ztuser` trong Compose). Chỉ CLI quản trị cục bộ được
+đổi tài khoản sau khi khớp name/IP/token/host key; trình duyệt không chọn user.
+Bản hiện tại chốt `ztuser` cho cả Debian và Docker. Public Bastion key chỉ cấp
+cho `ztuser`; quyền Bastion tạm thêm cho `linux` trong lượt thử đã gỡ, khóa quản
+trị riêng của `linux` giữ nguyên. Password/root login vẫn tắt. Lệnh đã áp dụng:
+
+```sh
+python3 deploy/scripts/register-node.py register \
+  --bundle keys/linux-worker-01 \
+  --host-public-key keys/linux-worker-01/ssh_host_ed25519_key.pub --ssh-user ztuser
+```
+
+Lệnh này giữ định danh/khóa/token và các node khác; bỏ `--ssh-user` khi đăng ký
+lại sẽ giữ cấu hình tài khoản đang có. Docker `.2` vẫn dùng `ztuser`.
 
 SSH quản trị từ host sử dụng khóa đã cấp và host key đã ghim:
 
@@ -103,9 +127,9 @@ Backup cấu hình ban đầu nằm trong `/root/zt-before-20261020/` của gues
    Register thêm node `VM` và peer `/32`, ghim host key, giữ node/tài khoản cũ;
    Gateway không cần restart. Sau đó guest đã gọi được `/readyz` qua VPN.
 
-5. Tạo `ztuser` có shell, không sudo, cài **public** Bastion key vào
+5. Tạo `ztuser` có shell và không sudo. Public Bastion key nằm trong
    `/home/ztuser/.ssh/authorized_keys` (owner `ztuser`, thư mục 700, tệp 600).
-   Private host key Ed25519 đặt quyền 400, owner root. Agent cài bằng root:
+   Private host key Ed25519 quyền 400, owner root. Agent cài bằng root:
 
    ```sh
    set -a
@@ -144,7 +168,7 @@ Bundle host được giữ riêng để khôi phục, không đưa vào Git.
 ## Kiểm tra lại
 
 ```sh
-python3 deploy/scripts/verify-vm.py --node-name node-linux-01 --shell linux
+python3 deploy/scripts/verify-vm.py --node-name node-linux-01 --shell linux --ssh-user ztuser
 python3 deploy/scripts/demo.py doctor
 ```
 

@@ -1,0 +1,39 @@
+{
+  "browser": "158.0",
+  "checks": [
+    {
+      "name": "node-linux-01 authenticated READY and header use ztuser",
+      "pass": true
+    },
+    {
+      "name": "Web SSH reads the same a.txt as Linux console",
+      "pass": true
+    },
+    {
+      "name": "Console write is visible through real Web SSH",
+      "pass": true
+    },
+    {
+      "name": "Web SSH write is visible through Linux console",
+      "pass": true
+    },
+    {
+      "name": "Username header fits actual mobile viewport",
+      "pass": true
+    },
+    {
+      "name": "node-worker-01 authenticated READY and header use ztuser",
+      "pass": true
+    },
+    {
+      "name": "Docker keeps its own ztuser account after opening Linux VM",
+      "pass": true
+    },
+    {
+      "name": "No browser JavaScript errors",
+      "pass": true
+    }
+  ],
+  "fixture_removed": true,
+  "scope": "Actual VM/Docker through HTTPS browser and independent guest-console commands via QEMU agent as ztuser; temporary file for bidirectional writes, original a.txt unchanged"
+}

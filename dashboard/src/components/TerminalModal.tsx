@@ -23,6 +23,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
   const [connectionStatus, setConnectionStatus] = useState<'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR'>('CONNECTING');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [sshIdentity, setSshIdentity] = useState<{ nodeId: string; attempt: number; username: string } | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -45,6 +46,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
   }, [isOpen]);
 
   useEffect(() => {
+    setSshIdentity(null);
     if (!isOpen) return;
 
     let isSubscribed = true;
@@ -126,6 +128,9 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
               } else if (frame.type === 'READY') {
                 clearTimeout(readyTimeout);
                 isReady = true;
+                setSshIdentity(typeof frame.ssh_username === 'string' && frame.ssh_username.trim()
+                  ? { nodeId: node.id, attempt, username: frame.ssh_username }
+                  : null);
                 setConnectionStatus('CONNECTED');
                 term.focus();
                 term.writeln(`\r\n\x1b[32m✔ ${frame.message}\x1b[0m\r\n`);
@@ -214,6 +219,9 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
 
   if (!isOpen) return null;
 
+  const terminalName = sshIdentity?.nodeId === node.id && sshIdentity.attempt === attempt
+    ? `${sshIdentity.username}@${node.name}` : node.name;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-6 animate-fadeIn"
       onKeyDownCapture={(event) => {
@@ -225,7 +233,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
         }
       }}>
       <div
-        role="dialog" aria-modal="true" aria-label={`Terminal ${node.name}`}
+        role="dialog" aria-modal="true" aria-label={`Terminal ${terminalName}`}
         className={`flex min-w-0 flex-col rounded-2xl border border-neutral-800 bg-[#090d16] shadow-2xl transition-all duration-200 overflow-hidden ${
           isFullScreen ? 'h-full w-full' : 'h-[85vh] w-full max-w-5xl'
         }`}
@@ -237,7 +245,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap gap-2 items-center">
-                <span className="break-all font-semibold text-sm text-neutral-100">{node.name}</span>
+                <span className="break-all font-semibold text-sm text-neutral-100">{terminalName}</span>
                 <span className="font-mono text-xs text-neutral-400">({node.ip_address})</span>
                 <span className="inline-flex items-center text-[10px] font-mono rounded bg-neutral-800 px-1.5 py-0.5 text-neutral-300">
                   <ShieldCheck className="h-3 w-3 mr-1 text-cyan-400" />

@@ -251,10 +251,11 @@ export async function attachBastionSession(
   let nodeName = nodeIdentifier;
   let targetNodeId = nodeIdentifier;
   let expectedFingerprint = '';
+  let sshUsername = config.BASTION_DEFAULT_USER;
 
   try {
     const nodeRes = await query(
-      'SELECT id, name, ip_address, host_key_fingerprint FROM nodes WHERE (id::text = $1 OR name = $1) LIMIT 1;',
+      'SELECT id, name, ip_address, host_key_fingerprint, ssh_username FROM nodes WHERE (id::text = $1 OR name = $1) LIMIT 1;',
       [nodeIdentifier]
     );
 
@@ -267,6 +268,7 @@ export async function attachBastionSession(
     targetIp = nodeRes.rows[0].ip_address;
     nodeName = nodeRes.rows[0].name;
     expectedFingerprint = (nodeRes.rows[0].host_key_fingerprint || '').trim();
+    sshUsername = nodeRes.rows[0].ssh_username ?? config.BASTION_DEFAULT_USER;
 
     sessionRecord.nodeId = targetNodeId;
     sessionRecord.nodeName = nodeName;
@@ -296,7 +298,7 @@ export async function attachBastionSession(
     await query(
       `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
        VALUES ($1, 'BASTION_SESSION_START', 'bastion', $2, $3::inet);`,
-      [dbUser.id, JSON.stringify({ session_id: sessionId, node_id: nodeIdentifier, target_ip: targetIp }), auditClientIp]
+      [dbUser.id, JSON.stringify({ session_id: sessionId, node_id: nodeIdentifier, target_ip: targetIp, ssh_username: sshUsername }), auditClientIp]
     );
     isAuditStarted = true;
     sessionRecord.isAuditStarted = true;
@@ -415,6 +417,7 @@ export async function attachBastionSession(
             socket.send(JSON.stringify({
               type: 'READY',
               message: `Đã kết nối thành công tới ${nodeName} (${targetIp})`,
+              ssh_username: sshUsername,
             }));
           }
 
@@ -473,7 +476,7 @@ export async function attachBastionSession(
       sshClient.connect({
         host: targetIp,
         port: 22,
-        username: config.BASTION_DEFAULT_USER,
+        username: sshUsername,
         privateKey: privateKeyContent,
         readyTimeout: 3000,
         hostHash: 'sha256',

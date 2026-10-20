@@ -9,6 +9,7 @@ export const NodeRegistrationInput = z.object({
   node_type: z.enum(['VM', 'DOCKER', 'BARE_METAL']).default('VM'),
   node_token: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
   host_key_fingerprint: z.string().regex(/^SHA256:[A-Za-z0-9+/]{43}$/),
+  ssh_username: z.string().regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,31}$/).optional(),
 }).strict();
 
 export async function registerNode(client: Client | PoolClient, raw: unknown) {
@@ -33,13 +34,18 @@ export async function registerNode(client: Client | PoolClient, raw: unknown) {
         || node.host_key_fingerprint !== input.host_key_fingerprint) {
         throw new Error('NODE_REGISTRATION_CONFLICT');
       }
+      // Only this local, identity-checked CLI may change the SSH login account.
+      if (input.ssh_username !== undefined) {
+        await client.query('UPDATE nodes SET ssh_username = $2, updated_at = NOW() WHERE id = $1 AND ssh_username IS DISTINCT FROM $2;',
+          [node.id, input.ssh_username]);
+      }
       await client.query('COMMIT');
       return { id: node.id as string, created: false };
     }
     const inserted = await client.query(
-      `INSERT INTO nodes (name, ip_address, node_type, token_hash, token_prefix, host_key_fingerprint)
-       VALUES ($1, $2::inet, $3, $4, $5, $6) RETURNING id`,
-      [input.node_name, input.node_ip, input.node_type, tokenHash, input.node_token.slice(0, 8), input.host_key_fingerprint],
+      `INSERT INTO nodes (name, ip_address, node_type, token_hash, token_prefix, host_key_fingerprint, ssh_username)
+       VALUES ($1, $2::inet, $3, $4, $5, $6, $7) RETURNING id`,
+      [input.node_name, input.node_ip, input.node_type, tokenHash, input.node_token.slice(0, 8), input.host_key_fingerprint, input.ssh_username ?? null],
     );
     await client.query('COMMIT');
     return { id: inserted.rows[0].id as string, created: true };

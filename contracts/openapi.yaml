@@ -189,6 +189,8 @@ paths:
         Không đặt JWT trong URL. Sau HTTP Upgrade, gửi frame JSON đầu tiên
         {"type":"AUTH","ticket":"vé từ /api/bastion/ticket"} trong 5 giây.
         Server trả READY hoặc ERROR; dữ liệu terminal là text stream hai chiều.
+        READY có ssh_username là tài khoản SSH đã cấu hình của node để hiển thị
+        user@node; client không được chọn tài khoản bằng AUTH hoặc vé.
         Resize gửi {"type":"RESIZE","rows":32,"cols":100}.
         Vé được tiêu thụ một lần. Gateway kiểm tra lại ADMIN/session_version,
         khóa SSH và fingerprint; logout/khóa tài khoản thu hồi phiên đang mở.

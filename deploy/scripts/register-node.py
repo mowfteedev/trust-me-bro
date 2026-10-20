@@ -91,6 +91,7 @@ def main():
     register = commands.add_parser('register', help='Insert VM identity and append/apply its peer; preserves existing nodes.')
     register.add_argument('--bundle', type=Path, default=KEYS / 'windows-worker-01')
     register.add_argument('--host-public-key', required=True, type=Path, help='Trusted copy from Windows console/shared folder, not ssh-keyscan over untrusted network.')
+    register.add_argument('--ssh-user', help='Set this node\'s SSH account after verifying its existing identity; omitted keeps the current account.')
     args = parser.parse_args()
     env_file = args.env_file.resolve()
     if not env_file.is_file():
@@ -136,6 +137,8 @@ def main():
         print(f'Prepared private bundle: {bundle}. No peer/DB changes. Transfer securely to the dedicated VM.')
         print('After Windows setup, copy its host PUBLIC key back and run register with --host-public-key.')
     else:
+        if args.ssh_user is not None and not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]{0,31}', args.ssh_user):
+            parser.error('SSH user must be a local account name of 1–32 characters.')
         if bundle.stat().st_mode & 0o077:
             raise ValueError('Bundle permissions must be 0700 on the Gateway.')
         metadata = json.loads((bundle / 'metadata.json').read_text())
@@ -149,6 +152,8 @@ def main():
         fingerprint = host_fingerprint(args.host_public_key)
         data = {name: metadata[name] for name in ('node_name', 'node_ip', 'node_type')}
         data.update(node_token=token, host_key_fingerprint=fingerprint)
+        if args.ssh_user is not None:
+            data['ssh_username'] = args.ssh_user
         # Lock the existing inode: Docker bind mounts keep seeing the same file.
         with gateway_config.open('r+', encoding='utf-8') as stream:
             fcntl.flock(stream, fcntl.LOCK_EX)
@@ -172,6 +177,8 @@ def main():
             # Only public key and address are argv; never a private key or token.
             run(compose + ['exec', '-T', 'wireguard_gateway', 'wg', 'set', 'wg0', 'peer', public, 'allowed-ips', address + '/32'])
         print(f'Registered {metadata["node_name"]} ({address}) with a pinned Ed25519 host key; existing nodes/users preserved.')
+        if args.ssh_user is not None:
+            print(f'SSH account for this node: {args.ssh_user}. Other nodes are unchanged.')
         print('A failed partial run is safe to retry with the same bundle and host key; identities are never overwritten.')
 
 
