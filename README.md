@@ -32,3 +32,4 @@ make down    # Dừng demo, giữ dữ liệu
 13MiB RAM; số dịch vụ ứng dụng không gồm RAM hệ điều hành VM.
 Kiểm thử từ Internet độc lập **chưa thực hiện**. Telegram mặc định `dry-run`;
 chế độ `live` cần token và ghép nối chat.
+Cảnh báo vẫn lưu trong DB nếu Telegram mất kết nối.

@@ -27,6 +27,8 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+# Give WAN IPv4 time to connect before trying an unavailable IPv6 route.
+ENV NODE_OPTIONS=--network-family-autoselection-attempt-timeout=2500
 
 # Sử dụng người dùng không đặc quyền node (UID/GID 1000) sẵn có trong node:22-alpine
 # để đồng bộ quyền hạn với host filesystem (tránh lỗi EACCES với keys chmod 600/700)
