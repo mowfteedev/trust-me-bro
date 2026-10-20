@@ -29,7 +29,7 @@ import { buildServer } from '../src/server.js';
 import { hashPassword } from '../src/utils/crypto.js';
 import { attachBastionSession } from '../src/services/bastion/session.js';
 import { createBastionTicket, verifyAndConsumeTicket } from '../src/services/bastion/tickets.js';
-import { shutdownAllBastionSessions } from '../src/services/bastion/registry.js';
+import { activeSessions, shutdownAllBastionSessions, type ActiveSession } from '../src/services/bastion/registry.js';
 
 const user = { id: '956947db-c94f-453a-8798-908e6a197a3e', username: 'test-admin',
   role: 'ADMIN', is_active: true, session_version: 1, password_hash: hashPassword('test-only-password') };
@@ -143,6 +143,84 @@ describe('bounded failed-login audit and trusted proxy', () => {
       headers: { authorization: `Bearer ${token}` }, payload: { node_id: 'worker-test' } });
     expect(result.statusCode).toBe(403);
     expect(mock.query.mock.calls.some(([sql]) => sql.includes("'BASTION_TICKET_ISSUED'"))).toBe(false);
+  });
+});
+
+describe('logout immediately revokes local SSH sessions (mock DB and sessions)', () => {
+  const logout = () => app.inject({ method: 'POST', url: '/api/auth/logout',
+    headers: { authorization: `Bearer ${app.jwt.sign({ id: user.id, username: user.username,
+      role: 'ADMIN', session_version: 1 })}` } });
+  const addSession = (id: string, version: number, userId = user.id) => {
+    const cleanupFn = vi.fn(() => { activeSessions.delete(id); });
+    activeSessions.set(id, { sessionId: id, userId, sessionVersion: version,
+      state: 'READY', cleanupFn } as unknown as ActiveSession);
+    return cleanupFn;
+  };
+  const database = async (sql: string) => ({ rows: sql.includes('FROM users') ? [user]
+    : sql.startsWith('UPDATE users') ? [{ session_version: 2 }] : [], rowCount: 1 });
+
+  it('closes only older versions of this user before returning success, without waiting for the checker', async () => {
+    mock.query.mockImplementation(database);
+    const older = addSession('old', 0);
+    const revoked = addSession('revoked', 1);
+    const current = addSession('new-login', 2);
+    const newer = addSession('newer-login', 3);
+    const unrelated = addSession('other-user', 1, 'other-user');
+    const result = await logout();
+    expect(result.statusCode).toBe(200);
+    for (const cleanup of [older, revoked]) expect(cleanup).toHaveBeenCalledWith(4403, 'Session Revoked', expect.any(String));
+    for (const cleanup of [current, newer, unrelated]) expect(cleanup).not.toHaveBeenCalled();
+    const update = mock.query.mock.calls.findIndex(([sql]) => sql.startsWith('UPDATE users'));
+    const audit = mock.query.mock.calls.findIndex(([sql]) => sql.includes("'LOGOUT_SUCCESS'"));
+    expect(mock.query.mock.calls[update][0]).toContain('RETURNING session_version');
+    expect(mock.query.mock.invocationCallOrder[update]).toBeLessThan(revoked.mock.invocationCallOrder[0]);
+    expect(revoked.mock.invocationCallOrder[0]).toBeLessThan(mock.query.mock.invocationCallOrder[audit]);
+  });
+
+  it('preserves a new login created while the revocation update was in flight', async () => {
+    let finishUpdate!: (result: unknown) => void;
+    let updateStarted!: () => void;
+    const started = new Promise<void>((resolve) => { updateStarted = resolve; });
+    const pending = new Promise((resolve) => { finishUpdate = resolve; });
+    mock.query.mockImplementation((sql: string) => {
+      if (sql.startsWith('UPDATE users')) { updateStarted(); return pending; }
+      return database(sql);
+    });
+    const revoked = addSession('old-login', 1);
+    const request = logout();
+    await started;
+    const current = addSession('concurrent-new-login', 2);
+    finishUpdate({ rows: [{ session_version: 2 }], rowCount: 1 });
+    expect((await request).statusCode).toBe(200);
+    expect(revoked).toHaveBeenCalledTimes(1);
+    expect(current).not.toHaveBeenCalled();
+  });
+
+  it('keeps local sessions when the database has not committed revocation', async () => {
+    mock.query.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('UPDATE users')) throw new Error('private-db-update-error');
+      return database(sql);
+    });
+    const cleanup = addSession('still-valid', 1);
+    const result = await logout();
+    expect(result.statusCode).toBe(503);
+    expect(result.json().code).toBe('LOGOUT_FAILED');
+    expect(result.body).not.toContain('private-db-update-error');
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(mock.query.mock.calls.some(([sql]) => sql.includes("'LOGOUT_SUCCESS'"))).toBe(false);
+  });
+
+  it('still closes revoked SSH sessions when the subsequent audit write fails', async () => {
+    mock.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("'LOGOUT_SUCCESS'")) throw new Error('private-audit-error');
+      return database(sql);
+    });
+    const cleanup = addSession('revoked-before-audit', 1);
+    const result = await logout();
+    expect(result.statusCode).toBe(503);
+    expect(result.json().code).toBe('AUDIT_LOG_FAILURE');
+    expect(result.body).not.toContain('private-audit-error');
+    expect(cleanup).toHaveBeenCalledWith(4403, 'Session Revoked', expect.any(String));
   });
 });
 
