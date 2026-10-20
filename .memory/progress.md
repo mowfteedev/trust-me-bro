@@ -770,3 +770,10 @@ Commit bàn giao xem `git log -1 --oneline`.
   hoặc nhãn giả lập giữ nguyên; plain text, giữ API/DB/dedup/retry/pairing.
   Gateway build và98unit đạt trong bản sao cô lập (DB/HTTP đượcmock), thêm
   11case so với87. Chưa tính mockfetch là gửiTelegram thật. Xem telegram-content.md.
+- Dashboard: Tailwind4.3.3/PostCSSplugin chính thức thay câyTailwind3, bỏ
+  autoprefixer; giữ màu/blur/reset bằng ít token tương thích. Không sửa TSX,
+  chín entry runtime giữ nguyên. Build/Docker/Nginx-t đạt; audit all/runtime0.
+  Firefox24layout trước/sau giống toàn bộ28.537.200pixel, geometry giống và
+  không tràn ngang. API/WS là fixture UI có nhãn, không tính thành SSH thật.
+  CSSgzip11,80→12,74kB; browser cần hiện đại, đã thửFirefox158. Xem
+  dashboard-tooling-final.md, cache theo keys/dashboard-tooling-final-path.
