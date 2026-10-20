@@ -248,3 +248,88 @@ Bảo toàn dữ liệu/cấu hình, so sánh hash và định danh trước/sau
 Giới hạn: KVM chưa được giảng viên xác nhận thay VMware/VirtualBox; CPU cao riêng trên Windows, ingress Internet/IPv6/UDP độc lập và RAM toàn mô hình CHƯA KIỂM CHỨNG. Không chứng nhận production hoặc mọi tình huống boot. Restore đã chạy sau setup dở dang, không gỡ cấu hình cuối đang phục vụ demo. Không tự gửi Telegram thủ công; reboot trên cụm live có thể sinh cảnh báo theo cấu hình chủ dự án đã ghép nối.
 
 Khởi chạy lại theo README: demo.py up exit0; demo.py doctor exit0,0 vấn đề, ba node có heartbeat mới/handshake/banner.
+
+=== Tối ưu RAM Windows Agent — 20/10/2026 ===
+Source base c03c333 + platform_windows.go/build-windows.sh trong cùng commit với log này.
+Go1.27.3-alpine; CGO0, amd64; GOFIPS140=v1.0.0-c2097c7c; DefaultGODEBUG fips140=off.
+Script build chạy trong Docker, không cài thư viện mới, giữ Go heap soft budget6MiB.
+Lần thử Docker --output dừng vì host không có buildx; dùng script Go trong Docker sẵn có.
+
+Nguyên nhân: crypto/internal/fips140/drbg.memory là BSS33.554.432byte, nằm ngoài giới hạn Go heap.
+GOFIPS140=off mặc định không bỏ vùng này; không hạ Go cũ hoặc sửa thư viện chuẩn.
+Native A/B cùng Go1.27.2, code probe, Windows và identity: sau Win32+HTTP Gateway thật,
+private stock46.972.928byte → snapshot13.385.728byte. Đây là probe chẩn đoán tạm,
+không gửi telemetry giả; WorkingSet lúc mới chạy của cảhai khoảng7,5MB, không dùng
+riêng phép đo lạnh đó làm kết luận cho service.
+
+Đã thay service LocalService bằng binary mới qua installer hiện có, giữ config/token
+(hash không đổi), backup binary cũ riêng; chuẩn hóa lại bundle deploy có sẵn.
+Cùng VM/identity/config, service trước WorkingSet45,734MiB/private46,078MiB (6mẫu/15s).
+Service mới sau146–162s: WorkingSet9,000–9,074MiB/private13,648–13,711MiB (6mẫu/15s).
+Median giảm WorkingSet80,26%, private70,34%; không ép GC, trim working set hoặc
+thay chu kỳ gửi để tạo số đẹp. Raw bytes/PID/thời gian: agent-memory.json.
+Private bytes khác WorkingSet; cửa sổ đo ngắn, không cam kết hard cap mọi tải.
+
+Native Windows test executable Go1.27.3: 18ca top-level đạt, bao gồm Win32 collector,
+FIPS mặc định off, TLS1.2/TLS1.3 và từ chối CA không tin cậy. Các ca HTTP/TLS dùng
+server TCP loopback của test, không tự nhận là HTTPS qua Internet.
+--- PASS: TestConfig (0.00s)
+--- PASS: TestHTTPContract (0.00s)
+--- PASS: TestHTTPRejectsErrorsAndRedirects (0.00s)
+--- PASS: TestHTTPTimeoutAndCancellation (0.03s)
+--- PASS: TestResponseReadIsBounded (0.00s)
+--- PASS: TestBackoffResetCapAndJitter (0.00s)
+--- PASS: TestRunRetriesAndStopsWithoutWaitingForBackoff (1.00s)
+--- PASS: TestCollectorErrorNeverSendsFakeHeartbeat (0.00s)
+--- PASS: TestCancelledWaitReturnsImmediately (0.00s)
+--- PASS: TestMemoryBudgetDefaultAndOverride (0.00s)
+--- PASS: TestWindowsABIAndConfig (0.00s)
+--- PASS: TestWindowsNativeCollector (0.11s)
+--- PASS: TestConfigFileIsBoundedStrictAndIndependentOfEnvironment (0.02s)
+--- PASS: TestCPUJSONOmitsUnavailableLoadAverage (0.00s)
+--- PASS: TestCapacityUsesMatchingTotalAndAvailableCounters (0.00s)
+--- PASS: TestServiceLogRotatesWithoutGrowingUnbounded (0.00s)
+--- PASS: TestWindowsCryptoDefault (0.00s)
+--- PASS: TestHTTPSRequiresTrustAndSupportsTLS12And13 (0.02s)
+
+Linux regression: go test -race ./... exit0 (Go1.27.2-X:nodwarf5, 2.240s); reviewer go test ./... cũng exit0.
+
+Windows runtime trên service mới:
+Live VM verification: real telemetry, Admin/Viewer, SSH command, audit and logout.
+This revokes demo-account sessions on the selected Gateway.
+PASS 1: Gateway + PostgreSQL ready
+PASS 2: Chưa login không đọc nodes
+PASS 3: Mật khẩu sai bị từ chối
+PASS 4: Viewer có vai trò từ DB
+PASS 5: Admin có vai trò từ DB
+PASS 6: JWT unsigned bị từ chối
+PASS 7: Telemetry thật CPU/RAM/disk hiển thị qua API
+PASS 8: Network I/O + uptime thật qua API
+PASS 9: Viewer đọc lịch sử biểu đồ
+PASS 10: Viewer không lấy vé SSH
+PASS 11: Admin lấy vé SSH
+PASS 12: WebSocket→SSH→PTY thực thi lệnh thật qua WireGuard (windows, user=ztuser)
+PASS 13: Audit START + END cùng phiên và IP socket VPN thật; XFF giả bị bỏ qua
+PASS 14: Đăng xuất đóng phiên SSH đang mở bằng session revocation
+PASS 15: Đăng xuất thu hồi JWT trên server
+PASS 16: Viewer đăng xuất được
+16 kiểm tra chức năng thật đạt cho node-windows-01 (windows). Không tự xác nhận hypervisor, firewall Internet, RAM hoặc cảnh báo Telegram.
+
+Stop/Start: PID776→2464, Running/LocalService, beacon ACK mới sau3s.
+20mẫu telemetry thật qua PostgreSQL: heartbeat median3,009625s, min3,008508s/max3,01106s.
+
+Sau dọn công cụ tạm: 11cổngTCP transport vẫn không kết nối được, gồm5985/WinRM;
+HTTP chuyển artifact tạm trên host18743 đã đóng, helper upload tạm đã dừng.
+WinRM cleanup task tự gỡ; không mở quyền SSH quản trị trực tiếp.
+
+Snapshot6container demo: 156.01MiB; không gồm hostOS/Docker daemon/VMOS.
+Không dùng snapshot này để khẳng định RAM toàn mô hình500MB–1GB.
+
+Nguồn: https://go.dev/doc/security/fips140 ; https://github.com/golang/go/issues/81505 ; https://go.dev/doc/devel/release
+KVM/VMware, Internet/IPv6 và CPU cao riêng Windows vẫn giữ giới hạn trước.
+Lượt này kiểm tra service Stop/Start, không chạy thêm full Windows reboot hoặc benchmark dài.
+
+Mẫu cuối sau hơn12phút, qua SSH ztuser (WinRM đã đóng):
+{"Time": "2026-10-20T08:22:17.8000303Z", "PID": 2464, "WorkingSetBytes": 10403840, "PrivateBytes": 14712832}
+WorkingSet9,921875MiB/private14,03125MiB; so với trước giảm78,31%/69,55%.
+Không chọn riêng số đo khởi động lạnh để kết luận; đây vẫn là quan sát hữu hạn, không hardcap.

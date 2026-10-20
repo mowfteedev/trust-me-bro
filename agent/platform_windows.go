@@ -1,5 +1,7 @@
 //go:build windows && (amd64 || arm64)
 
+//go:debug fips140=off
+
 package main
 
 import (

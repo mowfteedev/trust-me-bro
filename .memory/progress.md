@@ -680,3 +680,41 @@ Commit bàn giao xem `git log -1 --oneline`.
   README, DEMO, WINDOWS_WORKER và verification/windows-runtime.txt +2ảnh +
   browserJSON cập nhật đúng kết quả thật. Cache thô: đường dẫn private trong
   keys/windows2022-evidence-path. Không đưa secrets hoặc bundle vào Git.
+
+## Tối ưu RAM Windows Agent theo yêu cầu — 20/10/2026
+
+- Chủ dự án yêu cầu tối ưu sau khi hoàn tất Windows. Tiếp tục minh-thanh,
+  commit cục bộ theo việc, không push/merge. Dùng devops/tester/reviewer của
+  guild phù hợp, một reviewer readonly độc lập; không thêm cache/dịch vụ/app.
+- Tìm BSS32MiB crypto/internal/fips140/drbg.memory trong Go1.27.2. Native
+  probe A/B cùng code/Go/Windows giảm private46.972.928→13.385.728byte khi
+  chọn snapshotGo v1.0.0; không phải collector giữ dữ liệu. GOFIPS140=off
+  thông thường không loại buffer. Không sửa stdlib hoặc hạ Go hết hỗ trợ.
+- Thêm build-windows.sh dùng Go1.27.3-alpine (bản vá19/10, x509),
+  GOFIPS140=v1.0.0-c2097c7c chính thức còn hỗ trợ. Windows directive giữ
+  runtime fips140=off như trước; Linux không nhận directive. Có thể thiếu
+  thuật toán mới ngoài nhu cầu; compiler bỏ snapshot sẽ fail rõ, không fallback.
+- Thay binary qua installer hiện có, backup bản cũ, config/token hash không
+  đổi, LocalService và quyền SSH/VPN giữ nguyên. Native18ca đạt, gồm Win32,
+  modeoff, TLS1.2/1.3 và từ chối CA không tin cậy (TLS loopback thật).
+  Linux go test-race đạt; reviewer go test cũng đạt. Windows runtime16/16
+  qua Gateway/WireGuard/SSH/audit/logout thật. Stop/Start có PID/ACK mới.
+- Cùng VM/config/identity: WorkingSet45,734→9,000–9,074MiB sau146–162s;
+  private46,078→13,648–13,711MiB. Median giảm80,26% và70,34%. Giữ
+  GOMEMLIMIT soft6MiB, không trim/épGC hoặc đổi heartbeat để làm đẹp số.
+  20mẫuDB heartbeat median3,009625s. Không cam kết hardcap/mọi tải.
+- Cập nhật bản deploy riêng keys/windows2022-deploy và canonical Stage;
+  giữ bundleWindows gốc, DB/users/nodeidentity,8báo cáo chưatrack.
+  Debug probes chỉ nằm cache/privateStage, không đưa production CLI.
+  WinRM tạm/HTTP artifact tạm đã đóng, helper upload thử đã dừng; credential
+  tạm được xóa sau dùng, không lưu literal vào Git/memory.
+- Rawcache ở đường dẫn private keys/agent-optimization-path; bằng chứng
+  agent-memory.json và windows-runtime.txt; README/DEMO/WINDOWS_WORKER cập
+  nhật đúng số đo/giới hạn. Không nhận WorkingSet=private, không chứng minh
+  RAM toàn mô hình500MB–1GB gồmOS/VM. Không thêm benchmark dài hoặc full
+  reboot vì lượt này chỉ thay build; service Stop/Start và luồng thật đã đạt.
+- Mẫu cuối sau hơn12phút từ PID2464 qua SSH ztuser: WorkingSet9,921875MiB,
+  private14,03125MiB (giảm78,31%/69,55%). Đã cập nhật docs để không chỉ
+  dùng mẫu sớm9MiB làm kết luận. Snapshot6container cuối156,01MiB, không
+  gồmOS/daemon/VM. Credential tạm đã xóa;11cổng transport và HTTP artifact
+  tạm đều xác nhận đóng, doctor0vấn đề.

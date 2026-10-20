@@ -109,8 +109,10 @@ fingerprint SSH. Gateway giữ khóa SSH nên vẫn là điểm tin cậy quan t
 không tuyên bố an toàn tuyệt đối. SSH shell demo không có root. Snapshot RAM
 Python trước đây khoảng23MiB; Agent Go mới khoảng10,3–10,6MiB RSS trong các lượt đo,
 gần mục tiêu khoảng10MB nhưng không cam kết dưới10MB mọi tải. Bản18/10 thêm hỗ trợ
-Windows/config/diagnostic chung đo LinuxRSS khoảng11,0MiB; WindowsWorkingSet
-lượt20/10 khoảng46MiB, chưa đạt mục tiêu khoảng10MB.
+Windows/config/diagnostic chung đo LinuxRSS khoảng11,0MiB. Windows sau tối ưu
+build20/10 đo WorkingSet9,00–9,07MiB ở146–162s; sau hơn12phút9,92MiB,
+private14,03MiB, trước đó khoảng46MiB.
+Không dùng WorkingSet làm giới hạn cứng hoặc đánh đồng với private bytes.
 Docker worker có VPN/SSH
 thật nhưng chưa phải bằng chứng VMware/VirtualBox; xem [VM_SETUP.md](VM_SETUP.md).
 Số liệu `/proc` trong container phản ánh kernel/namespace đang chạy, không nên
@@ -161,8 +163,9 @@ python3 deploy/scripts/verify-vm.py --node-name node-windows-01 --shell windows 
 
 Đạt16/16 luồng API/SSH/audit/logout và7/7 Firefox sau reboot. Lệnh verify thu hồi
 phiên các tài khoản demo. Xem [Windows Worker](WINDOWS_WORKER.md) và
-[bằng chứng/giới hạn](verification/windows-runtime.txt). RAM Agent Windows còn
-cao hơn mục tiêu; chưa thử CPU cao riêng trên VM hoặc ingress Internet/IPv6 độc lập.
+[bằng chứng/giới hạn](verification/windows-runtime.txt). Lượt tối ưu build tiếp
+theo đạt18 test native Windows,16 luồng thật và dừng/bật service có ACK mới;
+WorkingSet khoảng9MiB. Chưa thử CPU cao riêng trên VM hoặc ingress Internet/IPv6 độc lập.
 
 Kết thúc bằng `python3 deploy/scripts/demo.py down` nếu muốn dừng; dữ liệu demo
 được giữ để chạy lại. Không merge vào main hoặc deploy production.

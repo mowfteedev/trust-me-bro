@@ -57,17 +57,18 @@ python3 deploy/scripts/register-node.py prepare --gateway-endpoint 192.168.122.1
 
 `keys/windows-worker-01/` chứa token/khóa riêng, không đưa vào Git hoặc ảnh.
 Lượt cài thực tế dùng bản sao riêng `keys/windows2022-deploy/`, giữ bundle gốc.
-Build Windows executable và test executable từ source Agent hiện tại. Cần Go1.23+
-cho đoạn dưới; lượt này đã build trong container `golang:1.27-alpine`:
+Build Windows executable và test executable bằng Go1.27.3 đã kiểm chứng. Từ
+repository trên host Linux, dùng Docker sẵn có, không cần cài Go lên host:
 
 ```sh
-cd agent
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /tmp/zt-agent-windows-amd64.exe .
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o /tmp/zt-agent-windows.test.exe .
+mkdir -p keys/windows-agent-build
+docker run --rm -u "$(id -u):$(id -g)" -e GOCACHE=/tmp/go-build \
+  -v "$PWD/agent:/src:ro" -v "$PWD/keys/windows-agent-build:/out" \
+  -w /src golang:1.27.3-alpine sh ./build-windows.sh /out
 ```
 
-Chuyển executable thành `zt-agent.exe`, test executable thành
-`zt-agent-tests.exe`; kèm `agent/install-windows.ps1` và đủ bốn script
+Lấy `zt-agent.exe`, `zt-agent-tests.exe`, `build-info.txt` trong thư mục output;
+kèm `agent/install-windows.ps1` và đủ bốn script
 `deploy/windows/*.ps1`. Chuyển bundle qua kênh tin cậy vào thư mục chỉ quản trị
 viên được ghi. Không chép khóa riêng Gateway sang Worker.
 
@@ -124,8 +125,10 @@ hạn nằm trong [log Windows](verification/windows-runtime.txt).
 Ảnh thật: [dashboard](verification/windows-dashboard.png),
 [Web SSH Windows](verification/windows-terminal.png).
 
-Windows Agent đo WorkingSet khoảng46MiB: **chưa đạt mục tiêu khoảng10MB**;
-WorkingSet khác private bytes và RAM toàn hệ thống. Không chứng nhận mốcRAM
+Sau tối ưu build ngày20/10, Agent LocalService đo WorkingSet **9,00–9,07MiB**
+(trước45,73MiB), private bytes **13,65–13,71MiB** (trước46,08MiB), ở tuổi
+process146–162s. Sau hơn12phút: WorkingSet **9,92MiB**, private **14,03MiB**.
+Đây là các phép đo khác nhau, không phải giới hạn cứng mọi tải. Không chứng nhận mốcRAM
 500MB–1GB cho toàn mô hình. CPU cao riêng trên Windows VM và ingress từ Internet/
 IPv6 độc lập **CHƯA KIỂM CHỨNG**. Không suy cross-build hoặc scanIPv4 nội bộ
 thành các kết quả đó.
@@ -133,6 +136,16 @@ thành các kết quả đó.
 Checker vẫn exit1 khi liệt kê Core Networking inbound rules cần rà soát. Đã
 kiểm tra từng rule, giữ các rule mạng hệ điều hành và chạy probe ứng dụng riêng;
 không tắt DHCP/ND hoặc sửa checker để tạo PASS. WinRM tạm phục vụ cài đặt đã đóng.
+
+Build Windows chọn snapshot mật mã chính thức `GOFIPS140=v1.0.0`, giữ runtime
+`fips140=off` như trước. Snapshot này tránh vùng BSS32MiB của bộ sinh entropy
+mới; không đổi giới hạn Go heap, không ép GC hoặc trim WorkingSet. Build dùng Go
+1.27.3; TLS1.2/1.3, từ chối chứng chỉ không tin cậy và chế độ FIPS off đã kiểm tra
+trên Windows thật. Snapshot cũ có thể thiếu tính năng mật mã mới; build sẽ báo
+lỗi nếu toolchain tương lai bỏ hỗ trợ, không tự đổi sang bản khác.
+[Chính sách Go](https://go.dev/doc/security/fips140),
+[nguyên nhân upstream](https://github.com/golang/go/issues/81505),
+[số đo và phương pháp](verification/agent-memory.json).
 
 ## Hai lỗi khởi động đã gặp
 

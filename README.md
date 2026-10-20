@@ -320,8 +320,9 @@ VmSize (không gian địa chỉ ảo) và Docker stats. Snapshot container18/10
 không tính OS/Docker daemon/hypervisor và không phải benchmark.
 Debian VM đã kiểm chứng chức năng và reboot; Agent RSS lượt20/10 là10,67MiB
 (10924KiB trong6mẫu/10s), chưa đo đủ RAM toàn mô hình gồm OS/daemon/hypervisor.
-Agent Windows WorkingSet khoảng46MiB, cao hơn mục tiêu khoảng10MB; không dùng
-số đo Linux thay cho Windows hoặc khẳng định toàn mô hình đạt500MB–1GB.
+Agent Windows sau tối ưu build20/10: mẫu146–162s có WorkingSet9,00–9,07MiB;
+sau hơn12phút là9,92MiB, private14,03MiB, giảm khoảng78%/70% so với bản trước. [Số đo native](docs/verification/agent-memory.json).
+Đây không phải giới hạn cứng; chưa chứng minh RAM toàn mô hình500MB–1GB gồm OS/VM.
 VMware/VirtualBox và thử inbound từ Internet độc lập còn cần xác nhận. Telegram live đã
 ghép nối và thử gửi; môi trường mới vẫn mặc định dry-run. Slide và báo cáo môn học
 nằm ngoài công việc phiên này. Không nhận bản này là hệ thống production.
