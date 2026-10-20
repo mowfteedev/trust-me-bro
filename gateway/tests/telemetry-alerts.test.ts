@@ -200,6 +200,25 @@ describe('orphan SSH audit reconciliation (mock DB)', () => {
 });
 
 describe('Telegram (mock fetch only)', () => {
+  it('sends the Vietnamese alert text in a plain-text Telegram payload', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-20T18:05:06Z'));
+    mock.config.TELEGRAM_MODE = 'live';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200,
+      json: async () => ({ ok: true, result: { message_id: 1 } }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new TelegramService();
+    await service.pairWithOtp('test-chat', service.getPairOtp());
+    expect(await service.sendAlert(node.name, 'WARNING', `CPU_HIGH: ${node.name} CPU 90% >= 85%.`)).toBe(true);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.chat_id).toBe('test-chat');
+    expect(body.text).toContain('ZT-ServerOps | CPU cao');
+    expect(body.text).toContain('CPU ghi nhận: 90%\nNgưỡng cảnh báo: ≥ 85%');
+    expect(body.text).toContain('(UTC+7)');
+    expect(body).not.toHaveProperty('parse_mode');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    service.stop();
+  });
   it('dry-run reports simulation without any fetch even with a token', async () => {
     const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
     const service = new TelegramService();

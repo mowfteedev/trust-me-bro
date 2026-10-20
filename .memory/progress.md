@@ -758,3 +758,15 @@ Commit bàn giao xem `git log -1 --oneline`.
   và fixtureuser tạm đãxóa, helperuploadtreo đãdừng. Privatebundledeploy cậpnhật,
   bundlegốc giữlại. BáocáoV2 được sửa ngoài scope tronglúc làm; khôngreset/stage.
   KVMchấpthuận, máyInternet và7cảnhbáoTailwind3 cònmở. closure.md/JSON ghi rõ.
+
+## Ba mục cuối và nội dung Telegram — 20/10/2026
+
+- Chủ dự án yêu cầu xử lý tiếp tooling Dashboard, RAM Agent Windows và phép
+  đo phục hồi sau boot; loại hai mục Internet độc lập và chấp thuận KVM khỏi
+  lượt này. Bổ sung yêu cầu sửa nội dung Telegram. Giữ minh-thanh, commit theo
+  việc, chưa push. Không thay phạm vi thành tối ưu toàn bộ OS Windows.
+- Telegram: formatter nhỏ nhận đúng payload CPU_HIGH/NODE_OFFLINE, hiển thị
+  tiếng Việt, số đo/ngưỡng/IP, đề nghị kiểm tra và giờ Việt Nam UTC+7. Tin lạ
+  hoặc nhãn giả lập giữ nguyên; plain text, giữ API/DB/dedup/retry/pairing.
+  Gateway build và98unit đạt trong bản sao cô lập (DB/HTTP đượcmock), thêm
+  11case so với87. Chưa tính mockfetch là gửiTelegram thật. Xem telegram-content.md.

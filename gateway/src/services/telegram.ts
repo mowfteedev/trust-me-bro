@@ -1,6 +1,7 @@
 import { config } from '../config/env.js';
 import { generateNumericOtp } from '../utils/crypto.js';
 import { query } from './db.js';
+import { formatTelegramAlert } from './telegram-message.js';
 
 /**
  * ==============================================================================
@@ -119,7 +120,7 @@ export class TelegramService {
    */
   public async sendAlert(nodeName: string, severity: 'INFO' | 'WARNING' | 'CRITICAL', message: string): Promise<boolean> {
     if (this.stopped || this.mode === 'disabled') return false;
-    const text = `[ZT-ServerOps ${severity}] ${nodeName}\n${message}\n${new Date().toISOString()}`;
+    const text = formatTelegramAlert(nodeName, severity, message);
     if (this.mode === 'dry-run') {
       console.log('[TELEGRAM DRY-RUN / GIẢ LẬP — KHÔNG GỬI]', text);
       return true;
