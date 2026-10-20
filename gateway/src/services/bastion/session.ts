@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import crypto from 'node:crypto';
+import { StringDecoder } from 'node:string_decoder';
 import { Client } from 'ssh2';
 import type { WebSocket } from 'ws';
 import { config } from '../../config/env.js';
@@ -421,11 +422,14 @@ export async function attachBastionSession(
             }));
           }
 
-          stream.on('data', (chunk: Buffer) => {
-            sessionRecord.lastActivityTime = Date.now();
+          const outputDecoder = new StringDecoder('utf8');
+          let outputEnded = false;
+          const sendOutput = (data: string) => {
+            if (!data || sessionState === 'CLOSED' || isCancelled) return;
             if (socket.readyState === 1) {
               try {
-                socket.send(chunk.toString('utf-8'));
+                // Shell text must never impersonate Gateway READY/ERROR frames.
+                socket.send(JSON.stringify({ type: 'DATA', data }));
                 if ((socket as any).bufferedAmount > 65536) {
                   if (typeof stream.pause === 'function') stream.pause();
 
@@ -457,7 +461,20 @@ export async function attachBastionSession(
                 runCleanup(1011, 'Send Error');
               }
             }
+          };
+
+          const finishOutput = () => {
+            if (outputEnded) return;
+            outputEnded = true;
+            sendOutput(outputDecoder.end());
+          };
+
+          stream.on('data', (chunk: Buffer) => {
+            if (outputEnded || sessionState === 'CLOSED' || isCancelled) return;
+            sessionRecord.lastActivityTime = Date.now();
+            sendOutput(outputDecoder.write(chunk));
           });
+          stream.once('end', finishOutput);
 
           stream.on('error', (streamErr: any) => {
             console.warn('⚠️ [BASTION STREAM ERROR]:', streamErr.message);
@@ -465,6 +482,7 @@ export async function attachBastionSession(
           });
 
           stream.on('close', () => {
+            finishOutput();
             runCleanup(1000, 'Session Closed');
           });
         }
@@ -507,7 +525,7 @@ export async function attachBastionSession(
         },
       });
     } catch {
-      handleProbeFailure();
+      runCleanup(4502, 'SSH Connection Interrupted', 'Mất kết nối SSH với máy chủ đích (Xác thực hoặc giao thức SSH thất bại)');
     }
   });
 

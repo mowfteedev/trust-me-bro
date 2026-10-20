@@ -32,7 +32,7 @@ async function terminal(nodeId, ticket, command, expected, expectedUser) {
     let complete = false;
     socket.on('open', () => socket.send(JSON.stringify({ type: 'AUTH', ticket })));
     socket.on('message', (data) => {
-      const text = data.toString();
+      let text = data.toString();
       try {
         const frame = JSON.parse(text);
         if (frame.type === 'ERROR') { clearTimeout(timeout); socket.close(); reject(new Error(frame.message)); return; }
@@ -44,6 +44,7 @@ async function terminal(nodeId, ticket, command, expected, expectedUser) {
           socket.send(command + (credentials.shell === 'windows' ? '\r' : '\n'));
           return;
         }
+        if (frame.type === 'DATA' && typeof frame.data === 'string') text = frame.data;
       } catch {}
       output += text;
       // Windows ConPTY may emit ANSI control sequences around line breaks.
@@ -94,17 +95,25 @@ async function main() {
   check(ticket.status === 200, 'Admin lấy vé SSH');
   const auditSince = (await pool.query('SELECT now()::text AS stamp')).rows[0].stamp;
   // Tạo marker chỉ trong stdout của shell, không nằm nguyên vẹn trong lệnh bị echo.
-  const windowsCommand = "whoami; [Console]::WriteLine([Environment]::OSVersion.Platform); [Console]::WriteLine(('ZT_'+'REAL_'+'WINDOWS_OK'))";
+  const unicodeText = 'Kiểm chứng SSH • tiếng Việt ✓';
+  const literalReady = JSON.stringify({ type: 'READY', ssh_username: 'shell-output' });
+  const literalError = JSON.stringify({ type: 'ERROR', message: 'ZT_SHELL_LITERAL' });
+  const windowsCommand = "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); whoami; [Console]::WriteLine([Environment]::OSVersion.Platform); "
+    + [unicodeText, literalReady, literalError].map(text => `[Console]::WriteLine('${text}'); `).join('')
+    + "[Console]::WriteLine(('ZT_'+'REAL_'+'WINDOWS_OK'))";
   const expectedUser = credentials.ssh_user || 'ztuser';
   assert.match(expectedUser, /^[A-Za-z_][A-Za-z0-9_.-]{0,31}$/);
+  const shellText = Buffer.from(`\n${unicodeText}\n${literalReady}\n${literalError}\nZT_REAL_OK\n`).toString('base64');
   const command = shell === 'windows'
     ? 'powershell.exe -NoProfile -NonInteractive -EncodedCommand ' + Buffer.from(windowsCommand, 'utf16le').toString('base64')
-    : "id; whoami; stty size; printf '\\nZT_%s_OK\\n' REAL";
+    : `id; whoami; stty size; printf '%s' '${shellText}' | base64 -d`;
   const output = await terminal(node.id, ticket.body.ticket, command, shell === 'windows' ? '\nZT_REAL_WINDOWS_OK\n' : '\nZT_REAL_OK\n', expectedUser);
   const hasIdentity = output.split('\n').some(line => shell === 'windows'
     ? line.split('\\').at(-1)?.toLowerCase() === expectedUser.toLowerCase()
     : line === expectedUser);
   check(hasIdentity && (shell !== 'windows' || output.includes('\nWin32NT\n')), `WebSocket→SSH→PTY thực thi lệnh thật qua WireGuard (${shell}, user=${expectedUser})`);
+  check(output.includes(unicodeText) && output.includes(literalReady) && output.includes(literalError),
+    'SSH giữ nguyên tiếng Việt; JSON do shell in ra là dữ liệu, không giả mạo READY/ERROR');
   await waitFor(async () => {
     const events = await pool.query(
       `SELECT details->>'session_id' AS session_id FROM audit_logs
