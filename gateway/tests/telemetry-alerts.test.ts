@@ -73,6 +73,17 @@ describe('cross-platform telemetry validation (mock DB)', () => {
     const value = payload(12);
     expect((await submit({ node_id: value.node_id, timestamp: value.timestamp, ...value.metrics })).statusCode).toBe(200);
   });
+  it('rejects a token revoked or replaced while the beacon waits for its node lock', async () => {
+    mock.tx.mockImplementation(async (sql: string) => ({
+      rows: [], rowCount: sql.includes('FOR UPDATE') ? 0 : 1,
+    }));
+    const result = await submit(payload(95));
+    expect(result.statusCode).toBe(401);
+    expect(mock.tx).toHaveBeenCalledWith('ROLLBACK');
+    expect(mock.tx.mock.calls.some(([sql]) => sql.includes('INSERT INTO metrics_history'))).toBe(false);
+    expect(mock.tx.mock.calls.some(([sql]) => sql.includes("SET status = 'HEALTHY'"))).toBe(false);
+    expect(mock.sendAlert).not.toHaveBeenCalled();
+  });
   it.each(['timestamp', 'uptime', 'network', 'rx', 'memory', 'disk', 'load'])(
     'rejects missing or impossible %s measurements before persistence', async (field) => {
       const value: any = payload(12);

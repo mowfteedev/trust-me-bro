@@ -132,6 +132,44 @@ async function main() {
     && typeof row.network_rx_bytes === 'number' && typeof row.uptime_seconds === 'number'));
   console.log('PASS beacon ghi schema008, API latest/history giữ fields tỷ lệ tính từ bytes (Fastify inject + DB thật)');
 
+  // Hold an administrative update open: the initial lookup sees the old token,
+  // then the beacon must wait for this row lock and recheck the committed identity.
+  for (const change of ['revoke', 'replace']) {
+    const lock = await testAdmin.connect();
+    let pending;
+    try {
+      await lock.query('BEGIN');
+      await lock.query(change === 'revoke'
+        ? 'UPDATE nodes SET is_token_revoked=true WHERE id=$1'
+        : 'UPDATE nodes SET token_hash=$2 WHERE id=$1',
+      change === 'revoke' ? [nodeId] : [nodeId, crypto.randomBytes(32).toString('hex')]);
+      pending = server.inject({ method: 'POST', url: '/api/telemetry/beacon',
+        headers: { 'x-node-token': token }, payload: { node_id: 'schema-probe', timestamp: Date.now(), metrics: {
+          cpu: { percent: 13 }, memory: { total_bytes: 1000, used_bytes: 400, percent: 40 },
+          disk: { total_bytes: 1000, used_bytes: 250, percent: 25 },
+          network: { rx_bytes_total: 125, tx_bytes_total: 458 }, uptime_seconds: 791,
+        } } }).then((response) => response);
+      const deadline = Date.now() + 2000;
+      while (true) {
+        const waiting = await testAdmin.query(`SELECT 1 FROM pg_stat_activity
+          WHERE datname=$1 AND wait_event_type='Lock' AND query LIKE '%FOR UPDATE%'`, [database]);
+        if (waiting.rows.length) break;
+        assert.ok(Date.now() < deadline, 'Beacon did not reach the row lock');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      await lock.query('COMMIT');
+      assert.equal((await pending).statusCode, 401, `${change}: in-flight old token was accepted`);
+      assert.equal((await testAdmin.query('SELECT count(*)::int n FROM metrics_history WHERE node_id=$1', [nodeId])).rows[0].n, 2);
+    } finally {
+      await lock.query('ROLLBACK');
+      lock.release();
+      if (pending) await pending;
+      await testAdmin.query('UPDATE nodes SET is_token_revoked=false,token_hash=$2 WHERE id=$1',
+        [nodeId, crypto.createHash('sha256').update(token).digest('hex')]);
+    }
+  }
+  console.log('PASS revoke/replace token trong lúc beacon chờ row lock: HTTP401, không thêm metrics (DB thật)');
+
   // Simulate persisted data from before a wall-clock correction. Keep the row,
   // but do not let its future timestamp replace current dashboard measurements.
   await testAdmin.query(`INSERT INTO metrics_history (node_id,cpu_percent,ram_used_bytes,ram_total_bytes,
