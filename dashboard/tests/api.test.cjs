@@ -69,3 +69,31 @@ test('logout network failure clears only the local session and reports uncertain
   assert.equal(api.getCurrentUser(), null);
   assert.equal(store.size, 0);
 });
+
+test('a disabled account clears the current session, while a forbidden action preserves it', async () => {
+  let disabled = false;
+  const { api, events } = client(async (url) => url.endsWith('/login')
+    ? response(session('current'))
+    : response({ code: disabled ? 'ACCOUNT_DISABLED' : 'FORBIDDEN' }, 403));
+  await api.login('current', 'fixture');
+  await assert.rejects(api.getNodes());
+  assert.equal(api.getCurrentUser().username, 'current');
+  assert.deepEqual(events, []);
+  disabled = true;
+  await assert.rejects(api.getNodes());
+  assert.equal(api.getCurrentUser(), null);
+  assert.deepEqual(events, ['zt-session-expired']);
+});
+
+test('a late disabled-account response preserves a newer login', async () => {
+  let finishOld, login = 0;
+  const { api, events } = client(async (url) => url.endsWith('/login')
+    ? response(session(String(++login))) : new Promise((resolve) => { finishOld = resolve; }));
+  await api.login('first', 'fixture');
+  const pending = assert.rejects(api.getNodes());
+  await api.login('second', 'fixture');
+  finishOld(response({ code: 'ACCOUNT_DISABLED' }, 403));
+  await pending;
+  assert.equal(api.getCurrentUser().username, '2');
+  assert.deepEqual(events, []);
+});

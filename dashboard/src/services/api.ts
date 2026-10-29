@@ -81,16 +81,17 @@ class ApiService {
       signal: AbortSignal.timeout(10000),
     });
 
-    if (response.status === 401 && endpoint !== '/api/auth/login') {
+    const data = await response.json().catch(() => null);
+
+    if ((response.status === 401 || (response.status === 403 && data?.code === 'ACCOUNT_DISABLED'))
+      && endpoint !== '/api/auth/login') {
       // A response from an old session must not invalidate a newer login.
       if (this.token === requestToken) {
         this.clearSession();
         window.dispatchEvent(new Event('zt-session-expired'));
       }
-      throw new Error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+      throw new Error(data?.detail || 'Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
     }
-
-    const data = await response.json().catch(() => null);
 
     if (!response.ok) {
       const errorMessage = data?.detail || data?.message || `Lỗi máy chủ: ${response.statusText}`;
