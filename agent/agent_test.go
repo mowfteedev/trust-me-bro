@@ -145,8 +145,8 @@ func TestResponseReadIsBounded(t *testing.T) {
 	cfg.GatewayURL = server.URL
 	client := newClient(time.Second)
 	defer client.CloseIdleConnections()
-	if err := sendBeacon(context.Background(), client, cfg, fixtureBeacon()); err != nil {
-		t.Fatalf("read unbounded response: %v", err)
+	if err := sendBeacon(context.Background(), client, cfg, fixtureBeacon()); err == nil || !strings.Contains(err.Error(), "acknowledgement") {
+		t.Fatalf("oversized response was not rejected within the read bound: %v", err)
 	}
 }
 

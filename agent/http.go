@@ -49,12 +49,18 @@ func sendBeacon(ctx context.Context, client *http.Client, cfg config, payload be
 	}
 	defer resp.Body.Close()
 	// Bound response consumption; oversized/unread bodies close the connection.
-	_, readErr := io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	response, readErr := io.ReadAll(io.LimitReader(resp.Body, 4097))
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("Gateway rejected beacon (HTTP %d)", resp.StatusCode)
 	}
 	if readErr != nil {
 		return fmt.Errorf("incomplete beacon response")
+	}
+	var ack struct {
+		Success bool `json:"success"`
+	}
+	if len(response) > 4096 || json.Unmarshal(response, &ack) != nil || !ack.Success {
+		return fmt.Errorf("invalid beacon acknowledgement")
 	}
 	return nil
 }

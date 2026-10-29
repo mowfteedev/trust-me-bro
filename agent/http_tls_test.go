@@ -20,7 +20,7 @@ func TestHTTPSRequiresTrustAndSupportsTLS12And13(t *testing.T) {
 				if req.TLS == nil || req.TLS.Version != version || req.Header.Get("X-Node-Token") != cfg.NodeToken {
 					t.Error("TLS version or node authentication changed")
 				}
-				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, `{"success":true}`)
 			}))
 			server.Config.ErrorLog = log.New(io.Discard, "", 0)
 			server.TLS = &tls.Config{MinVersion: version, MaxVersion: version}
