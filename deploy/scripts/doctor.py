@@ -5,11 +5,10 @@ import ipaddress
 import json
 from pathlib import Path
 import shutil
-import ssl
 import stat
 import subprocess
 import time
-import urllib.request
+from demo_http import gateway_ready
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -114,24 +113,7 @@ def diagnose(env_path, project):
         check(row.get('State') == 'exited' and row.get('ExitCode') == 0,
               f'{name} hoàn tất thành công', 'Xem log dịch vụ này; không xóa volume để chữa lỗi.')
 
-    try:
-        address = ipaddress.ip_address(env.get('PROXY_BIND_IP', '127.0.0.1'))
-        if address.is_unspecified:
-            address = ipaddress.ip_address('::1' if address.version == 6 else '127.0.0.1')
-        # The bundled Caddy certificate/site uses localhost as its TLS name.
-        host = 'localhost' if address.is_loopback else str(address)
-        if address.version == 6 and not address.is_loopback:
-            host = f'[{address}]'
-        port = int(env.get('HTTPS_PORT', '443'))
-        if not 1 <= port <= 65535:
-            raise ValueError('Invalid port')
-        # Demo Caddy uses its own CA; this probe does not certify CA trust.
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
-                    urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
-        with opener.open(f'https://{host}:{port}/readyz', timeout=4) as response:
-            ready = response.status == 200 and json.load(response).get('status') == 'READY'
-    except (OSError, ValueError):
-        ready = False
+    ready = gateway_ready(env, timeout=4)
     check(ready, 'HTTPS /readyz qua Caddy và DB sẵn sàng (CA demo)',
           'Kiểm tra PROXY_BIND_IP/HTTPS_PORT, proxy và PostgreSQL; cần tự tin cậy CA trên browser.')
 

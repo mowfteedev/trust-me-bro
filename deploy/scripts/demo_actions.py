@@ -5,13 +5,11 @@ import json
 import os
 from pathlib import Path
 import secrets
-import ssl
 import subprocess
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
+from demo_http import gateway_ready
 
 ROOT = Path(__file__).resolve().parents[2]
 KEYS = ROOT / 'keys'
@@ -44,16 +42,10 @@ def setup_demo(compose, env, start=False):
         run(compose + ['up', '-d', '--build', 'postgres', 'migrator', 'provisioner', 'gateway', 'wireguard_gateway', 'dashboard', 'proxy'])
         # Chờ readiness thực tế; deadline rõ ràng, không giả định thời gian boot.
         deadline = time.monotonic() + 90
-        url = f'https://localhost:{env.get("HTTPS_PORT", "443")}/readyz'
-        while True:
-            try:
-                with urllib.request.urlopen(url, context=ssl._create_unverified_context(), timeout=3) as response:
-                    if response.status == 200:
-                        break
-            except (OSError, urllib.error.URLError):
-                if time.monotonic() >= deadline:
-                    raise RuntimeError('Gateway chưa ready sau 90s. Dùng demo.py logs để xem lỗi.')
-                threading.Event().wait(0.5)
+        while not gateway_ready(env):
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Gateway chưa ready sau 90s. Dùng demo.py logs để xem lỗi.')
+            threading.Event().wait(0.5)
     pub = (KEYS / 'worker_ssh_host_ed25519.pub').read_text().split()[1]
     fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(pub)).digest()).decode().rstrip('=')
     setup = {

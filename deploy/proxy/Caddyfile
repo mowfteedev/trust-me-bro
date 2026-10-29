@@ -15,7 +15,7 @@
 # Tự động giải quyết ACME HTTP-01 challenge của Let's Encrypt và chuyển hướng 100% sang HTTPS
 :80 {
     # Tự động redirect toàn bộ yêu cầu sang HTTPS (308 Permanent Redirect)
-    redir https://{host}{uri} permanent
+    redir https://{host}:{$HTTPS_PORT:443}{uri} permanent
 }
 
 # 2. CỔNG BIÊN CÔNG CỘNG BẢO VỆ BẰNG TLS / HTTPS (PORT 443)

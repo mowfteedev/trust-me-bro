@@ -5,12 +5,14 @@ import json
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'deploy/scripts'))
 SPEC = importlib.util.spec_from_file_location('clean_script', ROOT / 'deploy/scripts/clean.py')
 CLEAN = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CLEAN)
