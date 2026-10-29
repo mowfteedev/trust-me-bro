@@ -12,11 +12,17 @@ class ApiService {
     const savedUser = localStorage.getItem(USER_STORAGE_KEY);
     if (savedUser) {
       try {
-        this.user = JSON.parse(savedUser);
+        const user = JSON.parse(savedUser);
+        if (user && typeof user.id === 'string' && user.id.trim()
+          && typeof user.username === 'string' && user.username.trim()
+          && (user.role === 'ADMIN' || user.role === 'VIEWER')) {
+          this.user = user;
+        }
       } catch {
         this.user = null;
       }
     }
+    if (!this.token || !this.user) this.clearSession();
   }
 
   public getToken(): string | null {

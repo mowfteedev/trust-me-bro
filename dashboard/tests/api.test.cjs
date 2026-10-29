@@ -11,8 +11,8 @@ const response = (body, status = 200) => new Response(JSON.stringify(body), { st
 const session = (id) => ({ token: `fixture-${id}`, user: { id, username: id, role: 'ADMIN' } });
 
 // Exercise the actual service; browser storage/events and HTTP are isolated fixtures.
-function client(fetch) {
-  const store = new Map(), events = [], module = { exports: {} };
+function client(fetch, stored = []) {
+  const store = new Map(stored), events = [], module = { exports: {} };
   vm.runInNewContext(source, {
     module, exports: module.exports, fetch, AbortSignal, Event,
     console: { warn() {} },
@@ -22,6 +22,35 @@ function client(fetch) {
   });
   return { api: module.exports.api, events, store };
 }
+
+test('invalid stored profiles discard credentials instead of entering the console', () => {
+  for (const profile of ['{', 'null', '[]', '{}', '{"role":"ADMIN"}',
+    '{"id":"a","username":7,"role":"ADMIN"}',
+    '{"id":"a","username":"a","role":"OWNER"}']) {
+    const { api, store } = client(() => assert.fail('storage validation must not call HTTP'), [
+      ['zt_session_token', 'fixture-token'], ['zt_user_profile', profile],
+    ]);
+    assert.equal(api.getCurrentUser(), null, profile);
+    assert.equal(api.getToken(), null, profile);
+    assert.equal(store.size, 0, profile);
+  }
+});
+
+test('a valid stored session survives reload; incomplete sessions are discarded', () => {
+  const saved = session('current');
+  const { api } = client(() => assert.fail('unexpected HTTP'), [
+    ['zt_session_token', saved.token], ['zt_user_profile', JSON.stringify(saved.user)],
+  ]);
+  assert.equal(api.getCurrentUser().username, 'current');
+  assert.equal(api.getToken(), saved.token);
+  for (const stored of [[['zt_session_token', saved.token]],
+    [['zt_user_profile', JSON.stringify(saved.user)]]]) {
+    const { api, store } = client(() => assert.fail('unexpected HTTP'), stored);
+    assert.equal(api.getCurrentUser(), null);
+    assert.equal(api.getToken(), null);
+    assert.equal(store.size, 0);
+  }
+});
 
 test('a late 401 from the old session preserves a newer login', async () => {
   let finishOld, login = 0;
