@@ -60,6 +60,7 @@ def setup_demo(compose, env, start=False):
         'admin_password': login['DEMO_ADMIN_PASSWORD'],
         'viewer_password': login['DEMO_VIEWER_PASSWORD'],
         'node_token': env.get('NODE_TOKEN_01') or (KEYS / 'node_worker_01.token').read_text().strip(),
+        'node_name': env.get('NODE_ID_01') or 'node-worker-01',
         'host_key_fingerprint': fingerprint,
     }
     run(compose + ['exec', '-T', 'gateway', 'node', 'dist/scripts/setup-demo.js'], input=json.dumps(setup), text=True)
@@ -77,7 +78,8 @@ def check_demo(compose, env, action, argument_error):
     login = credentials()
     test_input = {'admin_password': login['DEMO_ADMIN_PASSWORD'], 'viewer_password': login['DEMO_VIEWER_PASSWORD'],
                   'migration_url': env['MIGRATION_DATABASE_URL'], 'app_url': env['DATABASE_URL'],
-                  'maintenance_url': env['MAINTENANCE_DATABASE_URL']}
+                  'maintenance_url': env['MAINTENANCE_DATABASE_URL'],
+                  'node_name': env.get('NODE_ID_01') or 'node-worker-01'}
     binary_path = None
     try:
         if action == 'check-cpu':

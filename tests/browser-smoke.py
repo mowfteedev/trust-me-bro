@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 root=Path(__file__).resolve().parents[1]
+node_name=os.environ.get('ZT_UI_NODE_NAME','node-worker-01')
 creds=dict(x.split('=',1) for x in (root/'keys/demo-login.env').read_text().splitlines())
 output=Path(os.environ.get('ZT_UI_OUTPUT_DIR', str(root/'docs/verification')))
 output.mkdir(parents=True, exist_ok=True)
@@ -18,7 +19,7 @@ with sync_playwright() as p:
  page.get_by_label('Tên tài khoản').fill('demo-admin')
  page.get_by_label('Mật khẩu xác thực').fill(creds['DEMO_ADMIN_PASSWORD'])
  page.get_by_role('button',name='Đăng nhập vào Hệ thống').click()
- expect(page.get_by_text('node-worker-01',exact=True).first).to_be_visible()
+ expect(page.get_by_text(node_name,exact=True).first).to_be_visible()
  expect(page.get_by_text('Online',exact=True).first).to_be_visible()
  expect(page.get_by_text('RX tích lũy',exact=True)).to_be_visible()
  expect(page.get_by_text('TX tích lũy',exact=True)).to_be_visible()
@@ -36,7 +37,7 @@ with sync_playwright() as p:
  expect(page.get_by_role('dialog')).to_have_count(0)
  page.get_by_role('button',name='Nhật ký hoạt động',exact=True).click()
  expect(page.locator('.audit-table tbody tr').first).to_be_visible()
- page.get_by_label('Tìm kiếm',exact=True).fill('node-worker-01')
+ page.get_by_label('Tìm kiếm',exact=True).fill(node_name)
  page.get_by_label('Loại sự kiện',exact=True).select_option('BASTION_SESSION_START')
  page.get_by_role('button',name='Áp dụng',exact=True).click()
  expect(page.locator('.audit-action-code').first).to_have_text('BASTION_SESSION_START')
@@ -45,7 +46,7 @@ with sync_playwright() as p:
  expect(page.get_by_text('RX tích lũy',exact=True)).to_be_visible()
  for width,height,label in [(768,1024,'tablet'),(375,667,'mobile')]:
   page.set_viewport_size({'width':width,'height':height})
-  expect(page.get_by_text('node-worker-01',exact=True).first).to_be_visible()
+  expect(page.get_by_text(node_name,exact=True).first).to_be_visible()
   assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), f'{label} overflow'
   page.screenshot(path=str(output/f'{label}.png'),full_page=True)
  page.set_viewport_size({'width':1920,'height':1080})
@@ -54,7 +55,7 @@ with sync_playwright() as p:
  page.get_by_label('Tên tài khoản').fill('demo-viewer')
  page.get_by_label('Mật khẩu xác thực').fill(creds['DEMO_VIEWER_PASSWORD'])
  page.get_by_role('button',name='Đăng nhập vào Hệ thống').click()
- expect(page.get_by_text('node-worker-01',exact=True).first).to_be_visible()
+ expect(page.get_by_text(node_name,exact=True).first).to_be_visible()
  expect(page.get_by_role('button',name='Web SSH',exact=True)).to_have_count(0)
  expect(page.get_by_role('button',name='Nhật ký hoạt động',exact=True)).to_have_count(0)
  expect(page.get_by_text('Chỉ đọc (Viewer)',exact=True)).to_be_visible()
