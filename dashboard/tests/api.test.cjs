@@ -1,0 +1,128 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const ts = require('typescript');
+
+const source = ts.transpileModule(fs.readFileSync('src/services/api.ts', 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText;
+const response = (body, status = 200) => new Response(JSON.stringify(body), { status });
+const session = (id) => ({ token: `fixture-${id}`, user: { id, username: id, role: 'ADMIN' } });
+
+// Exercise the actual service; browser storage/events and HTTP are isolated fixtures.
+function client(fetch, stored = []) {
+  const store = new Map(stored), events = [], module = { exports: {} };
+  vm.runInNewContext(source, {
+    module, exports: module.exports, fetch, AbortSignal, Event,
+    console: { warn() {} },
+    window: { dispatchEvent: (event) => events.push(event.type) },
+    localStorage: { getItem: (key) => store.get(key) ?? null,
+      setItem: (key, value) => store.set(key, value), removeItem: (key) => store.delete(key) },
+  });
+  return { api: module.exports.api, events, store };
+}
+
+test('invalid stored profiles discard credentials instead of entering the console', () => {
+  for (const profile of ['{', 'null', '[]', '{}', '{"role":"ADMIN"}',
+    '{"id":"a","username":7,"role":"ADMIN"}',
+    '{"id":"a","username":"a","role":"OWNER"}']) {
+    const { api, store } = client(() => assert.fail('storage validation must not call HTTP'), [
+      ['zt_session_token', 'fixture-token'], ['zt_user_profile', profile],
+    ]);
+    assert.equal(api.getCurrentUser(), null, profile);
+    assert.equal(api.getToken(), null, profile);
+    assert.equal(store.size, 0, profile);
+  }
+});
+
+test('a valid stored session survives reload; incomplete sessions are discarded', () => {
+  const saved = session('current');
+  const { api } = client(() => assert.fail('unexpected HTTP'), [
+    ['zt_session_token', saved.token], ['zt_user_profile', JSON.stringify(saved.user)],
+  ]);
+  assert.equal(api.getCurrentUser().username, 'current');
+  assert.equal(api.getToken(), saved.token);
+  for (const stored of [[['zt_session_token', saved.token]],
+    [['zt_user_profile', JSON.stringify(saved.user)]]]) {
+    const { api, store } = client(() => assert.fail('unexpected HTTP'), stored);
+    assert.equal(api.getCurrentUser(), null);
+    assert.equal(api.getToken(), null);
+    assert.equal(store.size, 0);
+  }
+});
+
+test('a late 401 from the old session preserves a newer login', async () => {
+  let finishOld, login = 0;
+  const { api, events } = client(async (url) => url.endsWith('/login')
+    ? response(session(String(++login))) : new Promise((resolve) => { finishOld = resolve; }));
+  await api.login('first', 'fixture');
+  const pending = assert.rejects(api.getNodes(), /đăng nhập lại/);
+  await api.login('second', 'fixture');
+  finishOld(response({}, 401));
+  await pending;
+  assert.equal(api.getCurrentUser().username, '2');
+  assert.deepEqual(events, []);
+});
+
+test('a current-session 401 clears credentials and announces expiry', async () => {
+  const { api, events, store } = client(async (url) => response(url.endsWith('/login') ? session('current') : {}, url.endsWith('/login') ? 200 : 401));
+  await api.login('current', 'fixture');
+  await assert.rejects(api.getNodes(), /đăng nhập lại/);
+  assert.equal(api.getCurrentUser(), null);
+  assert.equal(store.size, 0);
+  assert.deepEqual(events, ['zt-session-expired']);
+});
+
+test('a late logout completion does not erase a newer session', async () => {
+  let finishLogout, login = 0;
+  const { api } = client(async (url) => url.endsWith('/login')
+    ? response(session(String(++login))) : new Promise((resolve) => { finishLogout = resolve; }));
+  await api.login('first', 'fixture');
+  const pending = api.logout();
+  await api.login('second', 'fixture');
+  finishLogout(response({ success: true }));
+  assert.equal((await pending).serverRevoked, true);
+  assert.equal(api.getCurrentUser().username, '2');
+});
+
+test('logout network failure clears only the local session and reports uncertainty', async () => {
+  const { api, store } = client(async (url) => {
+    if (url.endsWith('/login')) return response(session('current'));
+    throw new Error('fixture offline');
+  });
+  await api.login('current', 'fixture');
+  const result = await api.logout();
+  assert.equal(result.serverRevoked, false);
+  assert.match(result.error, /fixture offline/);
+  assert.equal(api.getCurrentUser(), null);
+  assert.equal(store.size, 0);
+});
+
+test('a disabled account clears the current session, while a forbidden action preserves it', async () => {
+  let disabled = false;
+  const { api, events } = client(async (url) => url.endsWith('/login')
+    ? response(session('current'))
+    : response({ code: disabled ? 'ACCOUNT_DISABLED' : 'FORBIDDEN' }, 403));
+  await api.login('current', 'fixture');
+  await assert.rejects(api.getNodes());
+  assert.equal(api.getCurrentUser().username, 'current');
+  assert.deepEqual(events, []);
+  disabled = true;
+  await assert.rejects(api.getNodes());
+  assert.equal(api.getCurrentUser(), null);
+  assert.deepEqual(events, ['zt-session-expired']);
+});
+
+test('a late disabled-account response preserves a newer login', async () => {
+  let finishOld, login = 0;
+  const { api, events } = client(async (url) => url.endsWith('/login')
+    ? response(session(String(++login))) : new Promise((resolve) => { finishOld = resolve; }));
+  await api.login('first', 'fixture');
+  const pending = assert.rejects(api.getNodes());
+  await api.login('second', 'fixture');
+  finishOld(response({ code: 'ACCOUNT_DISABLED' }, 403));
+  await pending;
+  assert.equal(api.getCurrentUser().username, '2');
+  assert.deepEqual(events, []);
+});

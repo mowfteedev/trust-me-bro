@@ -8,6 +8,7 @@ import {
 import { startTicketCleaner, stopTicketCleaner } from './services/bastion/tickets.js';
 import { startSweeper, stopSweeper } from './services/sweeper.js';
 import { telegramService } from './services/telegram.js';
+import { validateBastionKey } from './services/bastion/key.js';
 
 let server: FastifyInstance | undefined;
 let startup: Promise<void> | undefined;
@@ -42,6 +43,7 @@ const onSigterm = () => onSignal('SIGTERM');
 const onSigint = () => onSignal('SIGINT');
 
 async function start(): Promise<void> {
+  validateBastionKey(config.BASTION_SSH_KEY_PATH);
   process.on('uncaughtException', onUncaughtException);
   process.on('unhandledRejection', onUnhandledRejection);
 

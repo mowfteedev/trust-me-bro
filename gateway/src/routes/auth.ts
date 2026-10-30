@@ -5,6 +5,7 @@ import { query } from '../services/db.js';
 import { config } from '../config/env.js';
 import { authenticate, AuthUserPayload } from '../middlewares/auth.middleware.js';
 import { normalizeClientIp } from '../utils/client-ip.js';
+import { revokeUserSessions } from '../services/bastion/registry.js';
 
 /**
  * ==============================================================================
@@ -162,10 +163,13 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
   fastify.post('/logout', { preHandler: [authenticate] }, async (req, reply) => {
     const user = req.user as AuthUserPayload;
     try {
-      await query(
-        'UPDATE users SET session_version = session_version + 1, updated_at = NOW() WHERE id = $1;',
+      const revoked = await query(
+        'UPDATE users SET session_version = session_version + 1, updated_at = NOW() WHERE id = $1 RETURNING session_version;',
         [user.id]
       );
+      const currentVersion = Number(revoked.rows[0]?.session_version);
+      if (!Number.isSafeInteger(currentVersion) || currentVersion < 1) throw new Error('Session revocation returned no valid version');
+      revokeUserSessions(user.id, currentVersion);
 
       const clientIp = normalizeClientIp(req.ip);
       try {

@@ -28,7 +28,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
 }) => {
   const {
     nodes,
-    selectedNode,
+    selectedNode: preferredNode,
     setSelectedNode,
     isLoading,
     isRefreshing,
@@ -37,9 +37,6 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
     now,
     fetchClusterData,
   } = useClusterData();
-  const { metricsHistory, historyError, historyLoading } = useNodeHistory(
-    selectedNode?.id,
-  );
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
@@ -57,6 +54,11 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({
       (n.name.toLowerCase().includes(searchQuery.trim().toLowerCase()) ||
         n.ip_address.toLowerCase().includes(searchQuery.trim().toLowerCase())) &&
       (statusFilter === "ALL" || n.status === statusFilter),
+  );
+  const selectedNode = filteredNodes.find((node) => node.id === preferredNode?.id)
+    ?? filteredNodes[0] ?? null;
+  const { metricsHistory, historyError, historyLoading } = useNodeHistory(
+    selectedNode?.id,
   );
   const counts = getClusterCounts(nodes);
   const pageHeading = (

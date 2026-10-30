@@ -112,7 +112,9 @@ async function main() {
   const threshold = Math.round((baselineMax + 4.5) * 100) / 100;
   assert.ok(threshold < 100, 'baseline too busy for a bounded two-thread CPU lab');
   config.CPU_ALERT_THRESHOLD_PERCENT = threshold;
+  config.CPU_RECOVERY_THRESHOLD_PERCENT = Math.round((baselineMax + 2) * 100) / 100;
   console.log(`CPU_LIVE threshold=${threshold}% (baseline maximum=${baselineMax.toFixed(2)}% +4.5 points).`);
+  console.log(`CPU_LIVE recovery below ${config.CPU_RECOVERY_THRESHOLD_PERCENT}% (baseline maximum +2 points).`);
   console.log('CPU_LIVE: test configuration only; default 85% was NOT demonstrated by this lab.');
 
   phase = 'load';
@@ -166,7 +168,7 @@ async function main() {
     const fresh = rows.slice(afterLoadCount);
     const alerts = await incidents();
     assert.equal(alerts.length, 1, 'background CPU oscillation created another incident');
-    if (fresh.length >= 2 && fresh.slice(-2).every((row) => Number(row.cpu_percent) < threshold)
+    if (fresh.length >= 2 && fresh.slice(-2).every((row) => Number(row.cpu_percent) < config.CPU_RECOVERY_THRESHOLD_PERCENT)
       && alerts[0].resolved && alerts[0].resolved_at) return rows;
     return null;
   });

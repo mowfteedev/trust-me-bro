@@ -6,7 +6,7 @@ const mock = vi.hoisted(() => ({
   query: vi.fn(), tx: vi.fn(), release: vi.fn(), sendAlert: vi.fn(),
   config: {
     NODE_STALE_THRESHOLD_SECONDS: 15, NODE_OFFLINE_THRESHOLD_SECONDS: 30,
-    CPU_ALERT_THRESHOLD_PERCENT: 85, SWEEPER_INTERVAL_MS: 5000,
+    CPU_ALERT_THRESHOLD_PERCENT: 85, CPU_RECOVERY_THRESHOLD_PERCENT: 75, SWEEPER_INTERVAL_MS: 5000,
     TELEGRAM_MODE: 'dry-run', TELEGRAM_BOT_TOKEN: 'fake-test-token',
     TELEGRAM_PAIR_OTP: '123456', TELEGRAM_REQUEST_TIMEOUT_MS: 1000,
   },
@@ -73,6 +73,17 @@ describe('cross-platform telemetry validation (mock DB)', () => {
     const value = payload(12);
     expect((await submit({ node_id: value.node_id, timestamp: value.timestamp, ...value.metrics })).statusCode).toBe(200);
   });
+  it('rejects a token revoked or replaced while the beacon waits for its node lock', async () => {
+    mock.tx.mockImplementation(async (sql: string) => ({
+      rows: [], rowCount: sql.includes('FOR UPDATE') ? 0 : 1,
+    }));
+    const result = await submit(payload(95));
+    expect(result.statusCode).toBe(401);
+    expect(mock.tx).toHaveBeenCalledWith('ROLLBACK');
+    expect(mock.tx.mock.calls.some(([sql]) => sql.includes('INSERT INTO metrics_history'))).toBe(false);
+    expect(mock.tx.mock.calls.some(([sql]) => sql.includes("SET status = 'HEALTHY'"))).toBe(false);
+    expect(mock.sendAlert).not.toHaveBeenCalled();
+  });
   it.each(['timestamp', 'uptime', 'network', 'rx', 'memory', 'disk', 'load'])(
     'rejects missing or impossible %s measurements before persistence', async (field) => {
       const value: any = payload(12);
@@ -90,6 +101,29 @@ describe('cross-platform telemetry validation (mock DB)', () => {
 });
 
 describe('CPU alert lifecycle (mock DB)', () => {
+  it('keeps the incident across the hysteresis band and reopens only after recovery', async () => {
+    let active = false;
+    mock.tx.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('SELECT id FROM alerts')) return { rows: active ? [{ id: 'incident' }] : [], rowCount: active ? 1 : 0 };
+      if (sql.includes('INSERT INTO alerts')) active = true;
+      if (sql.includes('UPDATE alerts') && sql.includes("message LIKE 'CPU_HIGH:%'")) active = false;
+      return { rows: [], rowCount: 1 };
+    });
+    for (const cpu of [85, 84.8, 85.1, 75]) {
+      expect((await beacon(cpu)).statusCode).toBe(200);
+      expect(active).toBe(true);
+      expect(mock.sendAlert).toHaveBeenCalledTimes(1);
+    }
+    expect((await beacon(74.9)).statusCode).toBe(200);
+    expect(active).toBe(false);
+    expect((await beacon(84.9)).statusCode).toBe(200);
+    expect(active).toBe(false);
+    expect(mock.sendAlert).toHaveBeenCalledTimes(1);
+    expect((await beacon(85)).statusCode).toBe(200);
+    expect(active).toBe(true);
+    expect(mock.sendAlert).toHaveBeenCalledTimes(2);
+    expect(mock.tx.mock.calls.filter(([sql]) => sql.includes("'CPU_HIGH'"))).toHaveLength(2);
+  });
   it('records a CPU threshold alert and audit, then sends only after commit', async () => {
     mock.sendAlert.mockImplementation(async () => {
       expect(mock.tx.mock.calls.at(-1)?.[0]).toBe('COMMIT');

@@ -12,11 +12,17 @@ class ApiService {
     const savedUser = localStorage.getItem(USER_STORAGE_KEY);
     if (savedUser) {
       try {
-        this.user = JSON.parse(savedUser);
+        const user = JSON.parse(savedUser);
+        if (user && typeof user.id === 'string' && user.id.trim()
+          && typeof user.username === 'string' && user.username.trim()
+          && (user.role === 'ADMIN' || user.role === 'VIEWER')) {
+          this.user = user;
+        }
       } catch {
         this.user = null;
       }
     }
+    if (!this.token || !this.user) this.clearSession();
   }
 
   public getToken(): string | null {
@@ -45,8 +51,9 @@ class ApiService {
     localStorage.removeItem(USER_STORAGE_KEY);
   }
 
-  // Luôn xóa phiên cục bộ; caller cần phân biệt Gateway đã xác nhận thu hồi hay chưa.
+  // Xóa phiên đã đăng xuất; caller phân biệt Gateway đã xác nhận thu hồi hay chưa.
   public async logout(): Promise<{ serverRevoked: boolean; error?: string }> {
+    const logoutToken = this.token;
     let serverRevoked = false;
     let errorMsg: string | undefined;
     try {
@@ -58,19 +65,20 @@ class ApiService {
       errorMsg = err.message || 'Mất kết nối máy chủ';
       console.warn('⚠️ [API LOGOUT] Máy chủ chưa xác nhận thu hồi phiên do sự cố kết nối:', errorMsg);
     } finally {
-      this.clearSession();
+      if (this.token === logoutToken) this.clearSession();
     }
     return { serverRevoked, error: errorMsg };
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const requestToken = this.token;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string> || {}),
     };
 
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+    if (requestToken) {
+      headers['Authorization'] = `Bearer ${requestToken}`;
     }
 
     const response = await fetch(endpoint, {
@@ -79,13 +87,17 @@ class ApiService {
       signal: AbortSignal.timeout(10000),
     });
 
-    if (response.status === 401 && endpoint !== '/api/auth/login') {
-      this.clearSession();
-      window.dispatchEvent(new Event('zt-session-expired'));
-      throw new Error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
-    }
-
     const data = await response.json().catch(() => null);
+
+    if ((response.status === 401 || (response.status === 403 && data?.code === 'ACCOUNT_DISABLED'))
+      && endpoint !== '/api/auth/login') {
+      // A response from an old session must not invalidate a newer login.
+      if (this.token === requestToken) {
+        this.clearSession();
+        window.dispatchEvent(new Event('zt-session-expired'));
+      }
+      throw new Error(data?.detail || 'Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+    }
 
     if (!response.ok) {
       const errorMessage = data?.detail || data?.message || `Lỗi máy chủ: ${response.statusText}`;

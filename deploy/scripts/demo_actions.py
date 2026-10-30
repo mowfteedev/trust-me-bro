@@ -5,13 +5,11 @@ import json
 import os
 from pathlib import Path
 import secrets
-import ssl
 import subprocess
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
+from demo_http import gateway_ready
 
 ROOT = Path(__file__).resolve().parents[2]
 KEYS = ROOT / 'keys'
@@ -44,22 +42,17 @@ def setup_demo(compose, env, start=False):
         run(compose + ['up', '-d', '--build', 'postgres', 'migrator', 'provisioner', 'gateway', 'wireguard_gateway', 'dashboard', 'proxy'])
         # Chờ readiness thực tế; deadline rõ ràng, không giả định thời gian boot.
         deadline = time.monotonic() + 90
-        url = f'https://localhost:{env.get("HTTPS_PORT", "443")}/readyz'
-        while True:
-            try:
-                with urllib.request.urlopen(url, context=ssl._create_unverified_context(), timeout=3) as response:
-                    if response.status == 200:
-                        break
-            except (OSError, urllib.error.URLError):
-                if time.monotonic() >= deadline:
-                    raise RuntimeError('Gateway chưa ready sau 90s. Dùng demo.py logs để xem lỗi.')
-                threading.Event().wait(0.5)
+        while not gateway_ready(env):
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Gateway chưa ready sau 90s. Dùng demo.py logs để xem lỗi.')
+            threading.Event().wait(0.5)
     pub = (KEYS / 'worker_ssh_host_ed25519.pub').read_text().split()[1]
     fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(pub)).digest()).decode().rstrip('=')
     setup = {
         'admin_password': login['DEMO_ADMIN_PASSWORD'],
         'viewer_password': login['DEMO_VIEWER_PASSWORD'],
         'node_token': env.get('NODE_TOKEN_01') or (KEYS / 'node_worker_01.token').read_text().strip(),
+        'node_name': env.get('NODE_ID_01') or 'node-worker-01',
         'host_key_fingerprint': fingerprint,
     }
     run(compose + ['exec', '-T', 'gateway', 'node', 'dist/scripts/setup-demo.js'], input=json.dumps(setup), text=True)
@@ -76,7 +69,9 @@ def check_demo(compose, env, action, argument_error):
         argument_error('check-telegram cần TELEGRAM_MODE=live, token và chat đã ghép nối; bài này gửi một cảnh báo thử thật.')
     login = credentials()
     test_input = {'admin_password': login['DEMO_ADMIN_PASSWORD'], 'viewer_password': login['DEMO_VIEWER_PASSWORD'],
-                  'migration_url': env['MIGRATION_DATABASE_URL'], 'app_url': env['DATABASE_URL']}
+                  'migration_url': env['MIGRATION_DATABASE_URL'], 'app_url': env['DATABASE_URL'],
+                  'maintenance_url': env['MAINTENANCE_DATABASE_URL'],
+                  'node_name': env.get('NODE_ID_01') or 'node-worker-01'}
     binary_path = None
     try:
         if action == 'check-cpu':
@@ -115,6 +110,8 @@ def dispatch(action, env_path, project, argument_error):
         setup_demo(compose, env, start=action == 'up')
     elif action in ('check', 'check-cpu', 'check-telegram'):
         check_demo(compose, env, action, argument_error)
+    elif action == 'maintenance':
+        run(compose + ['--profile', 'maintenance', 'run', '--rm', '--build', '--no-deps', 'maintenance'])
     elif action == 'down':
         # Bảo toàn volume và mật khẩu; không dùng -v.
         run(compose + ['down'])

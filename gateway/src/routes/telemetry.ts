@@ -181,7 +181,17 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
       try {
         await client.query('BEGIN');
         // Serialize beacons of one node so threshold alerts are emitted once per incident.
-        await client.query('SELECT id FROM nodes WHERE id = $1 FOR UPDATE;', [node.id]);
+        const lockedNode = await client.query(
+          'SELECT id FROM nodes WHERE id = $1 AND token_hash = $2 AND is_token_revoked = FALSE FOR UPDATE;',
+          [node.id, inputHash]
+        );
+        if (!lockedNode.rowCount) {
+          await client.query('ROLLBACK');
+          return reply.status(401).send({
+            status: 401, code: 'REVOKED_NODE_TOKEN', title: 'Mã xác thực không còn hiệu lực',
+            detail: 'Định danh máy chủ con đã thay đổi hoặc token đã bị thu hồi.',
+          });
+        }
         await client.query(
           `INSERT INTO metrics_history (
             node_id,
@@ -239,7 +249,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
               [node.id, node.name, JSON.stringify({ cpu_percent: beacon.cpu.percent, threshold: config.CPU_ALERT_THRESHOLD_PERCENT })]
             );
           }
-        } else {
+        } else if (beacon.cpu.percent < config.CPU_RECOVERY_THRESHOLD_PERCENT) {
           await client.query(
             `UPDATE alerts SET resolved = true, resolved_at = now()
              WHERE node_id = $1 AND resolved = false AND message LIKE 'CPU_HIGH:%';`, [node.id]

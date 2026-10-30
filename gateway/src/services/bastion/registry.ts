@@ -130,6 +130,15 @@ export function stopSessionMaintenance(): void {
   // Keep the in-flight guard until the pending query settles, including across restart.
 }
 
+export function revokeUserSessions(userId: string, currentVersion: number): void {
+  // A login after the UPDATE may already have created a session with the new version.
+  for (const session of activeSessions.values()) {
+    if (session.userId === userId && session.sessionVersion < currentVersion && session.state !== 'CLOSED') {
+      session.cleanupFn(4403, 'Session Revoked', 'Bạn đã đăng xuất; phiên Web SSH đã bị thu hồi');
+    }
+  }
+}
+
 export function shutdownAllBastionSessions(): void {
   console.log(`🛑 [BASTION SHUTDOWN] Đang đóng an toàn ${activeSessions.size} phiên Web SSH...`);
   for (const session of activeSessions.values()) {

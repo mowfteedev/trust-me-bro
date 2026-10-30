@@ -10,27 +10,25 @@ export function useNodeHistory(nodeId: string | undefined) {
   useEffect(() => {
     setMetricsHistory([]);
     setHistoryError(null);
+    setHistoryLoading(Boolean(nodeId));
     if (!nodeId) return;
-    setHistoryLoading(true);
     let isCurrent = true;
-    const fetchHistory = () => {
-      api
-        .getNodeHistory(nodeId)
-        .then((data) => {
-          if (isCurrent) {
-            setMetricsHistory(data);
-            setHistoryError(null);
-            setHistoryLoading(false);
-          }
-        })
-        .catch((err: Error) => {
-          if (isCurrent) {
-            setHistoryError(
-              err.message || "Không tải được lịch sử tài nguyên.",
-            );
-            setHistoryLoading(false);
-          }
-        });
+    let pending = false;
+    const fetchHistory = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const data = await api.getNodeHistory(nodeId);
+        if (isCurrent) {
+          setMetricsHistory(data);
+          setHistoryError(null);
+        }
+      } catch (err) {
+        if (isCurrent) setHistoryError(err instanceof Error ? err.message : "Không tải được lịch sử tài nguyên.");
+      } finally {
+        pending = false;
+        if (isCurrent) setHistoryLoading(false);
+      }
     };
     fetchHistory();
     const historyTimer = setInterval(fetchHistory, 3000);

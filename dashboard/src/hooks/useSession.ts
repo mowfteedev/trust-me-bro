@@ -40,18 +40,19 @@ export function useSession() {
   };
 
   const logout = async () => {
+    const logoutToken = api.getToken();
+    let warning: string | null;
     try {
       const res = await api.logout();
-      setLogoutWarning(
-        res.serverRevoked
-          ? null
-          : "Đã xóa phiên trên trình duyệt. Gateway chưa xác nhận thu hồi phiên do lỗi kết nối hoặc máy chủ. Token có thể còn hiệu lực đến khi hết hạn.",
-      );
+      warning = res.serverRevoked
+        ? null
+        : "Đã xóa phiên trên trình duyệt. Gateway chưa xác nhận thu hồi phiên do lỗi kết nối hoặc máy chủ. Token có thể còn hiệu lực đến khi hết hạn.";
     } catch {
-      setLogoutWarning(
-        "Không thể kết nối đến Gateway. Phiên trên trình duyệt đã được xóa; máy chủ chưa xác nhận thu hồi phiên.",
-      );
+      warning = "Không thể kết nối đến Gateway. Phiên trên trình duyệt đã được xóa; máy chủ chưa xác nhận thu hồi phiên.";
     }
+    // A delayed logout response belongs to the session that initiated it.
+    if (api.getToken() && api.getToken() !== logoutToken) return;
+    setLogoutWarning(warning);
     setCurrentUser(null);
   };
 

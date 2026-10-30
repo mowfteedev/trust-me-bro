@@ -6,11 +6,14 @@ const mock = vi.hoisted(() => ({
   startTicketCleaner: vi.fn(), stopTicketCleaner: vi.fn(), startSessionMaintenance: vi.fn(),
   stopSessionMaintenance: vi.fn(), shutdownAllBastionSessions: vi.fn(),
   startSweeper: vi.fn(), stopSweeper: vi.fn(), initTelegram: vi.fn(), stopTelegram: vi.fn(),
+  validateBastionKey: vi.fn(),
 }));
 vi.mock('../src/app.js', () => ({ buildServer: mock.buildServer }));
 vi.mock('../src/config/env.js', () => ({ config: {
   GATEWAY_PORT: 3000, GATEWAY_HOST: '127.0.0.1', TRUSTED_PROXY_IP: undefined,
+  BASTION_SSH_KEY_PATH: '/isolated-test/key',
 } }));
+vi.mock('../src/services/bastion/key.js', () => ({ validateBastionKey: mock.validateBastionKey }));
 vi.mock('../src/services/db.js', () => ({ ensureSeedData: mock.ensureSeedData, closeDatabasePool: mock.closeDatabasePool }));
 vi.mock('../src/services/bastion/tickets.js', () => ({
   startTicketCleaner: mock.startTicketCleaner, stopTicketCleaner: mock.stopTicketCleaner,
@@ -47,6 +50,7 @@ it('imports runtime without installing listeners or starting background services
   expect(mock.startSessionMaintenance).not.toHaveBeenCalled();
   expect(mock.startSweeper).not.toHaveBeenCalled();
   expect(mock.initTelegram).not.toHaveBeenCalled();
+  expect(mock.validateBastionKey).not.toHaveBeenCalled();
 });
 
 it('starts once and removes its own listeners and services on repeated shutdown', async () => {
@@ -55,6 +59,8 @@ it('starts once and removes its own listeners and services on repeated shutdown'
   for (const fn of [mock.buildServer, mock.initTelegram, mock.ensureSeedData, mock.startTicketCleaner,
     mock.startSessionMaintenance, mock.startSweeper, mock.listen]) expect(fn).toHaveBeenCalledTimes(1);
   expect(mock.listen).toHaveBeenCalledWith({ host: '127.0.0.1', port: 3000 });
+  expect(mock.validateBastionKey).toHaveBeenCalledWith('/isolated-test/key');
+  expect(mock.validateBastionKey.mock.invocationCallOrder[0]).toBeLessThan(mock.buildServer.mock.invocationCallOrder[0]);
   expect(mock.initTelegram.mock.invocationCallOrder[0]).toBeLessThan(mock.ensureSeedData.mock.invocationCallOrder[0]);
   expect(mock.ensureSeedData.mock.invocationCallOrder[0]).toBeLessThan(mock.listen.mock.invocationCallOrder[0]);
   await Promise.all([runtime.stopGateway(), runtime.stopGateway()]);
@@ -62,6 +68,15 @@ it('starts once and removes its own listeners and services on repeated shutdown'
   for (const fn of [mock.stopTicketCleaner, mock.stopSessionMaintenance, mock.shutdownAllBastionSessions,
     mock.stopSweeper, mock.stopTelegram, mock.close, mock.closeDatabasePool]) expect(fn).toHaveBeenCalledTimes(1);
   expect(mock.close.mock.invocationCallOrder[0]).toBeLessThan(mock.closeDatabasePool.mock.invocationCallOrder[0]);
+});
+
+it('fails before opening a listener or starting services when the Bastion key is unsafe', async () => {
+  mock.validateBastionKey.mockImplementationOnce(() => { throw new Error('invalid isolated key'); });
+  await expect(runtime.startGateway()).rejects.toThrow('invalid isolated key');
+  for (const fn of [mock.buildServer, mock.initTelegram, mock.ensureSeedData,
+    mock.startTicketCleaner, mock.startSessionMaintenance, mock.startSweeper, mock.listen]) expect(fn).not.toHaveBeenCalled();
+  for (const event of events) expect(process.listenerCount(event)).toBe(listenersBefore.get(event));
+  expect(mock.closeDatabasePool).toHaveBeenCalledTimes(1);
 });
 
 it('cleans started services and process listeners when listening fails', async () => {

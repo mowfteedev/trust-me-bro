@@ -1,14 +1,18 @@
 """Check command routing without Docker and cleanup safety in temporary directories."""
+import base64
 import importlib.util
+import json
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'deploy/scripts'))
 SPEC = importlib.util.spec_from_file_location('clean_script', ROOT / 'deploy/scripts/clean.py')
 CLEAN = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CLEAN)
@@ -68,7 +72,7 @@ class MakeCommandTests(unittest.TestCase):
     def test_cluster_targets_forward_selected_environment(self):
         actions = {'up': 'up', 'down': 'down', 'status': 'status', 'logs': 'logs',
                    'e2e': 'check', 'doctor': 'doctor', 'check-cpu': 'check-cpu',
-                   'check-telegram': 'check-telegram'}
+                   'check-telegram': 'check-telegram', 'maintenance': 'maintenance'}
         for target, action in actions.items():
             with self.subTest(target=target):
                 result = subprocess.run(
@@ -83,6 +87,35 @@ class MakeCommandTests(unittest.TestCase):
 
 
 class CredentialTests(unittest.TestCase):
+    def test_setup_and_checks_use_the_configured_worker_name(self):
+        env = {'NODE_ID_01': 'node-custom-worker', 'NODE_TOKEN_01': 'fixture-token',
+               'MIGRATION_DATABASE_URL': 'fixture-migration', 'DATABASE_URL': 'fixture-app',
+               'MAINTENANCE_DATABASE_URL': 'fixture-maintenance'}
+        compose = ['docker', 'compose']
+        login = {'DEMO_ADMIN_PASSWORD': 'fixture-admin', 'DEMO_VIEWER_PASSWORD': 'fixture-viewer'}
+        public = 'ssh-ed25519 ' + base64.b64encode(b'fixture-public-key').decode()
+        with patch.object(DEMO, 'credentials', return_value=login), patch.object(DEMO, 'run') as run:
+            with patch.object(Path, 'read_text', return_value=public):
+                DEMO.setup_demo(compose, env)
+            self.assertEqual(json.loads(run.call_args.kwargs['input'])['node_name'], env['NODE_ID_01'])
+            run.reset_mock()
+            with patch.object(Path, 'read_text', return_value='// isolated test script'):
+                DEMO.check_demo(compose, env, 'check', self.fail)
+            for call in run.call_args_list:
+                self.assertIn('"node_name": "node-custom-worker"', call.kwargs['input'])
+
+    def test_maintenance_uses_existing_role_job_without_demo_credentials(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            env_path = root / 'maintenance.env'
+            env_path.write_text('MAINTENANCE_DATABASE_URL=postgresql://zt_maintenance:fixture@postgres/fixture\n')
+            with patch.object(DEMO, 'KEYS', root), patch.object(DEMO, 'run') as run:
+                DEMO.dispatch('maintenance', env_path, 'zt_fixture', self.fail)
+                run.assert_called_once_with(['docker', 'compose', '--env-file', str(env_path), '-p', 'zt_fixture',
+                                             '--profile', 'demo', '--profile', 'maintenance', 'run', '--rm',
+                                             '--build', '--no-deps', 'maintenance'])
+                self.assertFalse((root / 'demo-login.env').exists())
+
     def test_checks_do_not_create_or_replace_login_credentials(self):
         previous = DEMO.KEYS
         try:

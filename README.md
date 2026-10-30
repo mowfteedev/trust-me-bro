@@ -4,7 +4,7 @@
 
 - Dashboard CPU, RAM, disk, network, uptime và trạng thái kết nối.
 - Web SSH phân quyền ADMIN/VIEWER, khóa Ed25519 và nhật ký hoạt động.
-- Cảnh báo CPU cao, mất kết nối qua Telegram.
+- Cảnh báo CPU ≥85% (phục hồi <75%) và mất kết nối qua Telegram.
 - Fastify/TypeScript · React · PostgreSQL · Go Agent cho Linux/Windows.
 
 ## Chạy demo
@@ -24,6 +24,7 @@ Khóa và cấu hình được tạo tự động, không đưa vào Git.
 ```sh
 make test    # Unit tests; DB/HTTP của Gateway dùng mock
 make e2e     # API/SSH thật; thu hồi phiên tài khoản demo
+make maintenance # Dọn metrics quá 7 ngày, chạy thủ công
 make down    # Dừng demo, giữ dữ liệu
 ```
 
@@ -31,3 +32,4 @@ make down    # Dừng demo, giữ dữ liệu
 13MiB RAM; số dịch vụ ứng dụng không gồm RAM hệ điều hành VM.
 Kiểm thử từ Internet độc lập **chưa thực hiện**. Telegram mặc định `dry-run`;
 chế độ `live` cần token và ghép nối chat.
+Cảnh báo vẫn lưu trong DB nếu Telegram mất kết nối.
