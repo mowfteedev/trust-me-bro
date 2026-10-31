@@ -1,0 +1,23 @@
+[Unit]
+Description=ZT-ServerOps native Dashboard and HTTPS proxy
+After=network-online.target zt-native-gateway.service
+Wants=zt-native-gateway.service
+
+[Service]
+Type=simple
+User=zt-native-web
+Group=zt-native-web
+WorkingDirectory=@DATA_DIR@/caddy
+Environment=HOME=@DATA_DIR@/caddy
+Environment=XDG_DATA_HOME=@DATA_DIR@/caddy/data
+Environment=XDG_CONFIG_HOME=@DATA_DIR@/caddy/config
+ExecStart=@INSTALL_DIR@/runtime/caddy/caddy run --config @CONFIG_DIR@/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

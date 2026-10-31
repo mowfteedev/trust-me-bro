@@ -1,0 +1,22 @@
+[Unit]
+Description=ZT-ServerOps native Gateway
+After=network-online.target zt-native-wireguard.service zt-native-postgres.service
+Requires=zt-native-wireguard.service zt-native-postgres.service
+
+[Service]
+Type=simple
+User=zt-native-app
+Group=zt-native-app
+WorkingDirectory=@INSTALL_DIR@/app/gateway
+EnvironmentFile=@CONFIG_DIR@/gateway.env
+ExecStart=@INSTALL_DIR@/runtime/node/bin/node dist/server.js
+Restart=on-failure
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

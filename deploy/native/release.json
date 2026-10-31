@@ -1,0 +1,9 @@
+{
+  "repository": "mowfteedev/trust-me-bro",
+  "tag": "native-tvbox-20261031-r3",
+  "asset": "zt-serverops-native-debian12-arm64-697e902.tar.gz",
+  "sha256": "1aea5cc2fd1024d1d7176a6627f6b292c958519407bfbfe8c1604645bb4b68a8",
+  "native_bundle_revision": 3,
+  "application_source_revision": "697e9028b87cdf01749bbfae7e588c076e12050f",
+  "notes": "Contains bundled ARM64 runtimes and built app; no deployment database, login credentials, node tokens or keys. Existing TV-box installation must not be overwritten."
+}

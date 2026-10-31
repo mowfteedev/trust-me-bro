@@ -3,7 +3,7 @@
 # Đồ án cơ sở ngành — Nhóm 9 (Khoa CNTT - Đại học Công nghiệp Hà Nội)
 # ==============================================================================
 
-.PHONY: help up down test mock clean logs status e2e doctor maintenance check-cpu check-telegram
+.PHONY: help up down test test-native mock clean logs status e2e doctor maintenance check-cpu check-telegram
 
 SHELL := /bin/bash
 PYTHON ?= python3
@@ -54,6 +54,9 @@ test:
 	@docker build --target builder -t zt_dashboard_tests dashboard
 	@docker run --rm zt_dashboard_tests npm test
 	@echo "Unit tests dùng mock DB/fetch; chạy make e2e để kiểm chứng cụm thật."
+
+test-native:
+	@$(PYTHON) -B -m unittest discover -s deploy/native/tests -p 'test_*.py'
 
 e2e:
 	@echo "Kiểm tra cụm $(PROJECT): đăng nhập/logout sẽ thu hồi các phiên demo-admin/demo-viewer."

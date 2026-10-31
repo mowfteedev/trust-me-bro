@@ -1,0 +1,25 @@
+[Unit]
+Description=ZT-ServerOps native private PostgreSQL cluster
+After=network.target
+Before=zt-native-gateway.service
+
+[Service]
+Type=simple
+User=zt-native-db
+Group=zt-native-db
+Environment=LD_LIBRARY_PATH=@PG_LIB_PATH@
+ExecStart=@PG_BIN@/postgres -D @DATA_DIR@/postgres
+ExecReload=/bin/kill -HUP $MAINPID
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=zt-native-postgres
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -7,6 +7,20 @@
 - Cảnh báo CPU ≥85% (phục hồi <75%) và mất kết nối qua Telegram.
 - Fastify/TypeScript · React · PostgreSQL · Go Agent cho Linux/Windows.
 
+## Gateway native và khôi phục sau khi cài lại máy
+
+Gateway hiện chạy trực tiếp trên TV box Debian 12 ARM64, không cần Docker.
+Đã kiểm trên máy thật với một Worker Debian: nhận telemetry, Dashboard và Web SSH.
+Windows Worker chưa được kiểm lại với Gateway native.
+
+- [Hướng dẫn khôi phục laptop và Worker](deploy/RECOVERY.md).
+- [Source bộ cài native, giới hạn và kiểm thử](deploy/native/README.md).
+- [Bộ cài ARM64 và Agent tải sẵn](https://github.com/mowfteedev/trust-me-bro/releases/tag/native-tvbox-20261031-r3).
+
+Runtime lớn lưu trong GitHub Releases, không nhét vào lịch sử Git. Mật khẩu,
+token, khóa riêng, database và đĩa VM không nằm trong repo. Nếu chỉ cài lại laptop,
+giữ nguyên Gateway trên TV box; không chạy lại installer trên máy đã cài.
+
 ## Chạy demo
 
 Gateway cần Linux hỗ trợ WireGuard, Docker Compose v2, Python 3.9+, OpenSSL

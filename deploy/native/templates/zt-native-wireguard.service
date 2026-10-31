@@ -1,0 +1,21 @@
+[Unit]
+Description=ZT-ServerOps native WireGuard interface
+After=network-online.target
+Wants=network-online.target
+Before=zt-native-gateway.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+RuntimeDirectory=zt-native-wireguard
+RuntimeDirectoryMode=0700
+UMask=0077
+ExecStartPre=/usr/bin/python3 -B @INSTALL_DIR@/scripts/wireguard-lifecycle.py prepare @WG_CONFIG@ @API_PORT@ @WG_IP@
+ExecStart=@WG_QUICK@ up @WG_CONFIG@
+ExecStop=@WG_QUICK@ down @WG_CONFIG@
+ExecStopPost=/usr/bin/python3 -B @INSTALL_DIR@/scripts/wireguard-lifecycle.py cleanup @WG_CONFIG@ @API_PORT@ @WG_IP@
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

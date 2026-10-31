@@ -41,3 +41,24 @@ evidence*/
 /.memory/
 /*.md
 !/README.md
+
+# Native runtime, generated deployment state and private recovery archives
+/deploy/native/app/
+/deploy/native/runtime/
+/deploy/native/SHA256SUMS
+/deploy/native/BUILD-INFO.json
+/deploy/native/VERIFICATION.json
+*.qcow2
+*.vmdk
+*.vdi
+*.iso
+*.tar.gz
+*.tgz
+*.sql.gz
+node.token
+gateway.env
+admin.env
+login.json
+agent-config.json
+ztgw0.conf
+wg0.conf
