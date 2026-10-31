@@ -52,6 +52,7 @@ Kiểm checksum bằng khối dừng khi lỗi:
 sh -eu <<'VERIFY_AGENTS'
 cd worker-binaries
 sha256sum --check AGENT-SHA256SUMS
+chmod +x zt-agent-linux-amd64
 VERIFY_AGENTS
 ```
 
