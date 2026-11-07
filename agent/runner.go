@@ -34,8 +34,19 @@ func wait(ctx context.Context, delay time.Duration) bool {
 	}
 }
 
+// Keep successful beacons on monotonic deadlines rather than waiting a full
+// interval after the HTTP ACK. Skip elapsed slots; never send a catch-up burst.
+func nextHeartbeatDeadline(previous, now time.Time, interval time.Duration) time.Time {
+	next := previous.Add(interval)
+	if !next.After(now) {
+		next = next.Add((now.Sub(next)/interval + 1) * interval)
+	}
+	return next
+}
+
 func run(ctx context.Context, cfg config, collect func() (beacon, error), client *http.Client, logger *log.Logger) {
 	backoff := cfg.Interval
+	deadline := time.Now()
 	for ctx.Err() == nil {
 		payload, err := collect()
 		if err == nil {
@@ -47,11 +58,14 @@ func run(ctx context.Context, cfg config, collect func() (beacon, error), client
 		var delay time.Duration
 		backoff, delay = nextDelay(cfg, backoff, err == nil, rand.Float64())
 		if err != nil {
+			// Failed attempts retain their bounded delay after the failure.
+			deadline = time.Now().Add(delay)
 			logger.Printf("beacon skipped/failed: %v; retry in %s", err, delay.Round(time.Millisecond))
 		} else {
 			logger.Printf("beacon ACK cpu=%.2f%% ram=%.2f%%", payload.Metrics.CPU.Percent, payload.Metrics.Memory.Percent)
+			deadline = nextHeartbeatDeadline(deadline, time.Now(), delay)
 		}
-		if !wait(ctx, delay) {
+		if !wait(ctx, time.Until(deadline)) {
 			return
 		}
 	}

@@ -113,9 +113,6 @@
   .console-main {
     padding: 26px 20px;
   }
-  .console-footer {
-    margin: 0 20px;
-  }
   .login-top {
     padding: 24px;
   }
@@ -124,25 +121,6 @@
     max-width: 500px;
     padding: 25px 24px 48px;
     gap: 30px;
-  }
-  .login-story {
-    text-align: center;
-  }
-  .login-story > .eyebrow {
-    justify-content: center;
-  }
-  .login-story h1 {
-    font-size: 34px;
-    margin: 15px 0;
-    letter-spacing: -1px;
-  }
-  .network-illustration,
-  .login-features {
-    display: none;
-  }
-  .login-bottom {
-    padding: 20px 24px;
-    justify-content: center;
   }
 }
 @media (max-width: 520px) {
@@ -200,7 +178,6 @@
     width: 42px;
     height: 42px;
     padding: 0;
-    margin-top: 20px;
   }
   .page-heading > .button span {
     display: none;
@@ -317,10 +294,6 @@
   .overview-note svg {
     margin-top: 2px;
   }
-  .console-footer {
-    margin: 0 16px;
-    font-size: 8px;
-  }
   .state-panel {
     padding: 45px 20px;
   }
@@ -337,24 +310,15 @@
     padding: 18px 20px 30px;
     gap: 25px;
   }
-  .login-story h1 {
-    font-size: 29px;
-  }
-  .login-story > p {
-    font-size: 11px;
-  }
   .login-form-panel {
     padding: 25px;
   }
-  .login-form-heading h2 {
+  .login-form-heading h1 {
     font-size: 22px;
   }
   .login-form-icon {
     width: 40px;
     height: 42px;
-  }
-  .login-bottom {
-    font-size: 8px;
   }
 }
 

@@ -22,7 +22,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ metrics, title }) =>
     return (
       <div className="chart-empty">
         <Activity size={26} />
-        <span>Chưa có số liệu để hiển thị biểu đồ.</span>
+        <span>Chưa có lịch sử.</span>
       </div>
     );
   }
@@ -71,7 +71,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ metrics, title }) =>
       <div className="chart-legend">
         <span><i className="cpu" />CPU <b>{latestCpu}</b></span>
         <span><i className="memory" />RAM <b>{latestRam}</b></span>
-        <small>{points.length} mẫu đo</small>
+        <small>{points.length} mẫu</small>
       </div>
       <div className="chart-plot">
         <div className="chart-scale" aria-hidden="true">
@@ -115,7 +115,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ metrics, title }) =>
         <span>{formatTime(new Date(start + (end - start) / 2).toISOString())}</span>
         <span>{formatTime(latest.recorded_at)}</span>
       </div>
-      {hasGaps && <p className="chart-gap-note">Đường biểu diễn ngắt khi hai mẫu cách nhau hơn 15 giây.</p>}
+      {hasGaps && <p className="chart-gap-note">Gián đoạn dữ liệu (&gt;15 giây)</p>}
     </div>
   );
 };

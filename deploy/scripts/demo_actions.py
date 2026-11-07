@@ -36,10 +36,11 @@ def credentials(create=False):
     return read_env(path)
 
 
-def setup_demo(compose, env, start=False):
+def setup_demo(compose, env, start=False, start_worker=True, build=True):
     login = credentials(create=start)
     if start:
-        run(compose + ['up', '-d', '--build', 'postgres', 'migrator', 'provisioner', 'gateway', 'wireguard_gateway', 'dashboard', 'proxy'])
+        build_flag = '--build' if build else '--no-build'
+        run(compose + ['up', '-d', build_flag, 'postgres', 'migrator', 'provisioner', 'gateway', 'wireguard_gateway', 'proxy'])
         # Chờ readiness thực tế; deadline rõ ràng, không giả định thời gian boot.
         deadline = time.monotonic() + 90
         while not gateway_ready(env):
@@ -56,9 +57,9 @@ def setup_demo(compose, env, start=False):
         'host_key_fingerprint': fingerprint,
     }
     run(compose + ['exec', '-T', 'gateway', 'node', 'dist/scripts/setup-demo.js'], input=json.dumps(setup), text=True)
-    if start:
+    if start and start_worker:
         # Existing tags otherwise keep an old Agent even after source changes.
-        run(compose + ['up', '-d', '--build', 'node_worker_01'])
+        run(compose + ['up', '-d', '--build' if build else '--no-build', 'node_worker_01'])
     print(f'Dashboard: https://localhost:{env.get("HTTPS_PORT", "443")}')
     print('Tài khoản: demo-admin / demo-viewer; mật khẩu riêng trong keys/demo-login.env (0600).')
     print(f'Telegram: {env.get("TELEGRAM_MODE", "dry-run")}. Cụm riêng, không sửa .env hay DB cũ.')
@@ -95,7 +96,7 @@ def check_demo(compose, env, action, argument_error):
             run(compose + ['exec', '-T', 'gateway', 'rm', '-f', binary_path])
 
 
-def dispatch(action, env_path, project, argument_error):
+def dispatch(action, env_path, project, argument_error, start_worker=True, build=True):
     if action == 'doctor':
         run([sys.executable, str(ROOT / 'deploy/scripts/doctor.py'),
              '--env-file', str(env_path), '--project', project])
@@ -107,11 +108,12 @@ def dispatch(action, env_path, project, argument_error):
         argument_error('Chưa có env demo; chạy up trước.')
     env = read_env(env_path)
     if action in ('up', 'setup'):
-        setup_demo(compose, env, start=action == 'up')
+        setup_demo(compose, env, start=action == 'up', start_worker=start_worker, build=build)
     elif action in ('check', 'check-cpu', 'check-telegram'):
         check_demo(compose, env, action, argument_error)
     elif action == 'maintenance':
-        run(compose + ['--profile', 'maintenance', 'run', '--rm', '--build', '--no-deps', 'maintenance'])
+        run(compose + ['--profile', 'maintenance', 'run', '--rm']
+            + (['--build'] if build else []) + ['--no-deps', 'maintenance'])
     elif action == 'down':
         # Bảo toàn volume và mật khẩu; không dùng -v.
         run(compose + ['down'])

@@ -6,7 +6,6 @@ import {
   LogOut,
   Menu,
   Server,
-  Shield,
   X,
 } from "lucide-react";
 import { Brand } from "../components/Brand.js";
@@ -80,9 +79,7 @@ export const ConsoleLayout: React.FC<ConsoleLayoutProps> = ({
   const selectTab = (tab: ConsoleTab) => {
     onSelectTab(tab);
     setIsMobileMenuOpen(false);
-    document
-      .getElementById(tab === "fleet" ? "server-fleet" : "cluster-overview")
-      ?.scrollIntoView({ behavior: "smooth" });
+    document.getElementById("cluster-overview")?.scrollIntoView({ block: "start" });
   };
 
   return (
@@ -110,14 +107,6 @@ export const ConsoleLayout: React.FC<ConsoleLayoutProps> = ({
             <X size={20} />
           </button>
         </div>
-        <div className="workspace-label">
-          <span className="workspace-avatar">ZT</span>
-          <div>
-            <strong>Server workspace</strong>
-            <small>Giám sát & điều khiển</small>
-          </div>
-        </div>
-        <span className="nav-label">WORKSPACE</span>
         <nav>
           <button
             className={`nav-item ${activeTab === "dashboard" ? "active" : ""}`}
@@ -149,30 +138,6 @@ export const ConsoleLayout: React.FC<ConsoleLayoutProps> = ({
             </button>
           )}
         </nav>
-        <div className="sidebar-bottom">
-          <div className="access-note">
-            <span className="access-note-icon">
-              <Shield size={20} />
-            </span>
-            <strong>Truy cập có kiểm soát</strong>
-            <p>
-              Kết nối qua WireGuard.
-              <br />
-              Quyền SSH được kiểm tra tại Gateway.
-            </p>
-            <span className="protocol-label">
-              VPN M2M <i /> SSH ED25519
-            </span>
-          </div>
-          <div className="sidebar-foot">
-            <span className="brand-mini">ZT</span>
-            <span>
-              Đồ án cơ sở ngành
-              <br />
-              <strong>An ninh mạng · Nhóm 9</strong>
-            </span>
-          </div>
-        </div>
       </aside>
       <div className="console-workspace">
         <header className="topbar">
@@ -180,13 +145,12 @@ export const ConsoleLayout: React.FC<ConsoleLayoutProps> = ({
             <button
               className="icon-button mobile-only menu-trigger"
               title="Mở menu điều hướng"
+              aria-label="Mở menu điều hướng"
               aria-expanded={isMobileMenuOpen}
               onClick={() => setIsMobileMenuOpen(true)}
             >
               <Menu size={21} />
             </button>
-            <span className="desktop-label">Workspace</span>
-            <ChevronRight size={13} className="desktop-label" />
             <strong>
               {activeTab === "audit"
                 ? "Nhật ký hoạt động"
@@ -206,8 +170,8 @@ export const ConsoleLayout: React.FC<ConsoleLayoutProps> = ({
                 <strong>{currentUser.username}</strong>
                 <span>
                   {currentUser.role === "ADMIN"
-                    ? "Administrator"
-                    : "Viewer · Chỉ đọc"}
+                    ? "Quản trị"
+                    : "Chỉ xem"}
                 </span>
               </div>
             </div>
@@ -215,6 +179,7 @@ export const ConsoleLayout: React.FC<ConsoleLayoutProps> = ({
               className="icon-button logout-button"
               onClick={onLogout}
               title="Đăng xuất khỏi hệ thống"
+              aria-label="Đăng xuất khỏi hệ thống"
             >
               <LogOut size={18} />
             </button>
@@ -223,12 +188,6 @@ export const ConsoleLayout: React.FC<ConsoleLayoutProps> = ({
         <main id="cluster-overview" className="console-main">
           {children}
         </main>
-        <footer className="console-footer">
-          <span>
-            ZT-ServerOps <b>/</b> Infrastructure monitoring
-          </span>
-          <span>React · WireGuard · PostgreSQL</span>
-        </footer>
       </div>
       {terminal}
     </div>

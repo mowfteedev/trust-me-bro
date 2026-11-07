@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { NodeItem } from '../types/index.js';
 import { api } from '../services/api.js';
-import { X, Maximize2, Minimize2, ShieldCheck, RefreshCw, Terminal as TerminalIcon } from 'lucide-react';
+import { X, Maximize2, Minimize2, RefreshCw, Terminal as TerminalIcon } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 
 interface TerminalModalProps {
@@ -91,11 +91,10 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
       fitAddon.fit();
     }
 
-    term.writeln('\x1b[36m⚡ [ZT-SERVEROPS] Đang khởi tạo kết nối đường hầm mã hóa WireGuard Web SSH...\x1b[0m');
+    term.writeln('\x1b[36mĐang kết nối SSH...\x1b[0m');
 
     async function startConnection() {
       try {
-        term.writeln('\x1b[33m🔑 Đang xin cấp vé xác thực One-Time Ticket...\x1b[0m');
         const ticket = await api.getBastionTicket(node.id);
 
         if (!isSubscribed) return;
@@ -108,7 +107,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
         readyTimeout = setTimeout(() => {
           if (!isSubscribed || isReady) return;
           setConnectionStatus('ERROR');
-          setErrorMessage('Quá thời gian chờ Gateway mở SSH. Kiểm tra VPN và SSH của Worker rồi thử lại.');
+          setErrorMessage('Kết nối SSH quá thời gian chờ. Thử mở phiên mới.');
           socket.close(1000, 'SSH ready timeout');
         }, 30_000);
 
@@ -133,7 +132,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
                   : null);
                 setConnectionStatus('CONNECTED');
                 term.focus();
-                term.writeln(`\r\n\x1b[32m✔ ${frame.message}\x1b[0m\r\n`);
+                term.writeln('\r\n\x1b[32mĐã kết nối.\x1b[0m\r\n');
                 fitAddon.fit();
                 socket.send(JSON.stringify({ type: 'RESIZE', rows: term.rows, cols: term.cols }));
                 return;
@@ -142,7 +141,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
                 isReady = false;
                 setConnectionStatus('ERROR');
                 setErrorMessage(frame.message || 'Gateway không thể mở phiên SSH.');
-                term.writeln(`\r\n\x1b[31m❌ [LỖI] ${frame.message}\x1b[0m\r\n`);
                 return;
               }
             }
@@ -157,8 +155,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
           clearTimeout(readyTimeout);
           isReady = false;
           setConnectionStatus('ERROR');
-          setErrorMessage('Không thể thiết lập kết nối WebSocket tới Gateway');
-          term.writeln('\r\n\x1b[31m❌ [LỖI MẠNG] Không thể kết nối tới máy chủ Gateway.\x1b[0m');
+          setErrorMessage('Không thể kết nối Gateway.');
         };
 
         socket.onclose = (event) => {
@@ -166,7 +163,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
           clearTimeout(readyTimeout);
           isReady = false;
           setConnectionStatus((status) => status === 'ERROR' ? 'ERROR' : 'DISCONNECTED');
-          term.writeln(`\r\n\x1b[33m🔌 Phiên làm việc đã kết thúc (Mã: ${event.code}).\x1b[0m`);
+          term.writeln(`\r\n\x1b[33mPhiên đã đóng (mã ${event.code}).\x1b[0m`);
         };
 
         term.onData((data) => {
@@ -178,7 +175,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
         if (!isSubscribed) return;
         setConnectionStatus('ERROR');
         setErrorMessage(err.message || 'Lỗi khởi tạo phiên làm việc');
-        term.writeln(`\r\n\x1b[31m❌ Lỗi: ${err.message}\x1b[0m`);
       }
     }
 
@@ -247,10 +243,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
               <div className="flex flex-wrap gap-2 items-center">
                 <span className="break-all font-semibold text-sm text-neutral-100">{terminalName}</span>
                 <span className="font-mono text-xs text-neutral-400">({node.ip_address})</span>
-                <span className="inline-flex items-center text-[10px] font-mono rounded bg-neutral-800 px-1.5 py-0.5 text-neutral-300">
-                  <ShieldCheck className="h-3 w-3 mr-1 text-cyan-400" />
-                  SSH qua Gateway
-                </span>
               </div>
             </div>
           </div>
@@ -279,7 +271,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
               ref={closeButtonRef}
               onClick={onClose}
               className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl text-neutral-400 hover:bg-red-500/10 hover:text-red-400 transition-colors"
-              title="Đóng Terminal"
+              title="Đóng Terminal · Alt + Esc"
               aria-label="Đóng Terminal"
             >
               <X className="h-5 w-5" />
@@ -294,15 +286,14 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
         <div className="relative min-h-0 flex-1 p-3 bg-[#090d16] overflow-hidden">
           <div ref={terminalRef} className="h-full w-full" />
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-neutral-800 px-4 py-2 text-xs text-neutral-400">
-          <span>Shell của Worker · Alt + Esc để đóng</span>
-          {(connectionStatus === 'DISCONNECTED' || connectionStatus === 'ERROR') && (
+        {(connectionStatus === 'DISCONNECTED' || connectionStatus === 'ERROR') && (
+          <div className="flex shrink-0 justify-end border-t border-neutral-800 px-4 py-2 text-xs text-neutral-400">
             <button className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-neutral-700 px-3 text-cyan-300 hover:bg-neutral-800"
               onClick={() => setAttempt((value) => value + 1)}>
               <RefreshCw size={14} /> Mở phiên mới
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

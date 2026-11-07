@@ -12,8 +12,16 @@ export const App: React.FC = () => {
   const session = useSession();
   const [selectedTerminalNode, setSelectedTerminalNode] =
     useState<NodeItem | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    try { return localStorage.getItem("zt_theme") !== "light"; }
+    catch { return true; }
+  });
   const [activeTab, setActiveTab] = useState<ConsoleTab>("dashboard");
+
+  useEffect(() => {
+    try { localStorage.setItem("zt_theme", isDarkMode ? "dark" : "light"); }
+    catch { /* Theme remains usable when browser storage is unavailable. */ }
+  }, [isDarkMode]);
 
   useEffect(() => {
     if (!session.currentUser) setSelectedTerminalNode(null);
@@ -77,6 +85,7 @@ export const App: React.FC = () => {
           currentUser={session.currentUser}
           onOpenTerminal={setSelectedTerminalNode}
           focusSection={activeTab === "fleet" ? "fleet" : "dashboard"}
+          onNavigateFleet={() => setActiveTab("fleet")}
         />
       )}
     </ConsoleLayout>

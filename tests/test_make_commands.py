@@ -87,6 +87,21 @@ class MakeCommandTests(unittest.TestCase):
 
 
 class CredentialTests(unittest.TestCase):
+    def test_core_only_prebuilt_start_keeps_worker_external(self):
+        compose = ['docker', 'compose']
+        env = {'NODE_TOKEN_01': 'fixture-token', 'NODE_ID_01': 'node-worker-01'}
+        login = {'DEMO_ADMIN_PASSWORD': 'fixture-admin', 'DEMO_VIEWER_PASSWORD': 'fixture-viewer'}
+        public = 'ssh-ed25519 ' + base64.b64encode(b'fixture-public-key').decode()
+        with patch.object(DEMO, 'credentials', return_value=login), patch.object(DEMO, 'gateway_ready', return_value=True):
+            with patch.object(DEMO, 'run') as run, patch.object(Path, 'read_text', return_value=public):
+                DEMO.setup_demo(compose, env, start=True, start_worker=False, build=False)
+                commands = [call.args[0] for call in run.call_args_list]
+                self.assertEqual(commands[0], compose + ['up', '-d', '--no-build', 'postgres',
+                                 'migrator', 'provisioner', 'gateway', 'wireguard_gateway', 'proxy'])
+                self.assertFalse(any('node_worker_01' in command for command in commands))
+                self.assertFalse(any('--build' in command for command in commands))
+                self.assertEqual(json.loads(run.call_args.kwargs['input'])['node_name'], 'node-worker-01')
+
     def test_setup_and_checks_use_the_configured_worker_name(self):
         env = {'NODE_ID_01': 'node-custom-worker', 'NODE_TOKEN_01': 'fixture-token',
                'MIGRATION_DATABASE_URL': 'fixture-migration', 'DATABASE_URL': 'fixture-app',
@@ -131,6 +146,17 @@ class CredentialTests(unittest.TestCase):
                 self.assertEqual((DEMO.KEYS / 'demo-login.env').stat().st_mode & 0o777, 0o600)
         finally:
             DEMO.KEYS = previous
+
+    def test_prebuilt_maintenance_does_not_pass_unsupported_compose_run_flags(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            env_path = Path(temporary) / 'fixture.env'
+            env_path.write_text('MAINTENANCE_DATABASE_URL=postgresql://zt_maintenance:fixture@postgres/fixture\n')
+            with patch.object(DEMO, 'run') as run:
+                DEMO.dispatch('maintenance', env_path, 'zt_fixture', self.fail, build=False)
+                command = run.call_args.args[0]
+                self.assertIn('maintenance', command)
+                self.assertNotIn('--build', command)
+                self.assertNotIn('--no-build', command)
 
     def test_check_dispatch_requires_credentials_before_running_commands(self):
         with tempfile.TemporaryDirectory() as temporary:

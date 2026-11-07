@@ -1,16 +1,11 @@
 import React, { useState } from "react";
 import {
-  Activity,
   AlertTriangle,
   ArrowRight,
   Eye,
   EyeOff,
   LockKeyhole,
-  Network,
-  Server,
-  Shield,
   ShieldAlert,
-  Terminal,
   UserRound,
 } from "lucide-react";
 import { Brand } from "../components/Brand.js";
@@ -54,66 +49,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         {themeButton}
       </header>
       <main className="login-layout">
-        <section className="login-story">
-          <span className="eyebrow">
-            <span className="accent-dash" /> ZERO TRUST. CLEAR VISIBILITY.
-          </span>
-          <h1>
-            Mọi máy chủ.
-            <br />
-            <span>Trong tầm kiểm soát.</span>
-          </h1>
-          <p>
-            Một góc nhìn rõ ràng về hạ tầng của bạn.
-            <br />
-            Giám sát tài nguyên, kết nối và truy cập SSH từ một nơi.
-          </p>
-          <div className="network-illustration" aria-hidden="true">
-            <div className="network-label">
-              <Network size={14} /> MÔ HÌNH KẾT NỐI
-            </div>
-            <div className="network-flow">
-              <div className="network-device">
-                <Shield size={26} />
-                <strong>Gateway</strong>
-                <small>Access control</small>
-              </div>
-              <div className="network-link">
-                <span>WireGuard</span>
-                <i />
-                <small>VPN M2M</small>
-              </div>
-              <div className="network-device">
-                <Server size={26} />
-                <strong>Worker</strong>
-                <small>Mini-Agent · SSH</small>
-              </div>
-            </div>
-            <div className="network-caption">
-              <LockKeyhole size={13} /> Truy cập qua VPN, phân quyền tại
-              Gateway
-            </div>
-          </div>
-          <div className="login-features">
-            <span>
-              <Activity size={16} /> Giám sát tài nguyên
-            </span>
-            <span>
-              <Shield size={16} /> Admin / Viewer
-            </span>
-            <span>
-              <Terminal size={16} /> Web SSH
-            </span>
-          </div>
-        </section>
         <section className="login-form-panel" aria-labelledby="login-title">
           <div className="login-form-heading">
             <span className="login-form-icon">
               <LockKeyhole size={21} />
             </span>
             <div>
-              <h2 id="login-title">Đăng nhập</h2>
-              <p>Truy cập bảng điều khiển máy chủ.</p>
+              <h1 id="login-title">Đăng nhập</h1>
             </div>
           </div>
           <form onSubmit={handleLogin}>
@@ -138,10 +80,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 required
                 value={username}
                 onChange={(e) => onUsernameChange(e.target.value)}
-                placeholder="Nhập tên tài khoản"
               />
             </div>
-            <label htmlFor="password">Mật khẩu xác thực</label>
+            <label htmlFor="password">Mật khẩu</label>
             <div className="form-input">
               <LockKeyhole size={17} />
               <input
@@ -151,7 +92,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Nhập mật khẩu"
               />
               <button
                 type="button"
@@ -167,24 +107,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               className="button primary login-submit"
               disabled={isSubmitting}
             >
-              {isSubmitting ? "Đang xác thực..." : "Đăng nhập vào Hệ thống"}
+              {isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}
               <ArrowRight size={17} />
             </button>
           </form>
-          <div className="login-form-note">
-            <Shield size={15} />
-            <span>
-              Tài khoản được cấp bởi quản trị viên.
-            </span>
-          </div>
         </section>
       </main>
-      <footer className="login-bottom">
-        <span>
-          ZT-ServerOps <b> / </b> Security & monitoring
-        </span>
-        <span>WireGuard · SSH Ed25519</span>
-      </footer>
     </div>
   );
 };

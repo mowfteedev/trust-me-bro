@@ -1,16 +1,24 @@
-# ==============================================================================
-# HỆ THỐNG ĐIỀU PHỐI TOÀN BỘ CỤM CONTAINER ZT-SERVEROPS (docker-compose.yml)
-# Dự án: ZT-ServerOps (do-an-co-so-nganh)
-# Phụ trách: devops (chủ trì), security, tech-lead
-# ==============================================================================
+# API and one-shot DB jobs reuse the same runtime image.
+x-gateway-image: &gateway-image
+  image: ${ZT_GATEWAY_IMAGE:-zt-serverops-gateway:local}
+  build:
+    context: ./gateway
+    dockerfile: Dockerfile
 
 services:
-  # ----------------------------------------------------------------------------
-  # 1. CƠ SỞ DỮ LIỆU POSTGRESQL v3.1 (TÍCH HỢP RANGE PARTITIONING)
-  # ----------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-32MB}
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-30}
+      - -c
+      - work_mem=${PG_WORK_MEM:-2MB}
+      - -c
+      - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-16MB}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-zt_admin}
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Chạy deploy/scripts/init-secrets.sh trước}"
@@ -25,19 +33,9 @@ services:
       timeout: 3s
       retries: 5
 
-  # ----------------------------------------------------------------------------
-  # 1.5. TIẾN TRÌNH THỰC THI SCHEMA MIGRATIONS ĐỘC LẬP (ZT_MIGRATOR)
-  # ----------------------------------------------------------------------------
-  # LÝ DO PHI TRỰC GIÁC (RATIONALE - N01 & N02 REMEDIATION):
-  # Tách biệt hoàn toàn quyền sở hữu schema DDL:
-  # - zt_migrator là nơi duy nhất giữ thông tin xác thực zt_admin để chạy DDL.
-  # - Sau khi áp dụng xong các bản migration (001 -> 006), container tự thoát (exit 0).
-  # - zt_gateway chỉ khởi động sau khi zt_migrator hoàn tất thành công.
-  # ----------------------------------------------------------------------------
+  # DDL runs with admin credentials only until migration completes.
   migrator:
-    build:
-      context: ./gateway
-      dockerfile: Dockerfile
+    <<: *gateway-image
     restart: "no"
     environment:
       DATABASE_URL: "${MIGRATION_DATABASE_URL:?LỖI: MIGRATION_DATABASE_URL bắt buộc phải được thiết lập trong .env}"
@@ -49,14 +47,8 @@ services:
     networks:
       - zt_internal_net
 
-  # ----------------------------------------------------------------------------
-  # 1.6. DỊCH VỤ CẤP PHÁT MẬT KHẨU VAI TRÒ CSDL THỰC TẾ (ZT_PROVISIONER - R3-01)
-  # Phân quyền: Sử dụng quyền admin zt_admin để gán mật khẩu ngẫu nhiên cho zt_app
-  # ----------------------------------------------------------------------------
   provisioner:
-    build:
-      context: ./gateway
-      dockerfile: Dockerfile
+    <<: *gateway-image
     restart: "no"
     environment:
       MIGRATION_DATABASE_URL: "${MIGRATION_DATABASE_URL:?LỖI: MIGRATION_DATABASE_URL bắt buộc phải được thiết lập trong .env}"
@@ -72,14 +64,9 @@ services:
     networks:
       - zt_internal_net
 
-  # ----------------------------------------------------------------------------
-  # 1.7. DỊCH VỤ BẢO TRÌ PHÂN VÙNG DỮ LIỆU ĐỊNH KỲ (ZT_MAINTENANCE)
-  # Phân quyền: Sử dụng vai trò chuyên trách zt_maintenance (N03 & R3-05 Remediation)
-  # ----------------------------------------------------------------------------
+  # Opt-in retention job uses its own least-privilege DB role.
   maintenance:
-    build:
-      context: ./gateway
-      dockerfile: Dockerfile
+    <<: *gateway-image
     profiles: ["maintenance"]
     restart: "no"
     environment:
@@ -96,33 +83,23 @@ services:
     networks:
       - zt_internal_net
 
-  # ----------------------------------------------------------------------------
-  # 2. TRẠM ĐIỀU HÀNH TRUNG TÂM (CONTROL PLANE GATEWAY)
-  # ----------------------------------------------------------------------------
   gateway:
-    build:
-      context: ./gateway
-      dockerfile: Dockerfile
+    <<: *gateway-image
     restart: unless-stopped
     environment:
-      # Cấu hình mạng dịch vụ Fastify
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 3000
       NODE_ENV: ${NODE_ENV:-production}
-      # Danh tính và Xác thực
       JWT_SECRET: "${JWT_SECRET:?LỖI: JWT_SECRET bắt buộc phải được thiết lập trong .env}"
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
-      # Only the designated Caddy peer may supply forwarded client addresses.
+      # Only this Caddy peer may supply forwarded client addresses.
       TRUSTED_PROXY_IP: ${PROXY_INTERNAL_IP:-172.30.88.254}
-      # Kết nối CSDL: CHỈ SỬ DỤNG VAI TRÒ ÍT QUYỀN zt_app (N02 & R3-01 REMEDIATION)
       DATABASE_URL: "${DATABASE_URL:?LỖI: DATABASE_URL bắt buộc phải được thiết lập trong .env}"
-      DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-20}
+      DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-5}
       DB_IDLE_TIMEOUT_MS: ${DB_IDLE_TIMEOUT_MS:-30000}
-      # Web SSH Bastion
       BASTION_SSH_KEY_PATH: ${BASTION_SSH_KEY_PATH:-./keys/bastion_id_ed25519}
       BASTION_DEFAULT_USER: ${BASTION_DEFAULT_USER:-ztuser}
       BASTION_CONNECT_TIMEOUT_MS: ${BASTION_CONNECT_TIMEOUT_MS:-10000}
-      # Giám sát Liveness Sweeper
       SWEEPER_INTERVAL_MS: ${SWEEPER_INTERVAL_MS:-5000}
       NODE_OFFLINE_THRESHOLD_SECONDS: ${NODE_OFFLINE_THRESHOLD_SECONDS:-30}
       NODE_STALE_THRESHOLD_SECONDS: ${NODE_STALE_THRESHOLD_SECONDS:-15}
@@ -130,7 +107,6 @@ services:
       CPU_RECOVERY_THRESHOLD_PERCENT: ${CPU_RECOVERY_THRESHOLD_PERCENT:-75}
       TELEGRAM_MODE: ${TELEGRAM_MODE:-dry-run}
       TELEGRAM_REQUEST_TIMEOUT_MS: ${TELEGRAM_REQUEST_TIMEOUT_MS:-5000}
-      # Telegram Bot & WireGuard
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_PAIR_OTP: ${TELEGRAM_PAIR_OTP:-}
       WG_GATEWAY_IP: ${WG_GATEWAY_IP:-10.100.0.1}
@@ -154,24 +130,12 @@ services:
     expose:
       - "3000"
 
-  # ----------------------------------------------------------------------------
-  # 3. BẢNG ĐIỀU KHIỂN GIAO DIỆN WEB CONSOLE (REACT 19 SPA)
-  # ----------------------------------------------------------------------------
-  dashboard:
-    build:
-      context: ./dashboard
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    networks:
-      - zt_ingress_net
-    expose:
-      - "80"
-
-  # ----------------------------------------------------------------------------
-  # 4. CỔNG BIÊN REVERSE PROXY & TỰ ĐỘNG HÓA TLS (CADDY)
-  # ----------------------------------------------------------------------------
+  # One Caddy serves React files and proxies API/WebSocket traffic.
   proxy:
-    image: caddy:2-alpine
+    image: ${ZT_PROXY_IMAGE:-zt-serverops-proxy:local}
+    build:
+      context: .
+      dockerfile: deploy/proxy/Dockerfile
     restart: unless-stopped
     environment:
       HTTPS_PORT: ${HTTPS_PORT:-443}
@@ -184,18 +148,15 @@ services:
       - caddy_config:/config
     depends_on:
       - gateway
-      - dashboard
     networks:
       zt_ingress_net:
         ipv4_address: ${PROXY_INTERNAL_IP:-172.30.88.254}
 
-  # ----------------------------------------------------------------------------
-  # 5. MÁY CHỦ CON MÔ PHỎNG PHÁT SÓNG THỰC TẾ (WORKER DAEMON AGENT)
-  # ----------------------------------------------------------------------------
   wireguard_gateway:
+    image: ${ZT_WIREGUARD_IMAGE:-zt-serverops-wireguard:local}
     build: ./deploy/wireguard
     restart: unless-stopped
-    # Only this helper changes interfaces/firewall inside the Gateway namespace.
+    # Only this helper may change the Gateway namespace network/firewall.
     network_mode: service:gateway
     cap_add: [NET_ADMIN]
     environment:
@@ -211,6 +172,7 @@ services:
       timeout: 2s
       retries: 10
 
+  # Optional local demo Worker; no published ports or DB access.
   node_worker_01:
     profiles: [demo]
     build:
@@ -233,24 +195,19 @@ services:
     depends_on:
       wireguard_gateway:
         condition: service_healthy
-    # No published port and no direct access to ingress or database networks.
     networks:
       - zt_wg_transport
 
-# ------------------------------------------------------------------------------
-# 6. MẠNG NỘI BỘ VÀ KHỐI LƯU TRỮ VĨNH CỬU (NETWORKS & VOLUMES)
-# ------------------------------------------------------------------------------
 networks:
   zt_wg_transport:
     driver: bridge
-  # Mạng biên tiếp nhận lưu lượng từ Caddy chuyển tiếp vào Gateway & Dashboard
   zt_ingress_net:
     driver: bridge
     ipam:
       config:
         - subnet: ${INGRESS_SUBNET:-172.30.88.0/24}
 
-  # Mạng nội bộ tuyệt mật nối Gateway với CSDL PostgreSQL (Cấm truy cập Internet)
+  # Database network has no external route.
   zt_internal_net:
     driver: bridge
     internal: true

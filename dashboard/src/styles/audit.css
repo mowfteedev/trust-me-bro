@@ -1,31 +1,4 @@
 /* Activity audit reuses the existing console surfaces and status colors. */
-.audit-scope {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  color: var(--muted);
-  font-size: 11px;
-}
-.audit-scope > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-.audit-scope svg {
-  color: var(--accent);
-}
-.audit-scope > i {
-  width: 3px;
-  height: 3px;
-  background: var(--quiet);
-  border-radius: 50%;
-}
-.audit-scope > small {
-  margin-left: auto;
-  color: var(--quiet);
-  font: 10px var(--mono);
-}
 .audit-panel-title {
   display: flex;
   flex-wrap: wrap;
@@ -172,13 +145,7 @@
 .audit-event.danger {
   color: var(--danger);
 }
-.audit-action-code {
-  display: block;
-  margin: 6px 0 0 22px;
-  font: 8px/1.5 var(--mono);
-  color: var(--quiet);
-  overflow-wrap: anywhere;
-}
+
 .audit-actor,
 .audit-target {
   display: block;
@@ -336,14 +303,6 @@
   .audit-panel-title,
   .audit-filters {
     padding: 18px;
-  }
-  .audit-scope {
-    gap: 9px;
-    font-size: 10px;
-  }
-  .audit-scope > small {
-    flex-basis: 100%;
-    margin-left: 0;
   }
   .audit-table thead {
     position: absolute;

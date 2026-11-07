@@ -41,14 +41,12 @@ export function getClusterCounts(nodes: NodeItem[]) {
 
 interface ClusterSummaryProps {
   counts: ReturnType<typeof getClusterCounts>;
-  total: number;
   statusFilter: string;
   onFilterChange: (status: string) => void;
 }
 
 export const ClusterSummary: React.FC<ClusterSummaryProps> = ({
   counts,
-  total,
   statusFilter,
   onFilterChange,
 }) => (
@@ -58,6 +56,7 @@ export const ClusterSummary: React.FC<ClusterSummaryProps> = ({
         className={`summary-card ${color} ${statusFilter === status ? "is-active" : ""}`}
         key={label}
         aria-label={`Lọc ${label}: ${value} máy chủ`}
+        title={hint}
         aria-pressed={statusFilter === status}
         onClick={() => onFilterChange(status)}
       >
@@ -70,16 +69,6 @@ export const ClusterSummary: React.FC<ClusterSummaryProps> = ({
         <div className="summary-value">
           {value.toString().padStart(2, "0")}
           <span>máy chủ</span>
-        </div>
-        <div className="summary-bottom">
-          <span>{hint}</span>
-          <div className="summary-meter">
-            <i
-              style={{
-                width: `${total ? (value / total) * 100 : 0}%`,
-              }}
-            />
-          </div>
         </div>
       </button>
     ))}

@@ -6,10 +6,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Clock3,
-  Cpu,
-  HardDrive,
   LockKeyhole,
-  MemoryStick,
   Radio,
   Terminal,
 } from "lucide-react";
@@ -18,11 +15,11 @@ import {
   formatAge,
   formatBytes,
   formatDateTime,
-  formatTime,
   formatUptime,
   nodeTypeLabel,
 } from "../utils/format.js";
 import { MetricsChart } from "./MetricsChart.js";
+import { ResourceGauges } from "./ResourceGauges.js";
 import { StatusBadge } from "./StatusBadge.js";
 
 interface NodeDetailsProps {
@@ -47,147 +44,119 @@ export const NodeDetails: React.FC<NodeDetailsProps> = ({
   historyLoading,
 }) => {
   const metric = node.latest_metric;
-  const resources = [
-    {
-      label: "CPU",
-      icon: Cpu,
-      value: metric?.cpu_percent,
-      hint: "Mức sử dụng bộ xử lý",
-      color: "cpu",
-    },
-    {
-      label: "Bộ nhớ RAM",
-      icon: MemoryStick,
-      value:
-        metric && metric.memory_total_bytes > 0
-          ? (metric.memory_used_bytes / metric.memory_total_bytes) * 100
-          : undefined,
-      hint: metric
-        ? `${formatBytes(metric.memory_used_bytes)} / ${formatBytes(metric.memory_total_bytes)}`
-        : "Chưa nhận số liệu",
-      color: "memory",
-    },
-    {
-      label: "Ổ đĩa",
-      icon: HardDrive,
-      value:
-        metric && metric.disk_total_bytes > 0
-          ? (metric.disk_used_bytes / metric.disk_total_bytes) * 100
-          : undefined,
-      hint: metric
-        ? `${formatBytes(metric.disk_used_bytes)} / ${formatBytes(metric.disk_total_bytes)}`
-        : "Chưa nhận số liệu",
-      color: "disk",
-    },
-  ];
+  const sampleTimeKnown = Boolean(
+    metric && Number.isFinite(Date.parse(metric.recorded_at)),
+  );
+  const sampleState = !metric
+    ? "empty"
+    : sourceStale || node.status !== "HEALTHY"
+      ? "stale"
+      : sampleTimeKnown
+        ? "current"
+        : "unknown";
+  const sampleMessage = !metric
+    ? "Chưa có số liệu."
+    : sourceStale
+      ? "Dữ liệu chưa cập nhật từ Gateway."
+      : node.status !== "HEALTHY"
+        ? "Số liệu gần nhất; chưa nhận heartbeat mới."
+        : !sampleTimeKnown
+          ? "Không rõ thời điểm mẫu đo."
+          : "";
+  const SourceIcon = sampleState === "stale" ? AlertTriangle : Radio;
+  const metricScope = node.node_type === "DOCKER"
+    ? "Host Docker"
+    : node.node_type === "VM"
+      ? "Hệ điều hành máy ảo"
+      : "Hệ điều hành Worker";
   return (
     <section
+      id="worker-details"
+      tabIndex={-1}
       className="detail-panel panel"
       aria-label={`Tài nguyên ${node.name}`}
       data-stale={sourceStale || node.status !== "HEALTHY"}
     >
-      <div className="detail-heading">
+      <header className="detail-heading">
         <div>
-          <span className="eyebrow">NODE OBSERVABILITY</span>
           <div className="detail-title">
             <h2>{node.name}</h2>
             <StatusBadge status={node.status} />
           </div>
           <span className="detail-address">
-            <Radio size={13} />
-            {node.ip_address}
-            <i />
+            <Radio size={14} aria-hidden="true" />
+            <span>IP VPN: <b>{node.ip_address}</b></span>
+            <i aria-hidden="true" />
             {nodeTypeLabel(node.node_type)}
           </span>
         </div>
         {currentUser?.role === "ADMIN" ? (
           <button
+            type="button"
             className="button primary"
             onClick={() => onOpenTerminal(node)}
-            disabled={node.status === "OFFLINE"}
+            disabled={node.status === "OFFLINE" || sourceStale}
+            title={node.status === "OFFLINE" ? "Máy chủ đang Offline"
+              : sourceStale ? "Chưa đồng bộ được với Gateway" : `Mở Web SSH ${node.name}`}
           >
-            <Terminal size={16} />
+            <Terminal size={16} aria-hidden="true" />
             Mở Web SSH
-            <ArrowUpRight size={14} />
+            <ArrowUpRight size={14} aria-hidden="true" />
           </button>
         ) : (
           <span className="read-only-label">
-            <LockKeyhole size={14} />
-            Chế độ chỉ đọc
+            <LockKeyhole size={15} aria-hidden="true" />
+            Chỉ xem
           </span>
         )}
+      </header>
+      <div id="worker-metric-scope" className="worker-metric-scope">
+        <span>CPU / RAM / uptime</span>
+        <strong>{metricScope}</strong>
       </div>
-      {node.status !== "HEALTHY" && metric && (
-        <div className="notice warning">
-          <AlertTriangle size={16} />
-          <span>
-            Đang hiển thị mẫu cuối lúc {formatDateTime(metric.recorded_at)}.
-            Gateway chưa nhận heartbeat mới; chưa thể kết luận máy đã tắt hay mất mạng.
-          </span>
+      {sampleMessage && (
+        <div className="worker-source-state" data-state={sampleState} role="status">
+          <SourceIcon size={16} aria-hidden="true" />
+          <span>{sampleMessage}</span>
         </div>
       )}
-      <div className="node-context">
-        <span>
-          <Clock3 size={14} /> Heartbeat:{" "}
-          <b title={formatDateTime(node.last_seen)}>
-            {formatAge(node.last_seen, now)}
-          </b>
-        </span>
-        <span>
-          Mẫu tài nguyên:{" "}
-          <time
-            dateTime={metric?.recorded_at}
-            title={formatDateTime(metric?.recorded_at)}
-          >
-            {formatTime(metric?.recorded_at)}
-          </time>
-        </span>
-      </div>
-      <div className="resource-grid">
-        {resources.map(({ label, icon: Icon, value, hint, color }) => (
-          <div className="resource-tile" key={label}>
-            <div className="resource-label">
-              <Icon size={15} />
-              <span>{label}</span>
-            </div>
-            <div className="resource-value">
-              {value === undefined ? "—" : value.toFixed(1)}
-              {value !== undefined && <small>%</small>}
-            </div>
-            <div className="meter">
-              <i
-                className={
-                  value !== undefined && value >= 85 ? "high" : color
-                }
-                style={{
-                  width: `${Math.min(100, Math.max(0, value ?? 0))}%`,
-                }}
-              />
-            </div>
-            <span className="resource-hint">{hint}</span>
-          </div>
-        ))}
+      <dl className="worker-sample-meta">
+        <div>
+          <dt>Mẫu đo</dt>
+          <dd>
+            <time dateTime={sampleTimeKnown ? metric?.recorded_at : undefined}>
+              {formatDateTime(metric?.recorded_at)}
+            </time>
+          </dd>
+        </div>
+        <div>
+          <dt>Heartbeat gần nhất</dt>
+          <dd>
+            <time dateTime={node.last_seen || undefined} title={formatDateTime(node.last_seen)}>
+              {formatAge(node.last_seen, now)}
+            </time>
+          </dd>
+        </div>
+      </dl>
+      <div role="group" aria-label="Tài nguyên Worker" aria-describedby="worker-metric-scope">
+        <ResourceGauges node={node} stale={sourceStale} />
       </div>
       <div className="chart-section">
         <div className="section-heading">
           <h3>
-            <Activity size={16} />
-            Lịch sử tài nguyên
+            <Activity size={17} aria-hidden="true" />
+            Lịch sử CPU và RAM
           </h3>
-          <span>30 mẫu gần nhất</span>
         </div>
         {historyError && (
           <div role="alert" className="notice danger">
-            <AlertCircle size={16} />
-            <span>
-              Không tải được biểu đồ: {historyError} Hệ thống sẽ tự thử
-              lại.
-            </span>
+            <AlertCircle size={16} aria-hidden="true" />
+            <span>Không tải được biểu đồ: {historyError}</span>
           </div>
         )}
         {historyLoading ? (
-          <div className="chart-loading skeleton" aria-busy="true">
-            <span>Đang tải lịch sử tài nguyên...</span>
+          <div className="chart-loading skeleton" aria-busy="true" aria-label="Đang tải lịch sử CPU và RAM">
+            <span>Đang tải biểu đồ…</span>
           </div>
         ) : (
           (!historyError || metricsHistory.length > 0) && (
@@ -195,34 +164,28 @@ export const NodeDetails: React.FC<NodeDetailsProps> = ({
           )
         )}
       </div>
-      <div className="network-metrics">
+      <div className="network-metrics" aria-label="Lưu lượng mạng và thời gian chạy của Worker">
         <div>
-          <span>
-            <ArrowDownLeft size={16} />
+          <span title="Tổng dữ liệu nhận trên giao diện Agent theo dõi">
+            <ArrowDownLeft size={16} aria-hidden="true" />
             RX tích lũy
           </span>
           <strong>{formatBytes(metric?.network_rx_bytes)}</strong>
         </div>
         <div>
-          <span>
-            <ArrowUpRight size={16} />
+          <span title="Tổng dữ liệu gửi trên giao diện Agent theo dõi">
+            <ArrowUpRight size={16} aria-hidden="true" />
             TX tích lũy
           </span>
           <strong>{formatBytes(metric?.network_tx_bytes)}</strong>
         </div>
         <div>
           <span>
-            <Clock3 size={16} />
-            Uptime
+            <Clock3 size={16} aria-hidden="true" />
+            Thời gian chạy
           </span>
           <strong>{formatUptime(metric?.uptime_seconds)}</strong>
         </div>
-      </div>
-      <div className="detail-footnote">
-        <span>RX/TX: byte tích lũy trên giao diện Agent chọn, không phải byte/s.</span>
-        <span>
-          Uptime: thời gian chạy của hệ điều hành.
-        </span>
       </div>
     </section>
   );

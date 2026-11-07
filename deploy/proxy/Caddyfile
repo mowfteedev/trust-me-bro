@@ -1,52 +1,28 @@
-# ==============================================================================
-# CẤU HÌNH REVERSE PROXY & TỰ ĐỘNG QUẢN LÝ TLS CADDY (Caddyfile)
-# Dự án: ZT-ServerOps (do-an-co-so-nganh)
-# Phụ trách: devops (chủ trì), security
-# ==============================================================================
-
 {
-    # Tắt tính năng telemetry của Caddy để bảo mật hạ tầng
     admin off
-    # Tắt tạo redirect ngầm trên port 80 để tránh xung đột với block :80 thủ công
     auto_https disable_redirects
 }
 
-# 1. CỔNG TIẾP NHẬN HTTP (PORT 80)
-# Tự động giải quyết ACME HTTP-01 challenge của Let's Encrypt và chuyển hướng 100% sang HTTPS
 :80 {
-    # Tự động redirect toàn bộ yêu cầu sang HTTPS (308 Permanent Redirect)
     redir https://{host}:{$HTTPS_PORT:443}{uri} permanent
 }
 
-# 2. CỔNG BIÊN CÔNG CỘNG BẢO VỆ BẰNG TLS / HTTPS (PORT 443)
-# Định danh tường minh localhost, 127.0.0.1 và [::1] để Caddy phát hành chứng chỉ nội bộ tự động
 localhost:443, 127.0.0.1:443, [::1]:443 {
-    # Kích hoạt CA nội bộ cho localhost, IPv4 và IPv6 loopback
     tls internal
 
-    # Tự động chuyển đổi giao thức WebSocket cho phiên Web SSH PTY Bastion
-    @websockets {
-        header Connection *Upgrade*
-        header Upgrade websocket
-    }
-    reverse_proxy @websockets gateway:3000
-
-    # Chuyển tiếp API và Health Probes vào Gateway Control Plane
-    @backend {
-        path /api/* /healthz /readyz
-    }
-    reverse_proxy @backend gateway:3000 {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
+    @backend path /api/* /ws/* /healthz /readyz
+    handle @backend {
+        reverse_proxy gateway:3000 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
     }
 
-    # Mặc định chuyển tiếp toàn bộ lưu lượng giao diện người dùng vào Web Console SPA
-    reverse_proxy dashboard:80 {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
+    handle {
+        root * /srv/dashboard
+        try_files {path} /index.html
+        file_server
     }
 }

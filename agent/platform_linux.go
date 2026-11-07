@@ -13,7 +13,10 @@ import (
 const defaultNodeID = "node-worker-01"
 const defaultNetworkInterface = "wg0"
 const defaultDiskMountPoint = "/"
-const defaultMemoryBudget = 6 << 20
+
+// A measured soft Go-managed budget; executable/OS mappings are additional.
+// Linux RSS must still be measured, and GOMEMLIMIT remains an explicit override.
+const defaultMemoryBudget = 4608 << 10
 
 func validatePlatformConfig(cfg config) error {
 	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`).MatchString(cfg.NetworkInterface) {

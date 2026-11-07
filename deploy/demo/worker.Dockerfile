@@ -1,5 +1,6 @@
 # Real SSH + kernel WireGuard fixture for the classroom container demo.
 FROM golang:1.27-alpine AS builder
+ENV GOMAXPROCS=2 GOFLAGS=-p=2
 WORKDIR /src
 COPY agent/go.mod agent/*.go ./
 RUN CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/zt-agent .

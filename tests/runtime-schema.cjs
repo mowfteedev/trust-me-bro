@@ -1,4 +1,4 @@
-// Upgrade PostgreSQL thật 007→009 trong DB tạm; không sửa DB demo/người dùng.
+// Upgrade PostgreSQL thật 007→010 trong DB tạm; không sửa DB demo/người dùng.
 // Fastify inject kiểm tra API thật, payload byte/percent là dữ liệu kiểm thử.
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -26,6 +26,7 @@ async function main() {
   const { runMigrations } = require('./dist/services/migration-runner.js');
   const migrations = fs.readdirSync(path.join(appDir, 'migrations')).filter((file) => file.endsWith('.sql')).sort();
   assert.ok(migrations.some((file) => /^009_.*\.sql$/.test(file)), 'Missing per-node SSH account migration');
+  assert.ok(migrations.includes('010_normalize_alert_resolution.sql'), 'Missing alert normalization migration');
   fs.mkdirSync(path.join(fixtureDir, 'migrations'));
   for (const file of fs.readdirSync(path.join(appDir, 'migrations'))) {
     if (/^00[1-7]_.*\.sql$/.test(file)) {
@@ -59,6 +60,7 @@ async function main() {
      VALUES ($1,12.5,400,1000,50,250,1000,60,123,456,789,now())`, [nodeId],
   );
   await testAdmin.query("INSERT INTO alerts (node_id,severity,message) VALUES ($1,'WARNING','schema-preservation')", [nodeId]);
+  await testAdmin.query("INSERT INTO alerts (node_id,severity,message,resolved,resolved_at) VALUES ($1,'WARNING','resolved-preservation',true,now())", [nodeId]);
   await testAdmin.query(
     "INSERT INTO audit_logs (node_id,user_id,action,details) VALUES ($1,$2,'SCHEMA_PROBE',$3)",
     [nodeId, userId, JSON.stringify({ source: 'isolated-upgrade-test' })],
@@ -70,7 +72,7 @@ async function main() {
       metrics: (await testAdmin.query(`SELECT node_id,cpu_percent,ram_used_bytes,ram_total_bytes,
         disk_used_bytes,disk_total_bytes,network_rx_bytes,network_tx_bytes,uptime_seconds,recorded_at::text
         FROM metrics_history ORDER BY node_id,recorded_at`)).rows,
-      alerts: (await testAdmin.query('SELECT * FROM alerts ORDER BY id')).rows,
+      alerts: (await testAdmin.query("SELECT to_jsonb(alerts)-'resolved' AS data FROM alerts ORDER BY id")).rows,
       audit: (await testAdmin.query('SELECT * FROM audit_logs ORDER BY id')).rows,
       foreignKeys: (await testAdmin.query(`SELECT conrelid::regclass::text relation,conname,pg_get_constraintdef(oid) definition
         FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace ORDER BY relation,conname`)).rows,
@@ -94,7 +96,11 @@ async function main() {
   await testAdmin.query(`INSERT INTO nodes (id,name,ip_address,token_hash,token_prefix)
     VALUES ($1,'schema-new-node','10.100.0.97',$2,'newnode-')`, [newNodeId, crypto.randomBytes(32).toString('hex')]);
   assert.equal((await testAdmin.query('SELECT ssh_username FROM nodes WHERE id=$1', [newNodeId])).rows[0].ssh_username, null);
-  console.log('PASS upgrade007→009 giữ UUID/FK/history/users/alerts/audit; SSH fallback NULL, account riêng, constraint và rerun không đổi dữ liệu (DB thật)');
+  assert.equal((await testAdmin.query(`SELECT count(*)::int n FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='alerts' AND column_name='resolved'`)).rows[0].n, 0);
+  assert.equal((await testAdmin.query('SELECT count(*)::int n FROM alerts WHERE resolved_at IS NULL')).rows[0].n, 1);
+  assert.equal((await testAdmin.query('SELECT count(*)::int n FROM alerts WHERE resolved_at IS NOT NULL')).rows[0].n, 1);
+  console.log('PASS upgrade007→010 giữ UUID/FK/history/users/alerts/audit; resolution từ timestamp, SSH fallback NULL và rerun không đổi dữ liệu (DB thật)');
   await testAdmin.query("SELECT create_daily_metrics_partition((now() AT TIME ZONE 'UTC')::date + 2)");
   const storedRatios = await testAdmin.query(`SELECT table_name,column_name FROM information_schema.columns
     WHERE table_schema='public' AND (table_name='metrics_history' OR table_name LIKE 'metrics_history_%')

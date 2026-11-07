@@ -1,0 +1,201 @@
+.fleet-table-frame {
+  min-width: 0;
+  max-width: 100%;
+}
+.fleet-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  scrollbar-color: var(--border-strong) transparent;
+  overscroll-behavior-x: contain;
+}
+.fleet-table-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.fleet-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  text-align: left;
+}
+.fleet-table th,
+.fleet-table td {
+  padding: 14px 12px;
+  vertical-align: middle;
+  border-top: 1px solid var(--border);
+}
+.fleet-table thead th {
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fleet-table tbody tr {
+  --fleet-row-bg: var(--panel);
+}
+.fleet-table tbody tr:hover {
+  --fleet-row-bg: var(--raised);
+}
+.fleet-table tbody tr[data-selected="true"] {
+  --fleet-row-bg: color-mix(in oklch, var(--accent) 9%, var(--panel));
+}
+.fleet-table tbody th,
+.fleet-table tbody td {
+  background: var(--fleet-row-bg);
+}
+.fleet-table .fleet-table-name-cell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 185px;
+  max-width: 235px;
+  box-shadow: 1px 0 0 var(--border);
+}
+.fleet-table thead .fleet-table-name-cell {
+  z-index: 2;
+}
+.fleet-table tr[data-selected="true"] > .fleet-table-name-cell {
+  box-shadow: inset 3px 0 0 var(--accent), 1px 0 0 var(--border);
+}
+.fleet-table-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+}
+.fleet-table-select > svg {
+  color: var(--accent);
+}
+.fleet-table-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.fleet-table-identity strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.fleet-table-selected-label {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+}
+.fleet-table-ip {
+  color: var(--muted);
+  font: 13px var(--mono);
+  white-space: nowrap;
+}
+.fleet-table-type {
+  color: var(--muted);
+  white-space: nowrap;
+  font-size: 12px;
+}
+.fleet-table .status-badge {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.fleet-table-metric {
+  --fleet-metric-color: var(--chart-cpu);
+  min-width: 66px;
+}
+.fleet-table-metric--ram {
+  --fleet-metric-color: var(--chart-ram);
+}
+.fleet-table-metric--disk {
+  --fleet-metric-color: var(--chart-disk);
+}
+.fleet-table-percent {
+  color: var(--text);
+  font: 13px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.fleet-table-meter {
+  display: block;
+  height: 4px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--border);
+}
+.fleet-table-meter i {
+  display: block;
+  height: 100%;
+  background: var(--fleet-metric-color);
+}
+.fleet-table tr[data-stale="true"] .fleet-table-meter i {
+  opacity: 0.5;
+}
+.fleet-table-heartbeat {
+  min-width: 150px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.fleet-table-stale-label {
+  display: block;
+  margin-top: 3px;
+  color: var(--warning);
+  font-size: 12px;
+}
+.fleet-table-ssh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fleet-table-ssh:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.fleet-table-viewer {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.fleet-table .fleet-table-empty {
+  padding: 35px 16px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+@media (max-width: 760px) {
+  .fleet-table th,
+  .fleet-table td {
+    padding: 12px 10px;
+  }
+  .fleet-table .fleet-table-name-cell {
+    min-width: 175px;
+    max-width: 200px;
+  }
+  .fleet-table-select,
+  .fleet-table-ssh {
+    min-height: 44px;
+  }
+}

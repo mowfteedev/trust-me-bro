@@ -36,14 +36,14 @@ try:
  offline=time.monotonic()-start
  assert 15<=offline<=45,offline
  print(f'Offline thật sau {offline:.2f}s (yêu cầu15–45s): PASS',flush=True)
- result=subprocess.run(compose+['exec','-T','postgres','psql','-U','zt_admin','-d','zt_serverops','-Atc',"SELECT count(*) FROM alerts WHERE message LIKE 'NODE_OFFLINE:%' AND resolved=false;"],check=True,capture_output=True,text=True)
+ result=subprocess.run(compose+['exec','-T','postgres','psql','-U','zt_admin','-d','zt_serverops','-Atc',"SELECT count(*) FROM alerts WHERE message LIKE 'NODE_OFFLINE:%' AND resolved_at IS NULL;"],check=True,capture_output=True,text=True)
  assert int(result.stdout.strip())==1,result.stdout
  print('Một incident offline thật trong PostgreSQL: PASS',flush=True)
 finally:
  subprocess.run(compose+['unpause','node_worker_01'],check=True,cwd=root)
 wait('HEALTHY',12)
 print('Khôi phục Online sau mở agent: PASS',flush=True)
-result=subprocess.run(compose+['exec','-T','postgres','psql','-U','zt_admin','-d','zt_serverops','-Atc',"SELECT count(*) FROM alerts WHERE message LIKE 'NODE_OFFLINE:%' AND resolved=false;"],check=True,capture_output=True,text=True)
+result=subprocess.run(compose+['exec','-T','postgres','psql','-U','zt_admin','-d','zt_serverops','-Atc',"SELECT count(*) FROM alerts WHERE message LIKE 'NODE_OFFLINE:%' AND resolved_at IS NULL;"],check=True,capture_output=True,text=True)
 assert int(result.stdout.strip())==0
 print('Incident tự resolved sau heartbeat mới: PASS',flush=True)
 request('/api/auth/logout',{},token)

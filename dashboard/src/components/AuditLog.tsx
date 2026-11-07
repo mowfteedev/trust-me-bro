@@ -12,8 +12,6 @@ import {
   LogOut,
   AlertTriangle,
   AlertCircle,
-  LockKeyhole,
-  Info,
   X,
 } from "lucide-react";
 import { api } from "../services/api.js";
@@ -128,13 +126,7 @@ export const AuditLog: React.FC = () => {
     <div className="overview audit-page">
       <div className="page-heading">
         <div>
-          <span className="eyebrow">
-            <span className="accent-dash" /> ACTIVITY & AUDIT
-          </span>
-          <h1>
-            Nhật ký hoạt động<span className="heading-dot">.</span>
-          </h1>
-          <p>Dấu vết xác thực, truy cập SSH và cảnh báo từ Gateway.</p>
+          <h1>Nhật ký hoạt động</h1>
         </div>
         <button
           className="button secondary"
@@ -146,29 +138,15 @@ export const AuditLog: React.FC = () => {
           <span>Làm mới</span>
         </button>
       </div>
-      <div className="audit-scope">
-        <span>
-          <LockKeyhole size={15} />
-          Chỉ ADMIN được xem
-        </span>
-        <i />
-        <span>Nhật ký chỉ đọc</span>
-        <small>
-          {loadedAt && !error && !loading
-            ? `Tải lúc ${formatTime(loadedAt)}`
-            : "Lưu tại Gateway · PostgreSQL"}
-        </small>
-      </div>
       <section className="panel audit-panel" aria-labelledby="audit-title">
         <div className="audit-panel-title">
-          <h2 id="audit-title">
+          <h2 id="audit-title" title="Nhật ký sự kiện; không ghi nội dung lệnh terminal.">
             <ClipboardList size={18} />
             Sự kiện hệ thống
           </h2>
           <span>
-            {result
-              ? `${result.data.length} bản ghi trên trang này`
-              : "Nhật ký kiểm toán"}
+            {result ? `${result.data.length} sự kiện` : ""}
+            {loadedAt && !error && !loading && ` · ${formatTime(loadedAt)}`}
           </span>
         </div>
         <form className="audit-filters" onSubmit={apply}>
@@ -222,7 +200,7 @@ export const AuditLog: React.FC = () => {
               <div className="skeleton" />
               <div className="skeleton" />
               <div className="skeleton" />
-              <span>Đang tải nhật ký hoạt động...</span>
+              <span>Đang tải nhật ký...</span>
             </div>
           ) : error ? (
             <div className="audit-state" role="alert">
@@ -241,11 +219,6 @@ export const AuditLog: React.FC = () => {
                   ? "Không có sự kiện phù hợp"
                   : "Chưa có sự kiện trên trang này"}
               </h3>
-              <p>
-                {filters.q || filters.action
-                  ? "Thử đổi từ khóa hoặc loại sự kiện."
-                  : "Nhật ký xuất hiện khi có hoạt động xác thực, phiên SSH hoặc cảnh báo."}
-              </p>
               {(filters.q || filters.action) && (
                 <button className="button secondary" onClick={clear}>
                   Xóa bộ lọc
@@ -295,9 +268,6 @@ export const AuditLog: React.FC = () => {
                             <Icon size={15} />
                             <span>{event?.label || entry.action}</span>
                           </div>
-                          <span className="audit-action-code">
-                            {entry.action}
-                          </span>
                         </td>
                         <td data-label="Người thực hiện">
                           <strong className="audit-actor">
@@ -307,11 +277,9 @@ export const AuditLog: React.FC = () => {
                                 ? "Tài khoản không xác định"
                                 : "Hệ thống")}
                           </strong>
-                          <span className="audit-secondary">
-                            {entry.ip_address
-                              ? `IP ghi nhận: ${entry.ip_address}`
-                              : "Sự kiện tự động"}
-                          </span>
+                          {entry.ip_address && (
+                            <span className="audit-secondary" title="IP ghi nhận">{entry.ip_address}</span>
+                          )}
                         </td>
                         <td data-label="Đối tượng">
                           <strong className="audit-target">
@@ -323,14 +291,6 @@ export const AuditLog: React.FC = () => {
                                   ? "SSH Gateway"
                                   : entry.target || "Gateway")}
                           </strong>
-                          {entry.node_name && entry.node_id && (
-                            <span
-                              className="audit-secondary"
-                              title={entry.node_id}
-                            >
-                              {entry.node_id.slice(0, 8)}…
-                            </span>
-                          )}
                         </td>
                         <td
                           className="audit-details-cell"
@@ -348,6 +308,8 @@ export const AuditLog: React.FC = () => {
                                 <dt>ID sự kiện</dt>
                                 <dd>{entry.id}</dd>
                               </div>
+                              <div><dt>Mã sự kiện</dt><dd>{entry.action}</dd></div>
+                              {entry.node_id && <div><dt>ID máy chủ</dt><dd>{entry.node_id}</dd></div>}
                               {detailItems.map(([key, value]) => (
                                 <div key={key}>
                                   <dt>{detailLabels[key] || key}</dt>
@@ -384,7 +346,6 @@ export const AuditLog: React.FC = () => {
         <div className="audit-pagination">
           <span>
             Trang <b>{filters.page}</b>
-            {result && ` · Tối đa ${result.page_size} bản ghi/trang`}
           </span>
           <div>
             <button
@@ -418,13 +379,6 @@ export const AuditLog: React.FC = () => {
           </div>
         </div>
       </section>
-      <div className="overview-note">
-        <Info size={14} />
-        <span>
-          Nhật ký ghi thời điểm mở/đóng phiên SSH; nội dung lệnh trong terminal
-          không được ghi lại. Dùng Làm mới để lấy sự kiện mới.
-        </span>
-      </div>
     </div>
   );
 };

@@ -43,12 +43,12 @@ async function main() {
     assert.equal((await beacon(cpu)).statusCode, 200);
     const rows = (await testAdmin.query("SELECT * FROM alerts WHERE message LIKE 'CPU_HIGH:%'")).rows;
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].resolved, false);
+    assert.equal(rows[0].resolved_at, null);
   }
   assert.equal((await testAdmin.query("SELECT count(*)::int n FROM audit_logs WHERE action='CPU_HIGH'")).rows[0].n, 1);
   console.log('PASS CPU mở ở85%, giữ incident tại75–85%, không spam audit (payload giả lập + DB thật)');
   assert.equal((await beacon(74.9)).statusCode, 200);
-  assert.equal((await testAdmin.query("SELECT count(*)::int n FROM alerts WHERE message LIKE 'CPU_HIGH:%' AND resolved=false")).rows[0].n, 0);
+  assert.equal((await testAdmin.query("SELECT count(*)::int n FROM alerts WHERE message LIKE 'CPU_HIGH:%' AND resolved_at IS NULL")).rows[0].n, 0);
   assert.equal((await beacon(80)).statusCode, 200);
   assert.equal((await testAdmin.query("SELECT count(*)::int n FROM alerts WHERE message LIKE 'CPU_HIGH:%'")).rows[0].n, 1);
   assert.equal((await beacon(85)).statusCode, 200);
@@ -69,7 +69,7 @@ async function main() {
   console.log('PASS Stale/Offline + chống lặp incident (timestamp giả lập + DB thật)');
   assert.equal((await beacon(10)).statusCode, 200);
   assert.equal((await testAdmin.query('SELECT status FROM nodes')).rows[0].status, 'HEALTHY');
-  assert.equal((await testAdmin.query('SELECT count(*)::int n FROM alerts WHERE resolved=false')).rows[0].n, 0);
+  assert.equal((await testAdmin.query('SELECT count(*)::int n FROM alerts WHERE resolved_at IS NULL')).rows[0].n, 0);
   console.log('PASS phục hồi Online + resolve incident');
   console.log('Telegram chỉ DRY-RUN, không gửi Bot API thật.');
 }

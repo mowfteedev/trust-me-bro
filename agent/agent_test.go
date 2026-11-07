@@ -225,7 +225,7 @@ func TestMemoryBudgetDefaultAndOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	configureMemoryBudget()
-	expected := int64(6 << 20)
+	expected := int64(4608 << 10)
 	if runtime.GOOS == "windows" {
 		expected = 2 << 20
 	}

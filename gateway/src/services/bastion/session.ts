@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import net from 'node:net';
 import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { Client } from 'ssh2';
@@ -31,11 +30,10 @@ export async function attachBastionSession(
 ): Promise<void> {
   const auditClientIp = normalizeClientIp(clientIp);
   const sessionId = crypto.randomUUID();
-  let sessionState: 'INIT' | 'PROBING' | 'CONNECTING' | 'READY' | 'CLOSING' | 'CLOSED' = 'INIT';
+  let sessionState: 'INIT' | 'CONNECTING' | 'READY' | 'CLOSING' | 'CLOSED' = 'INIT';
   let isCancelled = false;
   let isInputPaused = false;
 
-  let probeSocket: net.Socket | null = null;
   let sshClient: Client | null = null;
   let sshStream: any = null;
 
@@ -77,15 +75,9 @@ export async function attachBastionSession(
     }
 
     // Retain the handles so forced teardown still works after the local fields are cleared.
-    const probeToClean = probeSocket;
     const streamToClean = sshStream;
     const clientToClean = sshClient;
     const wsToClean = socket;
-
-    if (probeSocket) {
-      try { probeSocket.destroy(); } catch {}
-      probeSocket = null;
-    }
 
     if (sshStream) {
       try {
@@ -102,7 +94,6 @@ export async function attachBastionSession(
 
     // Force lingering resources closed after the existing three-second grace period.
     const forcedTimer = setTimeout(() => {
-      try { if (probeToClean && typeof (probeToClean as any).destroy === 'function') (probeToClean as any).destroy(); } catch {}
       try { if (streamToClean && typeof (streamToClean as any).destroy === 'function') (streamToClean as any).destroy(); } catch {}
       try { if (clientToClean && typeof (clientToClean as any).destroy === 'function') (clientToClean as any).destroy(); } catch {}
       try {
@@ -347,187 +338,164 @@ export async function attachBastionSession(
     return;
   }
 
-  sessionState = 'PROBING';
-  sessionRecord.state = 'PROBING';
-  probeSocket = new net.Socket();
-  let probeDone = false;
+  // One ssh2 connection owns TCP startup and authentication under the configured deadline.
+  sessionState = 'CONNECTING';
+  sessionRecord.state = 'CONNECTING';
+  sshClient = new Client();
+  sessionRecord.sshClient = sshClient;
 
-  const handleProbeFailure = () => {
-    if (probeDone || sessionState === 'CLOSED' || isCancelled) return;
-    probeDone = true;
-    runCleanup(4502, 'SSH Connection Interrupted', 'Không thể kết nối SSH tới máy chủ đích qua mạng ngầm (Cổng 22 không phản hồi)');
-  };
+  sshClient.on('error', (err) => {
+    console.warn(`⚠️ [BASTION SSH ERROR ${sessionId}] Kết nối SSH tới ${targetIp} thất bại:`, err.message);
+    // Do not expose internal ssh2 failure details to the client.
+    runCleanup(4502, 'SSH Connection Interrupted', 'Mất kết nối SSH với máy chủ đích (Xác thực hoặc giao thức SSH thất bại)');
+  });
 
-  probeSocket.setTimeout(400);
-  probeSocket.on('timeout', handleProbeFailure);
-  probeSocket.on('error', handleProbeFailure);
-
-  probeSocket.on('connect', () => {
-    if (probeDone || sessionState === 'CLOSED' || isCancelled) {
-      if (probeSocket) { try { probeSocket.destroy(); } catch {} probeSocket = null; }
+  sshClient.on('ready', () => {
+    // A resource arriving after cleanup must never reopen the session.
+    if (sessionState === 'CLOSED' || isCancelled || !sshClient) {
+      if (sshClient) { try { sshClient.end(); } catch {} sshClient = null; }
       return;
     }
-    probeDone = true;
-    if (probeSocket) { try { probeSocket.destroy(); } catch {} probeSocket = null; }
 
-    sessionState = 'CONNECTING';
-    sessionRecord.state = 'CONNECTING';
-    sshClient = new Client();
-    sessionRecord.sshClient = sshClient;
+    const client = sshClient;
+    sessionState = 'READY';
+    sessionRecord.state = 'READY';
 
-    sshClient.on('error', (err) => {
-      console.warn(`⚠️ [BASTION SSH ERROR ${sessionId}] Kết nối SSH tới ${targetIp} thất bại:`, err.message);
-      // Do not expose internal ssh2 failure details to the client.
-      runCleanup(4502, 'SSH Connection Interrupted', 'Mất kết nối SSH với máy chủ đích (Xác thực hoặc giao thức SSH thất bại)');
-    });
-
-    sshClient.on('ready', () => {
-      // A resource arriving after cleanup must never reopen the session.
-      if (sessionState === 'CLOSED' || isCancelled || !sshClient) {
-        if (sshClient) { try { sshClient.end(); } catch {} sshClient = null; }
-        return;
-      }
-
-      const client = sshClient;
-      sessionState = 'READY';
-      sessionRecord.state = 'READY';
-
-      client.shell(
-        {
-          term: 'xterm-256color',
-          rows: 24,
-          cols: 80,
-        },
-        (shellErr, stream) => {
-          if (shellErr) {
-            console.error('❌ [BASTION SHELL ERROR]:', shellErr.message);
-            runCleanup(4502, 'Shell Error', 'Không thể khởi tạo PTY Shell');
-            return;
-          }
-
-          if (sessionState === 'CLOSED' || isCancelled) {
-            try { stream.end(); } catch {}
-            try { client.end(); } catch {}
-            return;
-          }
-
-          sshStream = stream;
-          sessionRecord.sshStream = stream;
-
-          if (socket.readyState === 1) {
-            socket.send(JSON.stringify({
-              type: 'READY',
-              message: `Đã kết nối thành công tới ${nodeName} (${targetIp})`,
-              ssh_username: sshUsername,
-            }));
-          }
-
-          const outputDecoder = new StringDecoder('utf8');
-          let outputEnded = false;
-          const sendOutput = (data: string) => {
-            if (!data || sessionState === 'CLOSED' || isCancelled) return;
-            if (socket.readyState === 1) {
-              try {
-                // Shell text must never impersonate Gateway READY/ERROR frames.
-                socket.send(JSON.stringify({ type: 'DATA', data }));
-                if ((socket as any).bufferedAmount > 65536) {
-                  if (typeof stream.pause === 'function') stream.pause();
-
-                  // Keep one owned timer so disconnect cleanup can always clear it.
-                  if (!sessionRecord.outputDrainInterval) {
-                    sessionRecord.outputDrainInterval = setInterval(() => {
-                      if (sessionState === 'CLOSED' || isCancelled) {
-                        if (sessionRecord.outputDrainInterval) {
-                          clearInterval(sessionRecord.outputDrainInterval);
-                          sessionRecord.outputDrainInterval = null;
-                        }
-                        return;
-                      }
-
-                      if ((socket as any).bufferedAmount < 16384) {
-                        if (sessionRecord.outputDrainInterval) {
-                          clearInterval(sessionRecord.outputDrainInterval);
-                          sessionRecord.outputDrainInterval = null;
-                        }
-                        if (sessionState === 'READY' && typeof stream.resume === 'function') {
-                          stream.resume();
-                        }
-                      }
-                    }, 40);
-                    sessionRecord.outputDrainInterval.unref();
-                  }
-                }
-              } catch (sendErr) {
-                runCleanup(1011, 'Send Error');
-              }
-            }
-          };
-
-          const finishOutput = () => {
-            if (outputEnded) return;
-            outputEnded = true;
-            sendOutput(outputDecoder.end());
-          };
-
-          stream.on('data', (chunk: Buffer) => {
-            if (outputEnded || sessionState === 'CLOSED' || isCancelled) return;
-            sessionRecord.lastActivityTime = Date.now();
-            sendOutput(outputDecoder.write(chunk));
-          });
-          stream.once('end', finishOutput);
-
-          stream.on('error', (streamErr: any) => {
-            console.warn('⚠️ [BASTION STREAM ERROR]:', streamErr.message);
-            runCleanup(4502, 'Stream Error', 'Mất kết nối SSH với máy chủ đích');
-          });
-
-          stream.on('close', () => {
-            finishOutput();
-            runCleanup(1000, 'Session Closed');
-          });
+    client.shell(
+      {
+        term: 'xterm-256color',
+        rows: 24,
+        cols: 80,
+      },
+      (shellErr, stream) => {
+        if (shellErr) {
+          console.error('❌ [BASTION SHELL ERROR]:', shellErr.message);
+          runCleanup(4502, 'Shell Error', 'Không thể khởi tạo PTY Shell');
+          return;
         }
-      );
-    });
 
-    // Reject missing or mismatched host pins before accepting the SSH server.
-    try {
-      sshClient.connect({
-        host: targetIp,
-        port: 22,
-        username: sshUsername,
-        privateKey: privateKeyContent,
-        readyTimeout: 3000,
-        hostHash: 'sha256',
-        hostVerifier: (hashedKey: string) => {
-          if (!expectedFingerprint || expectedFingerprint.trim() === '') {
-            console.error(`🚨 [BASTION ZERO TRUST] Máy chủ ${nodeName} chưa được ghim Host Key Fingerprint. Từ chối kết nối!`);
-            return false;
-          }
+        if (sessionState === 'CLOSED' || isCancelled) {
+          try { stream.end(); } catch {}
+          try { client.end(); } catch {}
+          return;
+        }
 
-          let normExpected = expectedFingerprint.trim().toLowerCase().replace(/^sha256:/, '');
-          const normReceived = hashedKey.trim().toLowerCase().replace(/^sha256:/, '');
+        sshStream = stream;
+        sessionRecord.sshStream = stream;
 
-          // Hỗ trợ chuẩn hóa nếu expectedFingerprint được lưu ở dạng Base64 (OpenSSH ssh-keygen chuẩn)
-          if (normExpected.length !== 64) {
+        if (socket.readyState === 1) {
+          socket.send(JSON.stringify({
+            type: 'READY',
+            message: `Đã kết nối thành công tới ${nodeName} (${targetIp})`,
+            ssh_username: sshUsername,
+          }));
+        }
+
+        const outputDecoder = new StringDecoder('utf8');
+        let outputEnded = false;
+        const sendOutput = (data: string) => {
+          if (!data || sessionState === 'CLOSED' || isCancelled) return;
+          if (socket.readyState === 1) {
             try {
-              const rawB64 = expectedFingerprint.trim().replace(/^sha256:/i, '');
-              const padded = rawB64.padEnd(rawB64.length + ((4 - (rawB64.length % 4)) % 4), '=');
-              normExpected = Buffer.from(padded, 'base64').toString('hex').toLowerCase();
-            } catch {}
-          }
+              // Shell text must never impersonate Gateway READY/ERROR frames.
+              socket.send(JSON.stringify({ type: 'DATA', data }));
+              if ((socket as any).bufferedAmount > 65536) {
+                if (typeof stream.pause === 'function') stream.pause();
 
-          const isMatch = (normExpected === normReceived);
+                // Keep one owned timer so disconnect cleanup can always clear it.
+                if (!sessionRecord.outputDrainInterval) {
+                  sessionRecord.outputDrainInterval = setInterval(() => {
+                    if (sessionState === 'CLOSED' || isCancelled) {
+                      if (sessionRecord.outputDrainInterval) {
+                        clearInterval(sessionRecord.outputDrainInterval);
+                        sessionRecord.outputDrainInterval = null;
+                      }
+                      return;
+                    }
 
-          if (!isMatch) {
-            console.error(`🚨 [BASTION HOST KEY MISMATCH] Máy chủ ${nodeName} có fingerprint (${normReceived}) KHÔNG KHỚP với fingerprint đã ghim (${normExpected})!`);
+                    if ((socket as any).bufferedAmount < 16384) {
+                      if (sessionRecord.outputDrainInterval) {
+                        clearInterval(sessionRecord.outputDrainInterval);
+                        sessionRecord.outputDrainInterval = null;
+                      }
+                      if (sessionState === 'READY' && typeof stream.resume === 'function') {
+                        stream.resume();
+                      }
+                    }
+                  }, 40);
+                  sessionRecord.outputDrainInterval.unref();
+                }
+              }
+            } catch (sendErr) {
+              runCleanup(1011, 'Send Error');
+            }
           }
-          return isMatch;
-        },
-      });
-    } catch {
-      runCleanup(4502, 'SSH Connection Interrupted', 'Mất kết nối SSH với máy chủ đích (Xác thực hoặc giao thức SSH thất bại)');
-    }
+        };
+
+        const finishOutput = () => {
+          if (outputEnded) return;
+          outputEnded = true;
+          sendOutput(outputDecoder.end());
+        };
+
+        stream.on('data', (chunk: Buffer) => {
+          if (outputEnded || sessionState === 'CLOSED' || isCancelled) return;
+          sessionRecord.lastActivityTime = Date.now();
+          sendOutput(outputDecoder.write(chunk));
+        });
+        stream.once('end', finishOutput);
+
+        stream.on('error', (streamErr: any) => {
+          console.warn('⚠️ [BASTION STREAM ERROR]:', streamErr.message);
+          runCleanup(4502, 'Stream Error', 'Mất kết nối SSH với máy chủ đích');
+        });
+
+        stream.on('close', () => {
+          finishOutput();
+          runCleanup(1000, 'Session Closed');
+        });
+      }
+    );
   });
+
+  // Reject missing or mismatched host pins before accepting the SSH server.
+  try {
+    sshClient.connect({
+      host: targetIp,
+      port: 22,
+      username: sshUsername,
+      privateKey: privateKeyContent,
+      readyTimeout: config.BASTION_CONNECT_TIMEOUT_MS,
+      hostHash: 'sha256',
+      hostVerifier: (hashedKey: string) => {
+        if (!expectedFingerprint || expectedFingerprint.trim() === '') {
+          console.error(`🚨 [BASTION ZERO TRUST] Máy chủ ${nodeName} chưa được ghim Host Key Fingerprint. Từ chối kết nối!`);
+          return false;
+        }
+
+        let normExpected = expectedFingerprint.trim().toLowerCase().replace(/^sha256:/, '');
+        const normReceived = hashedKey.trim().toLowerCase().replace(/^sha256:/, '');
+
+        // Hỗ trợ chuẩn hóa nếu expectedFingerprint được lưu ở dạng Base64 (OpenSSH ssh-keygen chuẩn)
+        if (normExpected.length !== 64) {
+          try {
+            const rawB64 = expectedFingerprint.trim().replace(/^sha256:/i, '');
+            const padded = rawB64.padEnd(rawB64.length + ((4 - (rawB64.length % 4)) % 4), '=');
+            normExpected = Buffer.from(padded, 'base64').toString('hex').toLowerCase();
+          } catch {}
+        }
+
+        const isMatch = (normExpected === normReceived);
+
+        if (!isMatch) {
+          console.error(`🚨 [BASTION HOST KEY MISMATCH] Máy chủ ${nodeName} có fingerprint (${normReceived}) KHÔNG KHỚP với fingerprint đã ghim (${normExpected})!`);
+        }
+        return isMatch;
+      },
+    });
+  } catch {
+    runCleanup(4502, 'SSH Connection Interrupted', 'Mất kết nối SSH với máy chủ đích (Xác thực hoặc giao thức SSH thất bại)');
+  }
 
   socket.on('message', (rawMessage: string | Buffer) => {
     if (sessionState === 'CLOSED' || isCancelled) return;
@@ -640,9 +608,4 @@ export async function attachBastionSession(
     }
   });
 
-  try {
-    probeSocket.connect(22, targetIp);
-  } catch {
-    handleProbeFailure();
-  }
 }

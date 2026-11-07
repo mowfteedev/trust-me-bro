@@ -6,6 +6,8 @@ const base = 'http://127.0.0.1:3000';
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const nodeName = credentials.node_name || 'node-worker-01';
 const shell = credentials.shell || 'linux';
+const adminUsername = credentials.admin_username || 'demo-admin';
+const viewerUsername = credentials.viewer_username || 'demo-viewer';
 assert.ok(['linux', 'windows'].includes(shell));
 let passed = 0;
 function check(condition, name) { assert.ok(condition, name); console.log(`PASS ${++passed}: ${name}`); }
@@ -71,9 +73,9 @@ async function waitFor(fn, timeout = 8000) {
 async function main() {
   check((await api('/readyz')).status === 200, 'Gateway + PostgreSQL ready');
   check((await api('/api/nodes')).status === 401, 'Chưa login không đọc nodes');
-  check((await api('/api/auth/login', null, { username: 'demo-admin', password: 'wrong-password' })).status === 401, 'Mật khẩu sai bị từ chối');
-  const viewer = await login('demo-viewer', credentials.viewer_password);
-  const admin = await login('demo-admin', credentials.admin_password);
+  check((await api('/api/auth/login', null, { username: adminUsername, password: 'wrong-password' })).status === 401, 'Mật khẩu sai bị từ chối');
+  const viewer = await login(viewerUsername, credentials.viewer_password);
+  const admin = await login(adminUsername, credentials.admin_password);
   check((await api('/api/auth/me', viewer)).body.user.role === 'VIEWER', 'Viewer có vai trò từ DB');
   check((await api('/api/auth/me', admin)).body.user.role === 'ADMIN', 'Admin có vai trò từ DB');
   const forged = Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url') + '.' + Buffer.from(JSON.stringify({ role: 'ADMIN' })).toString('base64url') + '.';

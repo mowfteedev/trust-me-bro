@@ -1,25 +1,15 @@
-/** Session behavior with mocked PostgreSQL, TCP probe and SSH streams; no network connection. */
+/** Session behavior with mocked PostgreSQL and SSH streams; no network connection. */
 import fs from 'node:fs';
 import { EventEmitter } from 'node:events';
 import type { WebSocket } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mock = vi.hoisted(() => ({ query: vi.fn(), connect: vi.fn(), probes: [] as any[], clients: [] as any[], stream: null as any }));
+const mock = vi.hoisted(() => ({ query: vi.fn(), connect: vi.fn(), clients: [] as any[], stream: null as any }));
 vi.mock('../src/config/env.js', () => ({ config: {
   BASTION_SSH_KEY_PATH: '/isolated-test/key', BASTION_DEFAULT_USER: 'test-worker',
+  BASTION_CONNECT_TIMEOUT_MS: 7000,
 } }));
 vi.mock('../src/services/db.js', () => ({ query: mock.query }));
-vi.mock('node:net', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:net')>();
-  const { EventEmitter } = await import('node:events');
-  class Probe extends EventEmitter {
-    setTimeout = vi.fn();
-    connect = vi.fn();
-    destroy = vi.fn();
-    constructor() { super(); mock.probes.push(this); }
-  }
-  return { ...actual, default: { ...actual.default, Socket: Probe } };
-});
 vi.mock('ssh2', async () => {
   const { EventEmitter } = await import('node:events');
   class Client extends EventEmitter {
@@ -70,7 +60,6 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   mock.connect.mockReset();
-  mock.probes.length = 0;
   mock.clients.length = 0;
   mock.stream = new TestStream();
   vi.spyOn(fs, 'readFileSync').mockReturnValue(Buffer.from('isolated-test-key'));
@@ -133,16 +122,14 @@ describe('session slots are reserved before awaiting database authentication', (
     await Promise.all(requests);
     expect(sockets.filter((socket) => socket.close.mock.calls.some(([code]) => code === 4429))).toHaveLength(1);
     expect(mock.query.mock.calls.filter(([sql]) => sql.includes("'BASTION_SESSION_START'"))).toHaveLength(10);
-    expect(mock.probes).toHaveLength(10);
+    expect(mock.clients).toHaveLength(10);
   });
 });
 
 async function readySession() {
   const socket = new TestSocket();
-  const probeIndex = mock.probes.length;
   const clientIndex = mock.clients.length;
   await attach(socket);
-  mock.probes[probeIndex].emit('connect');
   mock.clients[clientIndex].emit('ready');
   expect(socket.send).toHaveBeenCalledWith(expect.stringContaining('"type":"READY"'));
   return { socket, stream: mock.stream as TestStream, client: mock.clients[clientIndex] };
@@ -172,6 +159,13 @@ describe('SSH account belongs to the target node', () => {
 });
 
 describe('SSH output preserves text and the Gateway control boundary', () => {
+  it('uses the configured handshake timeout and retains pinned host verification', async () => {
+    const { client } = await readySession();
+    expect(client.connect).toHaveBeenCalledWith(expect.objectContaining({
+      readyTimeout: 7000, hostHash: 'sha256', hostVerifier: expect.any(Function),
+    }));
+  });
+
   it.each([1, 2, 5])('decodes Vietnamese and emoji across %i-byte stream chunks', async (width) => {
     const { socket, stream } = await readySession();
     const text = 'Tiếng Việt: máy chủ hoạt động 🛡️\r\n';
@@ -259,8 +253,7 @@ describe('SSH setup failures release session ownership', () => {
     });
     const socket = new TestSocket();
     await attach(socket);
-    expect(activeSessions.size).toBe(1);
-    mock.probes[0].emit('connect');
+    expect(activeSessions.size).toBe(0);
     const client = mock.clients[0];
     expect(client.connect).toHaveBeenCalledOnce();
     expect(parseFailure).toBeInstanceOf(Error);
@@ -275,11 +268,11 @@ describe('SSH setup failures release session ownership', () => {
 
     client.emit('ready');
     client.emit('error', new Error('late transport failure'));
-    mock.probes[0].emit('connect');
     expect(client.shell).not.toHaveBeenCalled();
     expect(socket.close).toHaveBeenCalledOnce();
     expect(endAudits()).toHaveLength(1);
 
+    mock.connect.mockReset();
     const replacementSockets = Array.from({ length: 5 }, () => new TestSocket());
     await Promise.all(replacementSockets.map((replacement) => attach(replacement)));
     expect(activeSessions.size).toBe(5);
@@ -287,6 +280,20 @@ describe('SSH setup failures release session ownership', () => {
     const excessSocket = new TestSocket();
     await attach(excessSocket);
     expect(excessSocket.close).toHaveBeenCalledWith(4429, 'User Quota Exceeded');
+  });
+
+  it('never opens a shell when the WebSocket closes during SSH startup', async () => {
+    const socket = new TestSocket();
+    await attach(socket);
+    const client = mock.clients[0];
+    expect(client.connect).toHaveBeenCalledOnce();
+    socket.emit('close');
+    client.emit('ready');
+    expect(client.shell).not.toHaveBeenCalled();
+    expect(client.end).toHaveBeenCalledOnce();
+    expect(activeSessions.size).toBe(0);
+    expect(endAudits()).toHaveLength(1);
+    expect(closedLeases()).toHaveLength(1);
   });
 });
 

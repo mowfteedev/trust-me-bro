@@ -228,13 +228,13 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
         );
         // A fresh authenticated beacon also resolves a previous loss-of-signal incident.
         await client.query(
-          `UPDATE alerts SET resolved = true, resolved_at = now()
-           WHERE node_id = $1 AND resolved = false AND message LIKE 'NODE_OFFLINE:%';`,
+          `UPDATE alerts SET resolved_at = now()
+           WHERE node_id = $1 AND resolved_at IS NULL AND message LIKE 'NODE_OFFLINE:%';`,
           [node.id]
         );
         if (beacon.cpu.percent >= config.CPU_ALERT_THRESHOLD_PERCENT) {
           const active = await client.query(
-            `SELECT id FROM alerts WHERE node_id = $1 AND resolved = false
+            `SELECT id FROM alerts WHERE node_id = $1 AND resolved_at IS NULL
              AND message LIKE 'CPU_HIGH:%' LIMIT 1;`, [node.id]
           );
           if (active.rows.length === 0) {
@@ -251,8 +251,8 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
           }
         } else if (beacon.cpu.percent < config.CPU_RECOVERY_THRESHOLD_PERCENT) {
           await client.query(
-            `UPDATE alerts SET resolved = true, resolved_at = now()
-             WHERE node_id = $1 AND resolved = false AND message LIKE 'CPU_HIGH:%';`, [node.id]
+            `UPDATE alerts SET resolved_at = now()
+             WHERE node_id = $1 AND resolved_at IS NULL AND message LIKE 'CPU_HIGH:%';`, [node.id]
           );
         }
         await client.query('COMMIT');

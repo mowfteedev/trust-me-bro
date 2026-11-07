@@ -1,5 +1,6 @@
 # Only the builder contains Go. Runtime has one static Linux binary and CA roots.
 FROM golang:1.27-alpine AS builder
+ENV GOMAXPROCS=2 GOFLAGS=-p=2
 WORKDIR /src
 COPY go.mod *.go ./
 RUN CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/zt-agent .

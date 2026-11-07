@@ -1,6 +1,8 @@
-# Khôi phục sau khi cài lại laptop
+# Khôi phục bản native TV box sau khi cài lại laptop
 
-Gateway, Dashboard, database và khóa hiện chạy trên **TV box**. Cài lại laptop không xóa chúng. Laptop đang chứa VM Worker, source và một số bản sao lưu riêng; Git chỉ bảo vệ phần đã commit/push.
+Hướng dẫn này dành cho mô hình **TV box native** trước đây. Gateway hiện tại chạy Docker Compose trên **EC2**; xem [hướng dẫn EC2](ec2/README.md) để dùng đúng endpoint và bộ cấu hình. Không trộn bundle/khóa của hai Gateway.
+
+Trong mô hình TV box, Gateway, Dashboard, database và khóa nằm trên TV box. Cài lại laptop không xóa chúng. Laptop chứa VM Worker, source và các bản sao lưu riêng; Git chỉ bảo vệ phần đã commit/push.
 
 ## Trước khi xóa hệ điều hành
 

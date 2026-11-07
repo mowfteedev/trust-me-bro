@@ -9,7 +9,6 @@ export const Brand = () => (
       <strong>
         ZT<span> / </span>ServerOps
       </strong>
-      <small>INFRASTRUCTURE CONSOLE</small>
     </div>
   </div>
 );

@@ -59,10 +59,10 @@ async function main() {
   assert.equal((await beacon(99)).statusCode, 200);
   assert.equal(sending.length, 1, 'repeated high beacons must not spam Telegram');
   assert.equal(await sending[0], true, 'Telegram must acknowledge the real send');
-  assert.equal((await testAdmin.query("SELECT count(*)::int n FROM alerts WHERE node_id=$1 AND resolved=false",[node.id])).rows[0].n, 1);
+  assert.equal((await testAdmin.query("SELECT count(*)::int n FROM alerts WHERE node_id=$1 AND resolved_at IS NULL",[node.id])).rows[0].n, 1);
   assert.equal((await testAdmin.query("SELECT count(*)::int n FROM audit_logs WHERE node_id=$1 AND action='CPU_HIGH'",[node.id])).rows[0].n, 1);
   assert.equal((await beacon(10)).statusCode, 200);
-  assert.equal((await testAdmin.query('SELECT count(*)::int n FROM alerts WHERE node_id=$1 AND resolved=false',[node.id])).rows[0].n, 0);
+  assert.equal((await testAdmin.query('SELECT count(*)::int n FROM alerts WHERE node_id=$1 AND resolved_at IS NULL',[node.id])).rows[0].n, 0);
   assert.equal(sending.length, 1);
   console.log('PASS CPU synthetic -> real SQL incident/audit -> real sendAlert/Telegram API acknowledgement; dedup and recovery verified.');
 }

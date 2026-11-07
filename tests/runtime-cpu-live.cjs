@@ -94,7 +94,7 @@ async function main() {
   }
   async function incidents() {
     return (await testAdmin.query(
-      "SELECT id,resolved,resolved_at FROM alerts WHERE node_id=$1 AND message LIKE 'CPU_HIGH:%' ORDER BY triggered_at;", [node.id],
+      "SELECT id,(resolved_at IS NOT NULL) AS resolved,resolved_at FROM alerts WHERE node_id=$1 AND message LIKE 'CPU_HIGH:%' ORDER BY triggered_at;", [node.id],
     )).rows;
   }
   async function audits() {

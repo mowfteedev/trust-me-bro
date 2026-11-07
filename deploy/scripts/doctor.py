@@ -104,7 +104,7 @@ def diagnose(env_path, project):
         services = {}
     check(bool(services), 'Đọc được trạng thái Docker Compose',
           'Kiểm tra quyền Docker, daemon, --project/--env-file; doctor không tạo container.')
-    for name in ('postgres', 'gateway', 'wireguard_gateway', 'dashboard', 'proxy'):
+    for name in ('postgres', 'gateway', 'wireguard_gateway', 'proxy'):
         row = services.get(name, {})
         check(row.get('State') == 'running' and row.get('Health') not in ('unhealthy', 'starting'),
               f'Dịch vụ {name} đang chạy', f'Xem make status/make logs với cùng PROJECT/ENV_FILE: {name}.')
