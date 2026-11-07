@@ -190,11 +190,9 @@ def main():
 
         def overview_loaded():
             heading('Tổng quan')
-            visible('.workspace-overview')
-            visible('.overview-resource-panel .resource-gauges svg[data-resource="cpu"]')
-            visible('.overview-trend .metrics-chart svg[role="img"]')
-            wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR,
-                '.overview-heartbeat [data-heartbeat-bucket]')) == 30)
+            visible('.gateway-overview')
+            visible('[data-host-resource="cpu"]')
+            wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, '[data-service-id]')) == 4)
 
         def top_of_page():
             driver.execute_script("window.scrollTo({top: 0, left: 0, behavior: 'instant'})")
@@ -207,129 +205,56 @@ def main():
                 body: document.body.scrollWidth};
             ''')
 
-        def gauge_geometry(label, scope):
-            visible(scope + ' .resource-gauges')
-            geometry = driver.execute_script('''
-              const root = document.querySelector(arguments[0] + ' .resource-gauges');
-              const rect = element => {
-                const r = element.getBoundingClientRect();
-                return {left: r.left, right: r.right, top: r.top,
-                  bottom: r.bottom, width: r.width, height: r.height};
-              };
-              return {viewport: innerWidth, cards: [...root.querySelectorAll('.resource-gauge')]
-                .map(card => ({...rect(card), resource: card.querySelector('svg[data-resource]')?.dataset.resource,
-                  value: card.querySelector('.resource-gauge-value')
-                    ? rect(card.querySelector('.resource-gauge-value')) : null}))};
-            ''', scope)
-            geometry.update({'name': label, 'scope': scope})
-            result['geometry'].append(geometry)
-            cards = geometry['cards']
-            same = lambda values: max(values) - min(values) <= 1
-            aligned = (len(cards) == 3 and {card['resource'] for card in cards} == {'cpu', 'ram', 'disk'}
-                       and all(card['value'] for card in cards)
-                       and all(same([card[key] for card in cards])
-                               for key in ['top', 'height', 'width'])
-                       and same([card['value']['bottom'] for card in cards]))
-            record('Three gauge cards and numeric baselines align at ' + label, aligned)
-
-        def overview_geometry(label):
-            geometry = driver.execute_script('''
-              const rect = element => {
-                if (!element) return null;
-                const r = element.getBoundingClientRect();
-                return {left: r.left, right: r.right, top: r.top,
-                  bottom: r.bottom, width: r.width, height: r.height};
-              };
-              const heading = document.querySelector('.workspace-page .page-heading');
-              const panels = Object.fromEntries(['resource-panel', 'heartbeat', 'machines', 'trend']
-                .map(name => [name, rect(document.querySelector('.overview-' + name))]));
-              return {viewport: innerWidth, panels,
-                heading: rect(heading?.querySelector('h1')),
-                action: rect(heading?.querySelector('button')),
-                summary: [...document.querySelectorAll('.summary-card')].map(rect)};
-            ''')
-            geometry['name'] = label
-            result['geometry'].append(geometry)
-            same = lambda values: bool(values) and max(values) - min(values) <= 1
-            cards = geometry['summary']
-            panels = geometry['panels']
-            width = geometry['viewport']
-            pairs = ([('resource-panel', 'heartbeat'), ('machines', 'trend')]
-                     if width > 1200 else [('heartbeat', 'machines')] if width > 700 else [])
-            pairs_align = all(panels[a] and panels[b]
-                              and same([panels[a][edge], panels[b][edge]])
-                              for a, b in pairs for edge in ['top', 'bottom'])
-            mobile_align = (width > 700 or (all(panels.values())
-                            and same([panel['left'] for panel in panels.values()])
-                            and same([panel['right'] for panel in panels.values()])))
-            action = geometry['action']
-            title = geometry['heading']
-            heading_align = bool(action and title and abs(
-                (action['top'] + action['bottom']) / 2
-                - (title['top'] + title['bottom']) / 2) <= 1)
-            record('Overview panels, summary cards and heading action align at ' + label,
-                   len(cards) == 4 and same([card['width'] for card in cards])
-                   and same([card['height'] for card in cards])
-                   and pairs_align and mobile_align and heading_align)
+        def host_geometry(label):
+            data = driver.execute_script("""
+              const cards=[...document.querySelectorAll('[data-host-resource]')].map(e=>{const r=e.getBoundingClientRect();return {width:r.width,height:r.height,top:r.top}});
+              const heading=document.querySelector('.page-heading h1').getBoundingClientRect();
+              const button=document.querySelector('.page-heading .button').getBoundingClientRect();
+              const profile=document.querySelector('.user-profile strong');
+              return {width:innerWidth,page:document.documentElement.scrollWidth,cards,
+                headingCenter:heading.y+heading.height/2,buttonCenter:button.y+button.height/2,buttonHeight:button.height,
+                navFont:parseFloat(getComputedStyle(document.querySelector('.nav-item')).fontSize),
+                profileWhiteSpace:getComputedStyle(profile).whiteSpace};
+            """)
+            result['geometry'].append({'name':label,**data})
+            record('Host resource cards fit and align at '+label, data['page']<=data['width']+1
+                   and len(data['cards'])==3 and max(c['height'] for c in data['cards'])-min(c['height'] for c in data['cards'])<=1)
+            record('Larger text and balanced heading controls at '+label,
+                   data['navFont']>=15.5 and data['buttonHeight']>=44
+                   and abs(data['headingCenter']-data['buttonCenter'])<=1 and data['profileWhiteSpace']=='nowrap')
 
         def monitoring_data():
-            observed = driver.execute_async_script('''
-              const done = arguments[0];
-              const gaugeRoot = document.querySelector('.overview-resource-panel .resource-gauges');
-              const strip = document.querySelector('.overview-heartbeat .heartbeat-widget');
-              const bars = strip?.querySelector('.heartbeat-bars');
-              if (!gaugeRoot || !strip || !bars) return done({ok: false, reason: 'missing widgets'});
-              const snapshot = {node: gaugeRoot.dataset.nodeId, sampleAt: gaugeRoot.dataset.sampleAt,
-                values: [...gaugeRoot.querySelectorAll('svg[data-resource]')].map(svg => ({
-                  resource: svg.dataset.resource,
-                  value: Number(svg.querySelector('.resource-gauge-value')?.textContent.replace('%', '').trim())})),
-                start: Number(bars.dataset.windowStart), end: Number(bars.dataset.windowEnd),
-                buckets: [...strip.querySelectorAll('[data-heartbeat-bucket]')].map(bucket => ({
-                  start: Number(bucket.dataset.start), end: Number(bucket.dataset.end),
-                  count: Number(bucket.dataset.count), state: bucket.dataset.state}))};
-              const headers = {Authorization: 'Bearer ' + localStorage.getItem('zt_session_token')};
-              fetch('/api/nodes/' + encodeURIComponent(snapshot.node) + '/history', {headers})
-                .then(async response => ({status: response.status, body: await response.json()}))
-                .then(({status, body}) => {
-                  const history = Array.isArray(body.data) ? body.data : [];
-                  const sample = history.find(metric => Date.parse(metric.recorded_at) === Date.parse(snapshot.sampleAt));
-                  const expected = sample ? {cpu: Number(sample.cpu_percent),
-                    ram: Number(sample.memory_used_bytes) / Number(sample.memory_total_bytes) * 100,
-                    disk: Number(sample.disk_used_bytes) / Number(sample.disk_total_bytes) * 100} : null;
-                  const gaugesMatch = status === 200 && expected && snapshot.values.length === 3
-                    && snapshot.values.every(value => Number.isFinite(value.value)
-                      && value.value >= 0 && value.value <= 100
-                      && Math.abs(value.value - expected[value.resource]) <= .051);
-                  const timestamps = [...new Set(history.map(metric => Date.parse(metric.recorded_at)))]
-                    .filter(Number.isFinite).sort((a, b) => a - b);
-                  const buckets = snapshot.buckets;
-                  const valid = buckets.length === 30 && snapshot.end - snapshot.start === 90000
-                    && buckets.every((bucket, i) => Number.isInteger(bucket.count) && bucket.count >= 0
-                      && bucket.start === snapshot.start + i * 3000 && bucket.end - bucket.start === 3000
-                      && bucket.state === (bucket.count > 0 ? 'received' : 'missing'));
-                  // Compare immutable historic buckets only. A new beacon may arrive
-                  // between a React poll and this request, so exclude the live edge.
-                  const lastReceivedStart = Math.max(...buckets.filter(bucket => bucket.count > 0).map(bucket => bucket.start));
-                  const comparable = buckets.filter(bucket => bucket.start >= timestamps[0]
-                    && bucket.end <= lastReceivedStart);
-                  const countsMatch = comparable.every(bucket => bucket.count === timestamps
-                    .filter(time => time >= bucket.start && time < bucket.end).length);
-                  done({ok: status === 200, sample_at: snapshot.sampleAt,
-                    gauges_match_api: Boolean(gaugesMatch), gauge_values: snapshot.values,
-                    heartbeat_buckets_valid: valid, compared_history_buckets: comparable.length,
-                    heartbeat_counts_match_api: countsMatch});
-                }).catch(() => done({ok: false, reason: 'history request failed'}));
-            ''')
-            result['monitoring_data'].append(observed)
-            record('Gauge values match the real history sample at their displayed timestamp',
-                   observed.get('ok') and observed.get('gauges_match_api'))
-            record('Heartbeat buckets match actual received samples without invented uptime',
-                   observed.get('ok') and observed.get('heartbeat_buckets_valid')
-                   and observed.get('compared_history_buckets', 0) >= 20
-                   and observed.get('heartbeat_counts_match_api'))
+            def synchronized(_driver):
+                current=driver.execute_async_script("""
+                  const done=arguments[0];fetch('/api/host',{headers:{Authorization:'Bearer '+localStorage.getItem('zt_session_token')}})
+                  .then(async r=>({status:r.status,body:await r.json()})).then(data=>{
+                    data.dom={at:document.querySelector('.gateway-data-state time')?.dateTime,
+                      values:[...document.querySelectorAll('[data-host-resource]')].map(e=>({id:e.dataset.hostResource,value:e.querySelector('.gateway-resource-value')?.textContent})),
+                      services:[...document.querySelectorAll('[data-service-id]')].map(e=>({
+                        id:e.dataset.serviceId,state:e.dataset.serviceState,
+                        observations:[...e.querySelectorAll('[data-observed-at]')].map(i=>({at:i.dataset.observedAt,state:i.dataset.state}))
+                      }))};
+                    done(data);
+                  }).catch(()=>done({status:0}));
+                """)
+                return current if current.get('status')==200 and current['dom']['at']==current['body']['sampled_at'] else False
+            data=wait.until(synchronized)
+            result['monitoring_data'].append(data)
+            record('Overview reads authenticated EC2 host metrics',data['status']==200 and data['body']['host']['memory_total_bytes']>0)
+            record('Overview lists four real Gateway services', {e.get_attribute('data-service-id') for e in driver.find_elements(By.CSS_SELECTOR,'[data-service-id]')}=={'gateway','proxy','postgres','wireguard_gateway'})
+            host=data['body']['host']
+            expected={'cpu':host['cpu_percent'],'ram':100*host['memory_used_bytes']/host['memory_total_bytes'],'disk':100*host['disk_used_bytes']/host['disk_total_bytes']}
+            record('Displayed resource percentages match the exact host sample',all(
+                item['value']=='—' if expected[item['id']] is None else abs(float(item['value'].rstrip('%'))-expected[item['id']])<=0.051
+                for item in data['dom']['values']))
+            services={item['id']:item for item in data['body']['services']}
+            record('Service states and history match real sampled observations',all(
+                item['state']==services[item['id']]['state'] and item['observations']==services[item['id']]['observations']
+                for item in data['dom']['services']))
+            record('Overview contains no Worker or gauge widgets',not driver.find_elements(By.CSS_SELECTOR,'.overview-worker-node,.resource-gauges,#worker-details'))
 
         def fleet():
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Xem tất cả máy chủ']"))).click()
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//nav//button[normalize-space()='Máy chủ']"))).click()
             heading('Máy chủ')
             visible('#server-fleet')
 
@@ -369,12 +294,7 @@ def main():
                and driver.find_element(By.ID, 'password').get_attribute('type') == 'password')
         driver.execute_script(OBSERVE)
         login_as('admin')
-        record('Overview has monitoring widgets without opening the Worker detail view',
-               not driver.find_elements(By.ID, 'worker-details')
-               and len(driver.find_elements(By.CSS_SELECTOR,
-                   '.overview-resource-panel .resource-gauges svg[data-resource]')) == 3)
-        gauge_geometry('overview-desktop', '.overview-resource-panel')
-        overview_geometry('desktop')
+        host_geometry('desktop')
         monitoring_data()
         screenshot('admin-overview')
 
@@ -393,26 +313,10 @@ def main():
         driver.execute_script(OBSERVE)
 
         stage = 'overview-actions'
-        updated = visible('.sync-strip time').get_attribute('datetime')
+        updated = visible('.gateway-data-state time').get_attribute('datetime')
         driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Làm mới"]').click()
-        wait.until(lambda d: d.find_element(By.CSS_SELECTOR, '.sync-strip time').get_attribute('datetime') != updated)
+        wait.until(lambda d: d.find_element(By.CSS_SELECTOR, '.gateway-data-state time').get_attribute('datetime') != updated)
         record('Overview refresh receives a new successful update timestamp')
-        driver.find_element(By.CSS_SELECTOR, 'button[aria-label^="Lọc Offline:"]').click()
-        heading('Máy chủ')
-        record('Summary card filters the machine list',
-               Select(visible('select[aria-label="Lọc trạng thái"]')).first_selected_option.get_attribute('value') == 'OFFLINE')
-        driver.find_element(By.CSS_SELECTOR, 'button[aria-label^="Lọc Online:"]').click()
-        select_worker()
-        record('Online summary card restores the actual Worker',
-               Select(visible('select[aria-label="Lọc trạng thái"]')).first_selected_option.get_attribute('value') == 'HEALTHY')
-        driver.find_element(By.XPATH, "//nav//button[normalize-space()='Tổng quan']").click()
-        overview_loaded()
-        driver.find_element(By.CSS_SELECTOR, '.overview-worker-node').click()
-        detail = visible('#worker-details')
-        record('Overview machine button opens the real machine detail', args.node_name in detail.text)
-        driver.find_element(By.XPATH, "//nav//button[normalize-space()='Tổng quan']").click()
-        overview_loaded()
-
         stage = 'overview-responsive-layout'
         driver.set_window_size(768, 1024)
         top_of_page()
@@ -421,8 +325,7 @@ def main():
         result['viewports'].append({'name': 'tablet-overview', **sizes})
         record('Overview fits the tablet viewport',
                max(sizes['page'], sizes['body']) <= sizes['width'] + 1)
-        gauge_geometry('overview-tablet', '.overview-resource-panel')
-        overview_geometry('tablet')
+        host_geometry('tablet')
         screenshot('admin-overview-tablet')
         driver.set_window_size(1600, 1000)
 
@@ -486,7 +389,7 @@ def main():
             result['viewports'].append({'name': label, **sizes})
             record('No page overflow at ' + label + ' actual width ' + str(sizes['width']),
                    max(sizes['page'], sizes['body']) <= sizes['width'] + 1)
-            gauge_geometry('fleet-' + label, '#worker-details')
+
             screenshot('admin-fleet-' + label)
         driver.set_window_size(1600, 1000)
 
@@ -510,8 +413,7 @@ def main():
                 record('Overview fits the actual mobile iframe CSS viewport',
                        sizes['width'] == args.mobile_frame_width
                        and max(sizes['page'], sizes['body']) <= sizes['width'] + 1)
-                gauge_geometry('overview-mobile-iframe', '.overview-resource-panel')
-                overview_geometry('mobile-iframe')
+                host_geometry('mobile-iframe')
                 driver.switch_to.default_content()
                 filename = 'admin-overview-mobile-' + str(args.mobile_frame_width) + '.png'
                 if not frame.screenshot(str(output / filename)):
@@ -535,7 +437,7 @@ def main():
                 record('Fleet and Worker detail fit the actual mobile iframe CSS viewport',
                        sizes['width'] == args.mobile_frame_width
                        and max(sizes['page'], sizes['body']) <= sizes['width'] + 1)
-                gauge_geometry('fleet-mobile-iframe', '#worker-details')
+
                 top_of_page()
                 driver.switch_to.default_content()
                 filename = 'admin-fleet-mobile-' + str(args.mobile_frame_width) + '.png'
@@ -628,6 +530,7 @@ def main():
         record('Admin UI logout clears browser session', logout())
         stage = 'viewer-login'
         login_as('viewer')
+        monitoring_data()
         fleet()
         select_worker()
         stage = 'viewer-permissions'

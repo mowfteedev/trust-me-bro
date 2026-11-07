@@ -5,7 +5,7 @@
 @import "./responsive.css";
 @import "./audit.css";
 @import "./fleet.css";
-@import "./resource-gauges.css";
-@import "./heartbeat.css";
 @import "./node-details.css";
 @import "./workspace.css";
+@import "./gateway-overview.css";
+@import "./readability.css";

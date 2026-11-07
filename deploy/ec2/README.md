@@ -99,3 +99,26 @@ khi quá hạn sẽ bỏ nhịp đã lỡ, không gửi dồn hoặc chồng req
 backoff. Ngân sách Go mặc định Linux là 4.5 MiB, không phải giới hạn RSS;
 phải đo RSS trên Worker thật. Worker Docker chặn INPUT/FORWARD/OUTPUT cả IPv4
 và IPv6 trước khi chạy WireGuard/SSH/Agent; chỉ IPv4 có các ngoại lệ VPN đã khai báo.
+
+## Số liệu máy Gateway
+
+Collector chạy một lần mỗi 5 giây, đọc số liệu host và inspect đúng 4 container của
+`zt_ec2`, xuất JSON chỉ gồm counter/trạng thái. Gateway chỉ mount thư mục JSON
+read-only; không được cấp Docker socket hoặc mount filesystem host.
+
+Đặt `HOST_MONITOR_DIR=/run/zt-serverops-monitor` trong env EC2. Trước khi tạo lại
+Gateway, cài hai unit `deploy/ec2/zt-host-monitor.{service,timer}` vào
+`/etc/systemd/system/`, kiểm `User`/`ExecStart` đúng máy rồi chạy:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now zt-host-monitor.timer
+sudo systemctl start zt-host-monitor.service
+```
+
+Service phải chạy xong thành công và `host.json` đọc được trước khi tạo lại
+Gateway cùng WireGuard helper. Bản demo cục bộ dùng `keys/host-monitor`; nếu chưa
+có collector, `/api/host` trả503 thay vì hiển thị tài nguyên container giả làm host.
+CPU mẫu đầu là unknown. JSON cũ quá 15 giây đánh stale. `healthy` dùng Docker
+healthcheck hoặc probe HTTP; `running` chỉ xác nhận process, không phải health.
+Probe Caddy dùng HTTPS loopback với CA demo tự ký và không gửi credential.

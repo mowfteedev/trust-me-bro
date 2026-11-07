@@ -6,6 +6,9 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Clock3,
+  Cpu,
+  MemoryStick,
+  HardDrive,
   LockKeyhole,
   Radio,
   Terminal,
@@ -19,7 +22,7 @@ import {
   nodeTypeLabel,
 } from "../utils/format.js";
 import { MetricsChart } from "./MetricsChart.js";
-import { ResourceGauges } from "./ResourceGauges.js";
+import { getNodeCpuPercent, getNodeRamPercent, getNodeDiskPercent } from "../utils/fleet.js";
 import { StatusBadge } from "./StatusBadge.js";
 
 interface NodeDetailsProps {
@@ -138,8 +141,19 @@ export const NodeDetails: React.FC<NodeDetailsProps> = ({
           </dd>
         </div>
       </dl>
-      <div role="group" aria-label="Tài nguyên Worker" aria-describedby="worker-metric-scope">
-        <ResourceGauges node={node} stale={sourceStale} />
+      <div className="worker-resource-stats" role="group" aria-label="Tài nguyên Worker" aria-describedby="worker-metric-scope">
+        {[
+          { key: "cpu", label: "CPU", icon: Cpu, value: getNodeCpuPercent(node), hint: null },
+          { key: "ram", label: "RAM", icon: MemoryStick, value: getNodeRamPercent(node), hint: metric ? `${formatBytes(metric.memory_used_bytes)} / ${formatBytes(metric.memory_total_bytes)}` : null },
+          { key: "disk", label: "Ổ đĩa", icon: HardDrive, value: getNodeDiskPercent(node), hint: metric ? `${formatBytes(metric.disk_used_bytes)} / ${formatBytes(metric.disk_total_bytes)}` : null },
+        ].map(({ key, label, icon: Icon, value, hint }) => (
+          <div className={`worker-resource-stat worker-resource-stat--${key}`} key={key}>
+            <span className="worker-resource-label"><Icon size={17} aria-hidden="true" />{label}</span>
+            <strong className="worker-resource-value">{value === undefined ? "—" : `${value.toFixed(1)}%`}</strong>
+            <span className="worker-resource-meter" aria-hidden="true"><i style={{ width: `${value ?? 0}%` }} /></span>
+            <span className="worker-resource-capacity" aria-hidden={!hint}>{hint || "\u00a0"}</span>
+          </div>
+        ))}
       </div>
       <div className="chart-section">
         <div className="section-heading">

@@ -1,0 +1,236 @@
+/* Existing text sizes +20%; layout dimensions and data stay unchanged. */
+.ops-app { font-size: 16.8px }
+.eyebrow { font-size: 12px }
+.button { font-size: 14.4px }
+.brand strong { font-size: 20.4px }
+.brand small { font-size: 9.6px }
+.nav-item { font-size: 15.6px }
+.topbar-path { font-size: 13.2px }
+.user-avatar { font-size: 13.2px }
+.user-profile strong { font-size: 13.2px }
+.user-profile > div > span { font-size: 10.8px }
+.page-heading .eyebrow { font-size: 10.8px }
+.page-heading h1 { font-size: clamp(28.8px, 2.64vw, 38.4px) }
+.page-heading p { font-size: 15.6px }
+.sync-strip { font-size: 13.2px }
+.sync-interval { font-size: 12px }
+.summary-top { font-size: 14.4px }
+.summary-value { font-size: 43.2px }
+.summary-value > span { font-size: 12px }
+.summary-bottom { font-size: 13.2px }
+.panel-heading .eyebrow,
+.detail-heading .eyebrow { font-size: 9.6px }
+.panel-heading h2 { font-size: 19.2px }
+.count-badge { font-size: 12px }
+.fleet-search input { font-size: 14.4px }
+.status-badge { font-size: 12px }
+.node-name strong { font-size: 16.8px }
+.node-address { font-size: 13.2px }
+.node-freshness { font-size: 12px }
+.fleet-filter-state { font-size: 13.2px }
+.node-mini-metrics > div > span { font-size: 12px }
+.node-mini-metrics b { font-size: 13.2px }
+.node-card-footer { font-size: 10.8px }
+.node-ssh { font-size: 12px }
+.fleet-help { font-size: 10.8px }
+.search-empty { font-size: 13.2px }
+.detail-title h2 { font-size: 22.8px }
+.detail-address { font-size: 12px }
+.read-only-label { font-size: 12px }
+.node-context { font-size: 12px }
+.resource-label { font-size: 13.2px }
+.resource-value { font-size: 34.8px }
+.resource-value small { font-size: 16.8px }
+.resource-hint { font-size: 12px }
+.section-heading h3 { font-size: 13.2px }
+.section-heading > span { font-size: 10.8px }
+.chart-legend { font-size: 13.2px }
+.chart-legend b { font-size: 13.2px }
+.chart-legend small { font-size: 10.8px }
+.chart-scale { font-size: 12px }
+.chart-time { font-size: 12px }
+.chart-gap-note { font-size: 12px }
+.chart-loading,
+.chart-empty { font-size: 13.2px }
+.network-metrics > div > span { font-size: 13.2px }
+.network-metrics strong { font-size: 18px }
+.detail-footnote { font-size: 10.8px }
+.detail-footnote b { font-size: 10.8px }
+.overview-note { font-size: 13.2px }
+.polling-label { font-size: 10.8px }
+.notice { font-size: 13.2px }
+.state-panel h2 { font-size: 26.4px }
+.state-panel p { font-size: 14.4px }
+.login-form-heading h1 { font-size: 26.4px }
+.login-form-panel label { font-size: 14.4px }
+.form-input input { font-size: 15.6px }
+@media (max-width: 1200px) { .resource-value { font-size: 31.2px }
+ }
+@media (max-width: 520px) { .page-heading h1 { font-size: 30px }
+ }
+@media (max-width: 520px) { .page-heading p { font-size: 13.2px }
+ }
+@media (max-width: 520px) { .summary-value { font-size: 36px }
+ }
+@media (max-width: 520px) { .summary-value > span { font-size: 9.6px }
+ }
+@media (max-width: 520px) { .summary-bottom { font-size: 10.8px }
+ }
+@media (max-width: 520px) { .summary-top { font-size: 12px }
+ }
+@media (max-width: 520px) { .detail-title h2 { font-size: 21.6px }
+ }
+@media (max-width: 520px) { .resource-label { font-size: 10.8px }
+ }
+@media (max-width: 520px) { .resource-value { font-size: 28.8px }
+ }
+@media (max-width: 520px) { .resource-value small { font-size: 14.4px }
+ }
+@media (max-width: 520px) { .resource-hint { font-size: 9.6px }
+ }
+@media (max-width: 520px) { .section-heading > span { font-size: 9.6px }
+ }
+@media (max-width: 520px) { .chart-legend small { font-size: 9.6px }
+ }
+@media (max-width: 520px) { .chart-time { font-size: 9.6px }
+ }
+@media (max-width: 520px) { .network-metrics > div > span { font-size: 10.8px }
+ }
+@media (max-width: 520px) { .network-metrics strong { font-size: 13.2px }
+ }
+@media (max-width: 520px) { .overview-note { font-size: 10.8px }
+ }
+@media (max-width: 520px) { .state-panel h2 { font-size: 24px }
+ }
+@media (max-width: 520px) { .login-top .brand strong { font-size: 18px }
+ }
+@media (max-width: 520px) { .login-form-heading h1 { font-size: 26.4px }
+ }
+@media (max-width: 360px) { .resource-label { font-size: 13.2px }
+ }
+@media (max-width: 360px) { .resource-value { font-size: 31.2px }
+ }
+@media (max-width: 360px) { .resource-hint { font-size: 10.8px }
+ }
+.audit-panel-title h2 { font-size: 16.8px }
+.audit-panel-title > span { font-size: 12px }
+.audit-filters label { font-size: 13.2px }
+.audit-event-filter select { font-size: 13.2px }
+.audit-table { font-size: 13.2px }
+.audit-table th { font-size: 12px }
+.audit-table time strong { font-size: 14.4px }
+.audit-table time span { font-size: 12px }
+.audit-event { font-size: 13.2px }
+.audit-secondary { font-size: 10.8px }
+.audit-details > summary { font-size: 12px }
+.audit-details dt { font-size: 12px }
+.audit-details dd { font-size: 12px }
+.audit-pagination > span { font-size: 12px }
+.audit-pagination b { font-size: 13.2px }
+.audit-pagination .button { font-size: 13.2px }
+.audit-state h3 { font-size: 19.2px }
+.audit-state p { font-size: 14.4px }
+.audit-loading { font-size: 13.2px }
+@media (max-width: 760px) { .audit-table td::before { font-size: 10.8px }
+ }
+.fleet-table { font-size: 15.6px }
+.fleet-table thead th { font-size: 14.4px }
+.fleet-table-identity strong { font-size: 15.6px }
+.fleet-table-selected-label { font-size: 14.4px }
+.fleet-table-ip { font-size: 15.6px }
+.fleet-table-type { font-size: 14.4px }
+.fleet-table .status-badge { font-size: 14.4px }
+.fleet-table-percent { font-size: 15.6px }
+.fleet-table-heartbeat { font-size: 14.4px }
+.fleet-table-stale-label { font-size: 14.4px }
+.fleet-table-ssh { font-size: 14.4px }
+.fleet-table-viewer { font-size: 14.4px }
+.fleet-table .fleet-table-empty { font-size: 15.6px }
+#worker-details .detail-title h2 { font-size: clamp(25.2px, 2.4vw, 30px) }
+#worker-details .status-badge { font-size: 13.2px }
+#worker-details .detail-address { font-size: 14.4px }
+#worker-details .read-only-label { font-size: 14.4px }
+.worker-metric-scope { font-size: 14.4px }
+.worker-source-state { font-size: 14.4px }
+.worker-sample-meta dt { font-size: 14.4px }
+.worker-sample-meta dd { font-size: 15.6px }
+#worker-details .section-heading h3 { font-size: 18px }
+#worker-details .section-heading > span,
+#worker-details .chart-legend small,
+#worker-details .chart-scale,
+#worker-details .chart-time { font-size: 13.2px }
+#worker-details .chart-legend,
+#worker-details .chart-legend b { font-size: 14.4px }
+#worker-details .chart-gap-note,
+#worker-details .chart-loading,
+#worker-details .chart-empty { font-size: 14.4px }
+#worker-details .network-metrics > div > span { font-size: 14.4px }
+#worker-details .network-metrics strong { font-size: 19.2px }
+@media (max-width: 680px) { #worker-details .network-metrics > div > span { font-size: 13.2px }
+ }
+@media (max-width: 680px) { #worker-details .network-metrics strong { font-size: 16.8px }
+ }
+.worker-resource-label { font-size: 15.6px }
+.worker-resource-value { font-size: 36px }
+.worker-resource-capacity { font-size: 14.4px }
+.workspace-page .sync-strip { font-size: 14.4px }
+.workspace-page .summary-top { font-size: 15.6px }
+.workspace-page .summary-value { font-size: 36px }
+.workspace-page .summary-value > span { font-size: 14.4px }
+.workspace-panel-heading h2 { font-size: 21.6px }
+.workspace-panel-heading .count-badge { font-size: 14.4px }
+.overview-resource-scope { font-size: 14.4px }
+.overview-sample-time { font-size: 13.2px }
+.overview-history-error { font-size: 14.4px }
+.overview-heartbeat .heartbeat-heading h3 { font-size: 21.6px }
+.overview-uptime { font-size: 14.4px }
+.overview-uptime strong { font-size: 14.4px }
+.overview-fleet-link { font-size: 14.4px }
+.overview-attention-list small { font-size: 14.4px }
+.overview-worker-identity strong { font-size: 15.6px }
+.overview-worker-identity small { font-size: 13.2px }
+.overview-trend .chart-legend, .overview-trend .chart-legend b { font-size: 14.4px }
+.overview-trend .chart-legend small, .overview-trend .chart-scale, .overview-trend .chart-time { font-size: 13.2px }
+.workspace-fleet-toolbar input { font-size: 15.6px }
+.workspace-select { font-size: 14.4px }
+.workspace-select select { font-size: 15.6px }
+.workspace-page .status-badge { font-size: 14.4px }
+@media (max-width: 700px) { .workspace-panel-heading h2, .overview-heartbeat .heartbeat-heading h3 { font-size: 20.4px }
+ }
+@media (max-width: 520px) { .workspace-page .summary-top { font-size: 15.6px }
+ }
+@media (max-width: 520px) { .workspace-page .summary-value { font-size: 33.6px }
+ }
+@media (max-width: 520px) { .workspace-page .summary-value > span { font-size: 14.4px }
+ }
+@media (max-width: 520px) { .workspace-page .sync-strip { font-size: 14.4px }
+ }
+
+.ops-app .text-xs { font-size: 14.4px; }
+.ops-app .text-sm { font-size: 16.8px; }
+.ops-app .text-base { font-size: 19.2px; }
+.ops-app .button, .ops-app .icon-button { min-height: 46px; }
+.ops-app .button { padding: 11px 16px; gap: 9px; line-height: 1.35; }
+.ops-app .icon-button { min-width: 44px; }
+.ops-app .button svg, .ops-app .icon-button svg { flex-shrink: 0; }
+.ops-app .nav-item { min-height: 50px; padding: 13px 12px; }
+.ops-app .fleet-table-select, .ops-app .fleet-table-ssh { min-height: 46px; }
+.ops-app .fleet-table { min-width: 1240px; }
+.ops-app .workspace-select select { height: 46px; }
+.ops-app .workspace-fleet-toolbar input { height: 44px; }
+.ops-app .audit-filters select, .ops-app .audit-filters input { min-height: 46px; }
+.ops-app .user-profile strong { line-height: 1.35; }
+.ops-app .page-heading { align-items: center; }
+.ops-app .page-heading > .button { margin-top: 0; }
+@media (max-width: 680px) {
+  #worker-details .network-metrics { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  #worker-details .network-metrics > div { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  #worker-details .network-metrics > div > span { min-height: 0; }
+}
+@media (max-width: 520px) {
+  .ops-app .page-heading > .button { width: 46px; padding: 0; }
+  .ops-app .user-profile strong { max-width: 104px; }
+  .ops-app .topbar-actions { gap: 4px; }
+  .ops-app .topbar-path { font-size: 13.2px; }
+  .ops-app .page-heading h1 { font-size: 30px; }
+}

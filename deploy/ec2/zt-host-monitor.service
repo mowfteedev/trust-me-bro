@@ -1,0 +1,18 @@
+[Unit]
+Description=ZT Gateway host snapshot
+After=docker.service
+
+[Service]
+Type=oneshot
+User=admin
+SupplementaryGroups=docker
+ExecStart=/usr/bin/python3 /home/admin/zt-serverops-ec2/deploy/ec2/host-monitor.py
+RuntimeDirectory=zt-serverops-monitor
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+TimeoutStartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/run/zt-serverops-monitor
+PrivateTmp=yes

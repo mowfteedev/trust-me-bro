@@ -8,7 +8,6 @@ import { FleetSort, filterAndSortNodes } from "../utils/fleet.js";
 import { ClusterSummary, getClusterCounts } from "./ClusterSummary.js";
 import { ServerTable } from "./ServerTable.js";
 import { NodeDetails } from "./NodeDetails.js";
-import { WorkspaceOverview } from "./WorkspaceOverview.js";
 
 interface ClusterOverviewProps {
   currentUser?: UserSession | null;
@@ -17,7 +16,7 @@ interface ClusterOverviewProps {
   onNavigateFleet: () => void;
 }
 
-export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, onOpenTerminal, focusSection = "dashboard", onNavigateFleet }) => {
+export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, onOpenTerminal, focusSection = "fleet", onNavigateFleet }) => {
   const { nodes, selectedNode: preferredNode, setSelectedNode, isLoading, isRefreshing, errorMessage, lastUpdated, now, fetchClusterData } = useClusterData();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -81,6 +80,6 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
         {filteredNodes.length ? <ServerTable nodes={filteredNodes} selectedNodeId={selectedNode?.id ?? null} currentUser={currentUser} now={now} sourceStale={!!errorMessage} onSelectNode={openNode} onOpenTerminal={onOpenTerminal} /> : <div className="search-empty"><Search size={25} /><strong>Không tìm thấy máy chủ</strong><span>Thử tên, địa chỉ IP hoặc trạng thái khác.</span><button onClick={resetFilters}>Xóa bộ lọc</button></div>}
       </section>
       {selectedNode && <NodeDetails node={selectedNode} currentUser={currentUser} onOpenTerminal={onOpenTerminal} now={now} sourceStale={!!errorMessage} metricsHistory={metricsHistory} historyError={historyError} historyLoading={historyLoading} />}
-    </> : <WorkspaceOverview nodes={nodes} selectedNode={selectedNode} metricsHistory={metricsHistory} historyLoading={historyLoading} historyError={historyError} now={now} sourceStale={!!errorMessage} onOpenNode={openNode} onViewFleet={() => {resetFilters(); onNavigateFleet();}} />}
+    </> : null}
   </div>;
 };

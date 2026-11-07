@@ -121,6 +121,7 @@ services:
     volumes:
       - ./keys/bastion_id_ed25519:/app/keys/bastion_id_ed25519:ro
       - zt_audit_logs:/app/logs/audit
+      - ${HOST_MONITOR_DIR:-./keys/host-monitor}:/run/zt-host-monitor:ro
     networks:
       - zt_ingress_net
       - zt_internal_net

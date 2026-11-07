@@ -58,7 +58,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({ node, isOpen, onCl
 
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: 14,
+      fontSize: 17,
       fontFamily: 'JetBrains Mono, Fira Code, monospace',
       theme: {
         background: '#090d16',

@@ -1,4 +1,4 @@
-import { NodeItem, MetricSnapshot, UserSession, AuditLogPage } from '../types/index.js';
+import { NodeItem, MetricSnapshot, UserSession, AuditLogPage, HostSnapshot } from '../types/index.js';
 
 const TOKEN_STORAGE_KEY = 'zt_session_token';
 const USER_STORAGE_KEY = 'zt_user_profile';
@@ -115,6 +115,10 @@ class ApiService {
 
     this.setSession(res.token, res.user);
     return res.user;
+  }
+
+  public async getHost(): Promise<HostSnapshot> {
+    return this.request<HostSnapshot>('/api/host');
   }
 
   public async getNodes(): Promise<NodeItem[]> {

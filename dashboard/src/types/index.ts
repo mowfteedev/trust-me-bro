@@ -71,3 +71,35 @@ export interface AuditLogPage {
   page_size: number;
   has_more: boolean;
 }
+
+
+export type HostServiceState = 'healthy' | 'running' | 'unhealthy' | 'stopped' | 'unknown';
+export interface HostServiceObservation {
+  at: string;
+  state: HostServiceState;
+}
+export interface HostService {
+  id: 'gateway' | 'proxy' | 'postgres' | 'wireguard_gateway';
+  name: string;
+  state: HostServiceState;
+  started_at: string | null;
+  restarts: number;
+  observations: HostServiceObservation[];
+}
+export interface HostSnapshot {
+  sampled_at: string;
+  stale: boolean;
+  host: {
+    hostname: string;
+    cpu_percent: number | null;
+    memory_used_bytes: number;
+    memory_total_bytes: number;
+    disk_used_bytes: number;
+    disk_total_bytes: number;
+    uptime_seconds: number;
+    network_rx_bytes: number;
+    network_tx_bytes: number;
+    network_interface: string;
+  };
+  services: HostService[];
+}

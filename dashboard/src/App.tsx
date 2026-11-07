@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
+import { GatewayOverview } from "./components/GatewayOverview.js";
 import { ClusterOverview } from "./components/ClusterOverview.js";
 import { AuditLog } from "./components/AuditLog.js";
 import { TerminalModal } from "./components/TerminalModal.js";
@@ -80,11 +81,13 @@ export const App: React.FC = () => {
     >
       {activeTab === "audit" && session.currentUser.role === "ADMIN" ? (
         <AuditLog />
+      ) : activeTab === "dashboard" ? (
+        <GatewayOverview />
       ) : (
         <ClusterOverview
           currentUser={session.currentUser}
           onOpenTerminal={setSelectedTerminalNode}
-          focusSection={activeTab === "fleet" ? "fleet" : "dashboard"}
+          focusSection="fleet"
           onNavigateFleet={() => setActiveTab("fleet")}
         />
       )}

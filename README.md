@@ -5,6 +5,8 @@ PostgreSQL và Agent Go cho Linux/Windows.
 
 Gateway chạy Docker Compose: PostgreSQL, Gateway, Caddy và WireGuard.
 Worker kết nối UDP 51820, không publish SSH. [Triển khai EC2](deploy/ec2/README.md).
+Tổng quan đọc tài nguyên host Gateway qua collector chỉ đọc; trang Máy chủ
+hiển thị các Worker và Web SSH.
 
 ## Truy cập EC2
 

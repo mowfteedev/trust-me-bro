@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect ZT host state every five seconds
+
+[Timer]
+OnBootSec=5s
+OnUnitActiveSec=5s
+AccuracySec=1s
+Unit=zt-host-monitor.service
+
+[Install]
+WantedBy=timers.target
