@@ -8,4 +8,6 @@
 @import "./node-details.css";
 @import "./workspace.css";
 @import "./gateway-overview.css";
+@import "./host-resource-trend.css";
+@import "./context-links.css";
 @import "./readability.css";

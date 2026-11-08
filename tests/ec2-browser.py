@@ -8,7 +8,8 @@ DEMO_ADMIN_PASSWORD and DEMO_VIEWER_PASSWORD. Use dedicated verification users:
 the logout checks revoke every session belonging to each supplied account.
 Credentials never enter argv.
 Prefer dedicated verification accounts: UI logout revokes that account's tokens.
-The API, WebSocket and SSH remain real; the WebSocket observer only records
+Main API, WebSocket and SSH flows remain real; a separately recorded audit-row
+fixture checks missing-node navigation only in this browser. The observer records
 incoming frame metadata and the output of this test's bounded shell command.
 """
 import argparse
@@ -125,11 +126,11 @@ def main():
     result = {
         'started_utc': datetime.now(timezone.utc).isoformat(),
         'base_url': args.base_url, 'node_name': args.node_name,
-        'scope': 'Real browser/API/WebSocket/SSH; native WebSocket pass-through observer; no mocked transport/data',
+        'scope': 'Real browser/API/WebSocket/SSH main flows; one separately recorded client-only missing-node fixture; no mocked SSH transport',
         'checks': [], 'screenshots': [], 'ok': False,
         'not_tested': ['Internet firewall isolation', 'VM/Windows runtime', 'Telegram alerts',
                        'memory budget', 'server logout revocation of an open terminal (separate runtime check)'],
-        'viewports': [], 'geometry': [], 'monitoring_data': [],
+        'viewports': [], 'geometry': [], 'monitoring_data': [], 'simulations': [],
     }
     driver = None
     stage = 'credentials'
@@ -143,6 +144,7 @@ def main():
         # Never capture the login page or credential input fields.
         if driver.find_elements(By.ID, 'password'):
             return
+        wait.until(lambda d: d.execute_script('return !document.getAnimations().some(a => a.playState === "running" && a.effect?.getTiming().iterations !== Infinity)'))
         filename = name + '.png'
         if not driver.save_screenshot(str(output / filename)):
             raise RuntimeError('Cannot save screenshot')
@@ -258,6 +260,11 @@ def main():
             heading('Máy chủ')
             visible('#server-fleet')
 
+        def overview():
+            top_of_page()
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//nav//button[normalize-space()='Tổng quan']"))).click()
+            overview_loaded()
+
         def select_worker():
             select = '#server-fleet button[aria-label="Xem tài nguyên ' + args.node_name + '"]'
             wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, select))).click()
@@ -297,6 +304,48 @@ def main():
         host_geometry('desktop')
         monitoring_data()
         screenshot('admin-overview')
+
+        stage = 'interactive-host-trend'
+        wait.until(lambda d: int(d.find_element(By.CSS_SELECTOR, '.host-trend-inspector').get_attribute('aria-valuemax')) >= 1)
+        for label, resource in [('RAM', 'ram'), ('Ổ đĩa', 'disk'), ('CPU', 'cpu')]:
+            driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Xem diễn biến '+label+'"]').click()
+            visible('[data-host-trend="'+resource+'"]')
+            record('Resource selection changes the real host trend to '+resource,
+                   driver.find_element(By.CSS_SELECTOR, '[data-host-resource="'+resource+'"] button').get_attribute('aria-pressed')=='true')
+        inspector=visible('.host-trend-inspector')
+        inspector.send_keys(Keys.HOME)
+        first=driver.find_element(By.CSS_SELECTOR,'.host-trend-readout').get_attribute('data-chart-sample-at')
+        at_first=inspector.get_attribute('aria-valuenow')=='0'
+        inspector.send_keys(Keys.END)
+        last=driver.find_element(By.CSS_SELECTOR,'.host-trend-readout').get_attribute('data-chart-sample-at')
+        record('Keyboard inspection selects distinct actual first and last host samples',at_first and first<last
+               and inspector.get_attribute('aria-valuenow')==inspector.get_attribute('aria-valuemax'))
+        plot=visible('.host-trend-inspector')
+        ActionChains(driver).move_to_element_with_offset(plot,-int(plot.size['width']/2)+3,0).perform()
+        record('Pointer inspection selects an actual historical host sample',
+               driver.find_element(By.CSS_SELECTOR,'.host-trend-readout').get_attribute('data-chart-sample-at')==first)
+        screenshot('admin-interactive-trend')
+
+        stage = 'interactive-service-detail'
+        driver.find_element(By.CSS_SELECTOR,'[data-service-id="postgres"] button').click()
+        visible('[data-selected-service="postgres"]')
+        visible('.gateway-check-details summary').click()
+        record('Service selection opens PostgreSQL real check history',
+               bool(driver.find_elements(By.CSS_SELECTOR,'.gateway-check-details[open] li time[datetime]')))
+        screenshot('admin-service-checks')
+        driver.find_element(By.CSS_SELECTOR,'[data-service-id="gateway"] button').click()
+        visible('.gateway-context-action').click()
+        heading('Nhật ký hoạt động')
+        wait.until(lambda d: d.find_element(By.CSS_SELECTOR,'.audit-results').get_attribute('aria-busy')=='false')
+        record('Gateway opens audit with the requested failed-login filter',
+               Select(visible('#audit-event')).first_selected_option.get_attribute('value')=='LOGIN_FAILED')
+        overview()
+        driver.find_element(By.CSS_SELECTOR,'[data-service-id="wireguard_gateway"] button').click()
+        visible('.gateway-context-action').click()
+        heading('Máy chủ')
+        visible('#server-fleet')
+        record('WireGuard opens the actual Fleet page')
+        overview()
 
         stage = 'theme-persistence'
         was_dark = driver.execute_script("return document.querySelector('.ops-app').classList.contains('dark')")
@@ -526,11 +575,59 @@ def main():
         else:
             result['not_tested'].append('Audit pagination beyond page one: actual dataset has one page')
         screenshot('admin-audit')
+
+        stage = 'contextual-node-navigation'
+        audit_node=visible('.audit-node-link[data-node-id]')
+        target_id=audit_node.get_attribute('data-node-id')
+        target_name=audit_node.text.strip()
+        audit_node.click()
+        heading('Máy chủ')
+        detail=visible('#worker-details')
+        wait.until(lambda d: target_name in d.find_element(By.CSS_SELECTOR,'#worker-details .detail-title h2').text)
+        record('Audit event opens Fleet with the same requested node identity',
+               target_name in detail.text and detail.get_attribute('data-node-id')==target_id)
+        visible('.node-audit-link').click()
+        heading('Nhật ký hoạt động')
+        wait.until(lambda d: d.find_element(By.CSS_SELECTOR,'.audit-results').get_attribute('aria-busy')=='false')
+        record('Worker opens audit with the matching node search and first page',
+               visible('#audit-search').get_attribute('value')==target_name
+               and '1' in visible('.audit-pagination > span').text)
+
+        stage = 'simulated-missing-audit-node'
+        # UI boundary fixture only: change one returned audit row in this browser.
+        # The database and /nodes response remain real and unchanged.
+        driver.execute_script('''
+          window.ztFixtureFetch=window.fetch;
+          window.fetch=async function(input,options){
+            const response=await window.ztFixtureFetch.call(window,input,options);
+            const url=typeof input==='string'?input:input.url;
+            if(url.includes('/api/audit/logs') && response.ok){
+              const body=await response.clone().json();
+              if(body.data?.length){body.data[0]={...body.data[0],node_id:'00000000-0000-4000-8000-000000000001',node_name:'zt-missing-context-fixture'};}
+              return new Response(JSON.stringify(body),{status:response.status,headers:{'Content-Type':'application/json'}});
+            }
+            return response;
+          };
+        ''')
+        try:
+            visible('button[aria-label="Làm mới nhật ký"]').click()
+            missing=visible('.audit-node-link[data-node-id="00000000-0000-4000-8000-000000000001"]')
+            driver.execute_script('window.fetch=window.ztFixtureFetch;delete window.ztFixtureFetch')
+            missing.click()
+            heading('Máy chủ')
+            visible('.fleet-context-notice[data-state="missing"]')
+            valid=not driver.find_elements(By.ID,'worker-details')
+            result['simulations'].append({'name':'Missing audit node does not open an unrelated real Worker','pass':valid,'scope':'Client-only audit row fixture; no DB/node writes'})
+            if not valid:raise AssertionError('Missing node context selected an unrelated Worker')
+        finally:
+            driver.execute_script('if(window.ztFixtureFetch){window.fetch=window.ztFixtureFetch;delete window.ztFixtureFetch}')
         stage = 'admin-logout'
         record('Admin UI logout clears browser session', logout())
         stage = 'viewer-login'
         login_as('viewer')
         monitoring_data()
+        driver.find_element(By.CSS_SELECTOR,'[data-service-id="gateway"] button').click()
+        record('Viewer can inspect services without the admin audit action',not driver.find_elements(By.CSS_SELECTOR,'.gateway-context-action'))
         fleet()
         select_worker()
         stage = 'viewer-permissions'

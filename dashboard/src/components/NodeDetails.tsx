@@ -12,6 +12,7 @@ import {
   LockKeyhole,
   Radio,
   Terminal,
+  ClipboardList,
 } from "lucide-react";
 import { MetricSnapshot, NodeItem, UserSession } from "../types/index.js";
 import {
@@ -29,6 +30,7 @@ interface NodeDetailsProps {
   node: NodeItem;
   currentUser?: UserSession | null;
   onOpenTerminal: (node: NodeItem) => void;
+  onNavigateAudit?: (node: NodeItem) => void;
   now: number;
   sourceStale: boolean;
   metricsHistory: MetricSnapshot[];
@@ -40,6 +42,7 @@ export const NodeDetails: React.FC<NodeDetailsProps> = ({
   node,
   currentUser,
   onOpenTerminal,
+  onNavigateAudit,
   now,
   sourceStale,
   metricsHistory,
@@ -75,6 +78,7 @@ export const NodeDetails: React.FC<NodeDetailsProps> = ({
   return (
     <section
       id="worker-details"
+      data-node-id={node.id}
       tabIndex={-1}
       className="detail-panel panel"
       aria-label={`Tài nguyên ${node.name}`}
@@ -94,6 +98,11 @@ export const NodeDetails: React.FC<NodeDetailsProps> = ({
           </span>
         </div>
         {currentUser?.role === "ADMIN" ? (
+          <div className="node-context-actions">
+          {onNavigateAudit && <button type="button" className="button secondary node-audit-link"
+            onClick={() => onNavigateAudit(node)} aria-label={`Xem nhật ký ${node.name}`}>
+            <ClipboardList size={16} aria-hidden="true" />Nhật ký
+          </button>}
           <button
             type="button"
             className="button primary"
@@ -106,6 +115,7 @@ export const NodeDetails: React.FC<NodeDetailsProps> = ({
             Mở Web SSH
             <ArrowUpRight size={14} aria-hidden="true" />
           </button>
+          </div>
         ) : (
           <span className="read-only-label">
             <LockKeyhole size={15} aria-hidden="true" />

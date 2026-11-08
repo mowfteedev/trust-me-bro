@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   AlertCircle,
   X,
+  ArrowUpRight,
 } from "lucide-react";
 import { api } from "../services/api.js";
 import { AuditLogPage } from "../types/index.js";
@@ -75,10 +76,17 @@ const detailLabels: Record<string, string> = {
   last_seen: "Heartbeat lần cuối",
 };
 
-export const AuditLog: React.FC = () => {
-  const [filters, setFilters] = useState({ page: 1, action: "", q: "" });
-  const [search, setSearch] = useState("");
-  const [action, setAction] = useState("");
+interface AuditLogProps {
+  initialFilters?: { action?: string; q?: string };
+  onOpenNode?: (id: string, name: string | null) => void;
+}
+
+export const AuditLog: React.FC<AuditLogProps> = ({ initialFilters, onOpenNode }) => {
+  const initialAction = events.find(event => event.value === initialFilters?.action)?.value ?? "";
+  const initialSearch = initialFilters?.q?.trim().slice(0, 100) ?? "";
+  const [filters, setFilters] = useState({ page: 1, action: initialAction, q: initialSearch });
+  const [search, setSearch] = useState(initialSearch);
+  const [action, setAction] = useState(initialAction);
   const [refreshKey, setRefreshKey] = useState(0);
   const [result, setResult] = useState<AuditLogPage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -282,7 +290,14 @@ export const AuditLog: React.FC = () => {
                           )}
                         </td>
                         <td data-label="Đối tượng">
-                          <strong className="audit-target">
+                          {entry.node_id && onOpenNode ? (
+                            <button type="button" className="context-link audit-node-link"
+                              data-node-id={entry.node_id}
+                              aria-label={`Xem máy chủ ${entry.node_name || entry.node_id}`}
+                              onClick={() => entry.node_id && onOpenNode(entry.node_id, entry.node_name)}>
+                              {entry.node_name || entry.node_id}<ArrowUpRight size={14} aria-hidden="true" />
+                            </button>
+                          ) : <strong className="audit-target">
                             {entry.node_name ||
                               entry.node_id ||
                               (entry.target === "auth"
@@ -290,7 +305,7 @@ export const AuditLog: React.FC = () => {
                                 : entry.target === "bastion"
                                   ? "SSH Gateway"
                                   : entry.target || "Gateway")}
-                          </strong>
+                          </strong>}
                         </td>
                         <td
                           className="audit-details-cell"

@@ -18,6 +18,23 @@ export const App: React.FC = () => {
     catch { return true; }
   });
   const [activeTab, setActiveTab] = useState<ConsoleTab>("dashboard");
+  const [auditContext, setAuditContext] = useState({ action: "", q: "", revision: 0 });
+  const [fleetContext, setFleetContext] = useState<{ id: string; name: string | null } | null>(null);
+
+  const openAudit = (action = "", q = "") => {
+    if (session.currentUser?.role !== "ADMIN") return;
+    setAuditContext(previous => ({ action, q, revision: previous.revision + 1 }));
+    setActiveTab("audit");
+  };
+  const openFleet = (id?: string, name: string | null = null) => {
+    setFleetContext(id ? { id, name } : null);
+    setActiveTab("fleet");
+  };
+  const selectTab = (tab: ConsoleTab) => {
+    if (tab === "audit") openAudit();
+    else if (tab === "fleet") openFleet();
+    else setActiveTab(tab);
+  };
 
   useEffect(() => {
     try { localStorage.setItem("zt_theme", isDarkMode ? "dark" : "light"); }
@@ -65,7 +82,7 @@ export const App: React.FC = () => {
     <ConsoleLayout
       currentUser={session.currentUser}
       activeTab={activeTab}
-      onSelectTab={setActiveTab}
+      onSelectTab={selectTab}
       onLogout={session.logout}
       isDarkMode={isDarkMode}
       themeButton={themeButton}
@@ -80,15 +97,26 @@ export const App: React.FC = () => {
       }
     >
       {activeTab === "audit" && session.currentUser.role === "ADMIN" ? (
-        <AuditLog />
+        <AuditLog
+          key={auditContext.revision}
+          initialFilters={auditContext}
+          onOpenNode={(id, name) => openFleet(id, name)}
+        />
       ) : activeTab === "dashboard" ? (
-        <GatewayOverview />
+        <GatewayOverview
+          currentUser={session.currentUser}
+          onNavigateFleet={() => openFleet()}
+          onNavigateAudit={action => openAudit(action)}
+        />
       ) : (
         <ClusterOverview
+          key={fleetContext?.id ?? "fleet"}
           currentUser={session.currentUser}
           onOpenTerminal={setSelectedTerminalNode}
           focusSection="fleet"
           onNavigateFleet={() => setActiveTab("fleet")}
+          initialNode={fleetContext}
+          onNavigateAudit={node => openAudit("", node.name)}
         />
       )}
     </ConsoleLayout>

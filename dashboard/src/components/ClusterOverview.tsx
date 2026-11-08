@@ -14,20 +14,40 @@ interface ClusterOverviewProps {
   onOpenTerminal: (node: NodeItem) => void;
   focusSection?: "dashboard" | "fleet";
   onNavigateFleet: () => void;
+  initialNode?: { id: string; name: string | null } | null;
+  onNavigateAudit?: (node: NodeItem) => void;
 }
 
-export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, onOpenTerminal, focusSection = "fleet", onNavigateFleet }) => {
+export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, onOpenTerminal, focusSection = "fleet", onNavigateFleet, initialNode, onNavigateAudit }) => {
   const { nodes, selectedNode: preferredNode, setSelectedNode, isLoading, isRefreshing, errorMessage, lastUpdated, now, fetchClusterData } = useClusterData();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [sort, setSort] = useState<FleetSort>("name");
   const [detailsRequested, setDetailsRequested] = useState(false);
+  const [contextHandled, setContextHandled] = useState(false);
+  const [missingRequestedNode, setMissingRequestedNode] = useState(false);
   const isFleet = focusSection === "fleet";
   const filteredNodes = filterAndSortNodes(nodes, searchQuery, statusFilter, sort);
   const selectableNodes = isFleet ? filteredNodes : nodes;
-  const selectedNode = selectableNodes.find(node => node.id === preferredNode?.id) ?? selectableNodes[0] ?? null;
+  const selectedNode = initialNode && !contextHandled
+    ? nodes.find(node => node.id === initialNode.id) ?? null
+    : missingRequestedNode ? null
+      : selectableNodes.find(node => node.id === preferredNode?.id) ?? selectableNodes[0] ?? null;
   const { metricsHistory, historyError, historyLoading } = useNodeHistory(selectedNode?.id);
   const counts = getClusterCounts(nodes);
+
+  useEffect(() => {
+    if (!initialNode || contextHandled || isLoading || errorMessage) return;
+    const node = nodes.find(item => item.id === initialNode.id);
+    setSearchQuery("");
+    setStatusFilter("ALL");
+    setContextHandled(true);
+    setMissingRequestedNode(!node);
+    if (node) {
+      setSelectedNode(node);
+      setDetailsRequested(true);
+    }
+  }, [initialNode?.id, contextHandled, isLoading, errorMessage, nodes]);
 
   useEffect(() => {
     document.getElementById("cluster-overview")?.scrollIntoView({ block: "start" });
@@ -42,6 +62,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
   }, [isFleet, detailsRequested, isLoading, selectedNode?.id]);
 
   const openNode = (node: NodeItem) => {
+    setMissingRequestedNode(false);
     setSelectedNode(node);
     setDetailsRequested(true);
     if (!isFleet) {
@@ -64,6 +85,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
 
   return <div className="overview workspace-page">
     {pageHeading}
+    {missingRequestedNode && <div className="notice warning fleet-context-notice" role="status" data-state="missing"><AlertTriangle size={18} /><span>Máy chủ {initialNode?.name || initialNode?.id} trong sự kiện không còn trong danh sách hiện tại. Chọn máy khác trong bảng.</span></div>}
     {errorMessage && <div role="alert" className="notice warning"><AlertTriangle size={18} /><span>{errorMessage} Đang hiển thị dữ liệu cũ.</span><button onClick={() => fetchClusterData(true)} disabled={isRefreshing}>Thử lại</button></div>}
     <div className={`sync-strip ${errorMessage ? "warning" : ""}`}>
       <span className="sync-state"><i />{errorMessage ? "Dữ liệu cũ ·" : "Cập nhật"} <time dateTime={lastUpdated ?? undefined} title={formatDateTime(lastUpdated)}>{formatTime(lastUpdated)}</time></span>
@@ -79,7 +101,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
         </div>
         {filteredNodes.length ? <ServerTable nodes={filteredNodes} selectedNodeId={selectedNode?.id ?? null} currentUser={currentUser} now={now} sourceStale={!!errorMessage} onSelectNode={openNode} onOpenTerminal={onOpenTerminal} /> : <div className="search-empty"><Search size={25} /><strong>Không tìm thấy máy chủ</strong><span>Thử tên, địa chỉ IP hoặc trạng thái khác.</span><button onClick={resetFilters}>Xóa bộ lọc</button></div>}
       </section>
-      {selectedNode && <NodeDetails node={selectedNode} currentUser={currentUser} onOpenTerminal={onOpenTerminal} now={now} sourceStale={!!errorMessage} metricsHistory={metricsHistory} historyError={historyError} historyLoading={historyLoading} />}
+      {selectedNode && <NodeDetails node={selectedNode} currentUser={currentUser} onOpenTerminal={onOpenTerminal} onNavigateAudit={onNavigateAudit} now={now} sourceStale={!!errorMessage} metricsHistory={metricsHistory} historyError={historyError} historyLoading={historyLoading} />}
     </> : null}
   </div>;
 };
