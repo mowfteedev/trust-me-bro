@@ -34,3 +34,20 @@ export function formatTelegramAlert(nodeName: string, severity: Severity, messag
     ...details, `Thời điểm thông báo: ${vietnamTime.format(now)} (UTC+7)`,
   ].join('\n');
 }
+
+export function formatTelegramRecovery(nodeName: string, ipAddress: string, downtimeSeconds: number | null, recoveredAt: Date): string {
+  let duration = 'Chưa xác định';
+  if (downtimeSeconds !== null && Number.isSafeInteger(downtimeSeconds) && downtimeSeconds >= 0) {
+    const hours = Math.floor(downtimeSeconds / 3600);
+    const minutes = Math.floor(downtimeSeconds % 3600 / 60);
+    const seconds = downtimeSeconds % 60;
+    duration = [hours ? `${hours} giờ` : '', minutes ? `${minutes} phút` : '',
+      seconds || (!hours && !minutes) ? `${seconds} giây` : ''].filter(Boolean).join(' ');
+  }
+  return [
+    'ZT-ServerOps | Online trở lại', 'Mức độ: Thông tin', `Máy chủ: ${nodeName}`,
+    `IP WireGuard: ${ipAddress}`, 'Đã nhận heartbeat xác thực từ Worker.',
+    `Khoảng thời gian không nhận heartbeat: ${duration}`,
+    `Thời điểm phục hồi: ${vietnamTime.format(recoveredAt)} (UTC+7)`,
+  ].join('\n');
+}

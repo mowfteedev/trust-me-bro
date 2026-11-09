@@ -1,8 +1,32 @@
 /** Pure formatting checks; no Telegram requests or database connection. */
 import { describe, expect, it } from 'vitest';
-import { formatTelegramAlert } from '../src/services/telegram-message.js';
+import { formatTelegramAlert, formatTelegramRecovery } from '../src/services/telegram-message.js';
 
 const time = new Date('2026-10-20T18:05:06Z');
+
+describe('Telegram recovery text', () => {
+  it('reports Online from an authenticated heartbeat without claiming a physical reboot', () => {
+    const text = formatTelegramRecovery('worker*literal', '10.100.0.2', 57, time);
+    expect(text).toContain('ZT-ServerOps | Online trở lại');
+    expect(text).toContain('Mức độ: Thông tin\nMáy chủ: worker*literal');
+    expect(text).toContain('IP WireGuard: 10.100.0.2');
+    expect(text).toContain('Khoảng thời gian không nhận heartbeat: 57 giây');
+    expect(text).not.toMatch(/đã bật|khởi động lại|đã tắt/);
+  });
+  it('shows the actual recovery time in Vietnam with date rollover', () => {
+    expect(formatTelegramRecovery('worker-test', '10.100.0.2', 0, time))
+      .toMatch(/Thời điểm phục hồi: .*01:05:06.*21\/10\/2026.*\(UTC\+7\)/);
+  });
+  it.each([[0, '0 giây'], [61, '1 phút 1 giây'], [3600, '1 giờ'], [3661, '1 giờ 1 phút 1 giây']])(
+    'formats a heartbeat gap of %s seconds as %s', (seconds, label) => {
+      expect(formatTelegramRecovery('worker-test', '10.100.0.2', seconds, time))
+        .toContain(`Khoảng thời gian không nhận heartbeat: ${label}`);
+    });
+  it.each([null, NaN, Infinity, -1])('does not invent a duration from %s', seconds => {
+    expect(formatTelegramRecovery('worker-test', '10.100.0.2', seconds, time))
+      .toContain('Khoảng thời gian không nhận heartbeat: Chưa xác định');
+  });
+});
 
 describe('Telegram alert text', () => {
   it('shows actual CPU, threshold and an action without repeating the internal event code', () => {

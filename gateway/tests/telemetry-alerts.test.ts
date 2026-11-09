@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({
-  query: vi.fn(), tx: vi.fn(), release: vi.fn(), sendAlert: vi.fn(),
+  query: vi.fn(), tx: vi.fn(), release: vi.fn(), sendAlert: vi.fn(), sendRecovery: vi.fn(),
   config: {
     NODE_STALE_THRESHOLD_SECONDS: 15, NODE_OFFLINE_THRESHOLD_SECONDS: 30,
     CPU_ALERT_THRESHOLD_PERCENT: 85, CPU_RECOVERY_THRESHOLD_PERCENT: 75, SWEEPER_INTERVAL_MS: 5000,
@@ -20,7 +20,7 @@ vi.mock('../src/middlewares/auth.middleware.js', () => ({ authenticate: async ()
 // Keep real TelegramService available for transport tests, replace its singleton for routes.
 vi.mock('../src/services/telegram.js', async (original) => ({
   ...await original<typeof import('../src/services/telegram.js')>(),
-  telegramService: { sendAlert: mock.sendAlert },
+  telegramService: { sendAlert: mock.sendAlert, sendRecovery: mock.sendRecovery },
 }));
 
 import { hashToken } from '../src/utils/crypto.js';
@@ -44,6 +44,7 @@ beforeEach(() => {
   mock.query.mockResolvedValue({ rows: [node], rowCount: 1 });
   mock.tx.mockResolvedValue({ rows: [], rowCount: 1 });
   mock.sendAlert.mockResolvedValue(true);
+  mock.sendRecovery.mockResolvedValue(true);
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -161,6 +162,85 @@ describe('CPU alert lifecycle (mock DB)', () => {
   });
 });
 
+describe('offline recovery notification (mock DB and Telegram)', () => {
+  const recoveredAt = new Date('2026-11-09T13:00:28Z');
+  const incident = { id: 'b388736c-c617-4e01-b4c6-d93241cc00ad', resolved_at: recoveredAt };
+  function unresolvedIncident(gap: unknown) {
+    let open = true;
+    mock.tx.mockImplementation(async (sql: string) => {
+      if (sql.includes('FOR UPDATE')) return { rows: [{ id: node.id, heartbeat_gap_seconds: gap }], rowCount: 1 };
+      if (sql.includes('UPDATE alerts') && sql.includes("message LIKE 'NODE_OFFLINE:%'")) {
+        const rows = open ? [incident] : []; open = false;
+        return { rows, rowCount: rows.length };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+  }
+
+  it('notifies after commit once for an incident, not on subsequent healthy heartbeats', async () => {
+    unresolvedIncident('57.4');
+    mock.sendRecovery.mockImplementation(async () => {
+      expect(mock.tx.mock.calls.at(-1)?.[0]).toBe('COMMIT');
+      return true;
+    });
+    for (let i = 0; i < 3; i++) expect((await beacon(20)).statusCode).toBe(200);
+    expect(mock.sendRecovery).toHaveBeenCalledExactlyOnceWith(node.name, node.ip_address, 57, recoveredAt);
+    expect(mock.sendAlert).not.toHaveBeenCalled();
+    const claim = mock.tx.mock.calls.find(([sql]) => sql.includes('UPDATE alerts') && sql.includes("message LIKE 'NODE_OFFLINE:%'"))?.[0];
+    expect(claim).toContain('resolved_at IS NULL');
+    expect(claim).toMatch(/RETURNING[\s\S]*id[\s\S]*resolved_at/i);
+  });
+
+  it('dispatches only for claimed incident rows across overlapping beacons', async () => {
+    unresolvedIncident('57.4');
+    const replies = await Promise.all([beacon(20), beacon(20)]);
+    expect(replies.every(reply => reply.statusCode === 200)).toBe(true);
+    expect(mock.sendRecovery).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['0', 0], ['58.8', 59], [null, null], [undefined, null], ['not-a-number', null], ['-5', null],
+  ])('reports heartbeat gap %s without inventing a duration', async (gap, expected) => {
+    unresolvedIncident(gap);
+    expect((await beacon(20)).statusCode).toBe(200);
+    expect(mock.sendRecovery).toHaveBeenCalledExactlyOnceWith(node.name, node.ip_address, expected, recoveredAt);
+  });
+
+  it('does not send recovery when no offline incident was closed', async () => {
+    expect((await beacon(20)).statusCode).toBe(200);
+    expect(mock.sendRecovery).not.toHaveBeenCalled();
+  });
+
+  it('does not send a recovery if persistence fails at commit', async () => {
+    mock.tx.mockImplementation(async (sql: string) => {
+      if (sql.includes('FOR UPDATE')) return { rows: [{ id: node.id, heartbeat_gap_seconds: '57' }], rowCount: 1 };
+      if (sql.includes('UPDATE alerts') && sql.includes("message LIKE 'NODE_OFFLINE:%'")) return { rows: [incident], rowCount: 1 };
+      if (sql === 'COMMIT') throw new Error('isolated-commit-failure');
+      return { rows: [], rowCount: 1 };
+    });
+    expect((await beacon(20)).statusCode).toBe(500);
+    expect(mock.tx).toHaveBeenCalledWith('ROLLBACK');
+    expect(mock.sendRecovery).not.toHaveBeenCalled();
+  });
+
+  it('rejects a revoked token without a recovery message or incident update', async () => {
+    mock.tx.mockImplementation(async (sql: string) => ({ rows: [], rowCount: sql.includes('FOR UPDATE') ? 0 : 1 }));
+    expect((await beacon(20)).statusCode).toBe(401);
+    expect(mock.sendRecovery).not.toHaveBeenCalled();
+    expect(mock.tx.mock.calls.some(([sql]) => sql.includes('UPDATE alerts'))).toBe(false);
+  });
+
+  it('returns the heartbeat response while Telegram delivery remains pending', async () => {
+    unresolvedIncident('57.4');
+    let complete!: (value: boolean) => void;
+    mock.sendRecovery.mockImplementation(() => new Promise<boolean>(resolve => { complete = resolve; }));
+    try {
+      expect((await beacon(20)).statusCode).toBe(200);
+      expect(mock.sendRecovery).toHaveBeenCalledTimes(1);
+    } finally { complete?.(true); }
+  }, 1500);
+});
+
 describe('Liveness (mock DB)', () => {
   beforeEach(() => {
     mock.query.mockImplementation(async (sql: string) => ({
@@ -234,6 +314,60 @@ describe('orphan SSH audit reconciliation (mock DB)', () => {
 });
 
 describe('Telegram (mock fetch only)', () => {
+  it('sends recovery as plain text with the actual recovery timestamp and heartbeat gap', async () => {
+    mock.config.TELEGRAM_MODE = 'live';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200,
+      json: async () => ({ ok: true, result: { message_id: 2 } }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new TelegramService();
+    await service.pairWithOtp('test-chat', service.getPairOtp());
+    expect(await service.sendRecovery('worker*literal', node.ip_address, 61, new Date('2026-10-20T18:05:06Z'))).toBe(true);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.chat_id).toBe('test-chat');
+    expect(body.text).toContain('ZT-ServerOps | Online trở lại');
+    expect(body.text).toContain('Máy chủ: worker*literal');
+    expect(body.text).toContain('IP WireGuard: 10.100.0.2');
+    expect(body.text).toContain('1 phút 1 giây');
+    expect(body.text).toContain('01:05:06');
+    expect(body.text).toContain('21/10/2026');
+    expect(body).not.toHaveProperty('parse_mode');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    service.stop();
+  });
+  it.each(['dry-run', 'disabled'])('recovery in %s mode does not call Telegram', async mode => {
+    mock.config.TELEGRAM_MODE = mode;
+    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    const service = new TelegramService();
+    expect(await service.sendRecovery(node.name, node.ip_address, null, new Date())).toBe(mode === 'dry-run');
+    expect(fetchMock).not.toHaveBeenCalled();
+    service.stop();
+  });
+  it('bounds recovery transport retries at three attempts without changing its message', async () => {
+    vi.useFakeTimers(); mock.config.TELEGRAM_MODE = 'live';
+    const fetchMock = vi.fn().mockRejectedValue(new Error('isolated-network-failure'));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new TelegramService();
+    await service.pairWithOtp('test-chat', service.getPairOtp());
+    const sending = service.sendRecovery(node.name, node.ip_address, 90, new Date('2026-10-20T18:05:06Z'));
+    await vi.runAllTimersAsync();
+    expect(await sending).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(new Set(fetchMock.mock.calls.map(call => call[1].body)).size).toBe(1);
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    service.stop();
+  });
+  it('does not retry a permanent Telegram recovery rejection or send after stop', async () => {
+    mock.config.TELEGRAM_MODE = 'live';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ ok: false }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new TelegramService();
+    await service.pairWithOtp('test-chat', service.getPairOtp());
+    expect(await service.sendRecovery(node.name, node.ip_address, 30, new Date())).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    service.stop();
+    expect(await service.sendRecovery(node.name, node.ip_address, 30, new Date())).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it('sends the Vietnamese alert text in a plain-text Telegram payload', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-20T18:05:06Z'));

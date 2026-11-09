@@ -1,7 +1,7 @@
 import { config } from '../config/env.js';
 import { generateNumericOtp } from '../utils/crypto.js';
 import { query } from './db.js';
-import { formatTelegramAlert } from './telegram-message.js';
+import { formatTelegramAlert, formatTelegramRecovery } from './telegram-message.js';
 
 /**
  * ==============================================================================
@@ -119,8 +119,15 @@ export class TelegramService {
    * Gửi thông điệp cảnh báo sự cố khẩn cấp tới quản trị viên
    */
   public async sendAlert(nodeName: string, severity: 'INFO' | 'WARNING' | 'CRITICAL', message: string): Promise<boolean> {
+    return this.deliver(nodeName, severity, formatTelegramAlert(nodeName, severity, message));
+  }
+
+  public async sendRecovery(nodeName: string, ipAddress: string, downtimeSeconds: number | null, recoveredAt: Date): Promise<boolean> {
+    return this.deliver(nodeName, 'INFO', formatTelegramRecovery(nodeName, ipAddress, downtimeSeconds, recoveredAt));
+  }
+
+  private async deliver(nodeName: string, severity: 'INFO' | 'WARNING' | 'CRITICAL', text: string): Promise<boolean> {
     if (this.stopped || this.mode === 'disabled') return false;
-    const text = formatTelegramAlert(nodeName, severity, message);
     if (this.mode === 'dry-run') {
       console.log('[TELEGRAM DRY-RUN / GIẢ LẬP — KHÔNG GỬI]', text);
       return true;

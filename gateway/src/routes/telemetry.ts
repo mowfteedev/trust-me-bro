@@ -177,12 +177,15 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
 
       // 7. Ghi nhận số liệu và cập nhật Liveness trong 1 ACID Transaction duy nhất
       let cpuAlertMessage: string | undefined;
+      let recoveredOffline: { resolved_at: Date }[] = [];
+      let heartbeatGapSeconds: number | null = null;
       const client = await getClient();
       try {
         await client.query('BEGIN');
         // Serialize beacons of one node so threshold alerts are emitted once per incident.
         const lockedNode = await client.query(
-          'SELECT id FROM nodes WHERE id = $1 AND token_hash = $2 AND is_token_revoked = FALSE FOR UPDATE;',
+          `SELECT id, EXTRACT(EPOCH FROM (now() - last_seen)) AS heartbeat_gap_seconds
+           FROM nodes WHERE id = $1 AND token_hash = $2 AND is_token_revoked = FALSE FOR UPDATE;`,
           [node.id, inputHash]
         );
         if (!lockedNode.rowCount) {
@@ -191,6 +194,10 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
             status: 401, code: 'REVOKED_NODE_TOKEN', title: 'Mã xác thực không còn hiệu lực',
             detail: 'Định danh máy chủ con đã thay đổi hoặc token đã bị thu hồi.',
           });
+        }
+        const gap = lockedNode.rows[0]?.heartbeat_gap_seconds;
+        if (gap !== null && gap !== undefined && Number.isFinite(Number(gap)) && Number(gap) >= 0) {
+          heartbeatGapSeconds = Math.round(Number(gap));
         }
         await client.query(
           `INSERT INTO metrics_history (
@@ -227,11 +234,13 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
           [node.id]
         );
         // A fresh authenticated beacon also resolves a previous loss-of-signal incident.
-        await client.query(
+        const recovered = await client.query(
           `UPDATE alerts SET resolved_at = now()
-           WHERE node_id = $1 AND resolved_at IS NULL AND message LIKE 'NODE_OFFLINE:%';`,
+           WHERE node_id = $1 AND resolved_at IS NULL AND message LIKE 'NODE_OFFLINE:%'
+           RETURNING id, resolved_at;`,
           [node.id]
         );
+        recoveredOffline = recovered.rows;
         if (beacon.cpu.percent >= config.CPU_ALERT_THRESHOLD_PERCENT) {
           const active = await client.query(
             `SELECT id FROM alerts WHERE node_id = $1 AND resolved_at IS NULL
@@ -264,6 +273,13 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
       }
 
       // Telegram delivery must not delay the 3-second telemetry heartbeat.
+      // UPDATE ... RETURNING claims each incident once under the node lock; notify only after commit.
+      for (const incident of recoveredOffline) {
+        void telegramService.sendRecovery(node.name, node.ip_address, heartbeatGapSeconds,
+          new Date(incident.resolved_at)).catch((err) => {
+          req.log.warn({ err }, 'Không thể gửi thông báo phục hồi; sự cố đã đóng trong DB');
+        });
+      }
       if (cpuAlertMessage) {
         void telegramService.sendAlert(node.name, 'WARNING', cpuAlertMessage).catch((err) => {
           req.log.warn({ err }, 'Không thể gửi cảnh báo CPU; cảnh báo đã lưu trong DB');
