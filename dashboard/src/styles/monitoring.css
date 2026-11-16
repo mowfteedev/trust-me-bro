@@ -731,6 +731,12 @@
 .notice.danger {
   --status: var(--danger);
 }
+.notice.success {
+  --status: #10b981;
+}
+.notice.info {
+  --status: var(--accent);
+}
 .notice > svg {
   margin-top: 2px;
 }

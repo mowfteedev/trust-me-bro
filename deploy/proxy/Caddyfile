@@ -10,6 +10,19 @@
 localhost:443, 127.0.0.1:443, [::1]:443 {
     tls internal
 
+    @cf_backend {
+        path /api/* /ws/* /healthz /readyz
+        header CF-Connecting-IP *
+    }
+    handle @cf_backend {
+        reverse_proxy gateway:3000 {
+            header_up Host {host}
+            header_up X-Real-IP {header.CF-Connecting-IP}
+            header_up X-Forwarded-For {header.CF-Connecting-IP}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
     @backend path /api/* /ws/* /healthz /readyz
     handle @backend {
         reverse_proxy gateway:3000 {

@@ -9,6 +9,8 @@
 .workspace-page .page-heading { align-items: center; min-height: 44px; padding: 0; }
 .workspace-page .page-heading h1 { flex: 1; min-width: 0; margin: 0; letter-spacing: -.7px; }
 .workspace-page .page-heading > .button { flex: 0 0 auto; min-height: 44px; }
+.workspace-page .page-heading-actions { display: flex; align-items: center; gap: 10px; }
+.workspace-page .page-heading-actions > .button { flex: 0 0 auto; min-height: 44px; }
 .workspace-page .sync-strip { font-size: 12px; padding: 10px 16px; min-height: 38px; }
 .workspace-page .sync-state { gap: 8px; }
 .workspace-page .summary-grid { gap: 16px; align-items: stretch; }

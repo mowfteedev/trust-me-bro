@@ -62,3 +62,4 @@ login.json
 agent-config.json
 ztgw0.conf
 wg0.conf
+.vite/

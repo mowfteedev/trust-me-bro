@@ -22,7 +22,6 @@ export const App: React.FC = () => {
   const [fleetContext, setFleetContext] = useState<{ id: string; name: string | null } | null>(null);
 
   const openAudit = (action = "", q = "") => {
-    if (session.currentUser?.role !== "ADMIN") return;
     setAuditContext(previous => ({ action, q, revision: previous.revision + 1 }));
     setActiveTab("audit");
   };
@@ -96,10 +95,11 @@ export const App: React.FC = () => {
         )
       }
     >
-      {activeTab === "audit" && session.currentUser.role === "ADMIN" ? (
+      {activeTab === "audit" ? (
         <AuditLog
           key={auditContext.revision}
           initialFilters={auditContext}
+          currentUser={session.currentUser}
           onOpenNode={(id, name) => openFleet(id, name)}
         />
       ) : activeTab === "dashboard" ? (

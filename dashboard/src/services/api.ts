@@ -3,6 +3,17 @@ import { NodeItem, MetricSnapshot, UserSession, AuditLogPage, HostSnapshot } fro
 const TOKEN_STORAGE_KEY = 'zt_session_token';
 const USER_STORAGE_KEY = 'zt_user_profile';
 
+export interface PurgePreview {
+  success: boolean;
+  retention: '1d' | '7d' | '30d';
+  retention_label: string;
+  cutoff_time: string;
+  records_to_delete: number;
+  records_to_keep: number;
+  total_records: number;
+  can_purge: boolean;
+}
+
 class ApiService {
   private token: string | null = null;
   private user: UserSession | null = null;
@@ -138,12 +149,39 @@ class ApiService {
     return this.request<AuditLogPage>(`/api/audit/logs?${params}`);
   }
 
+  public async getPurgePreview(retention: '1d' | '7d' | '30d'): Promise<PurgePreview> {
+    return this.request<PurgePreview>(`/api/audit/logs/purge-preview?retention=${retention}`);
+  }
+
+  public async purgeAuditLogs(retention: '1d' | '7d' | '30d'): Promise<{
+    success: boolean;
+    deleted_count: number;
+    retention: string;
+    retention_label?: string;
+    message: string;
+  }> {
+    return this.request<{ success: boolean; deleted_count: number; retention: string; retention_label?: string; message: string }>(
+      '/api/audit/logs',
+      {
+        method: 'DELETE',
+        body: JSON.stringify({ retention }),
+      }
+    );
+  }
+
   public async getBastionTicket(nodeId: string): Promise<string> {
     const res = await this.request<{ success: boolean; ticket: string }>('/api/bastion/ticket', {
       method: 'POST',
       body: JSON.stringify({ node_id: nodeId }),
     });
     return res.ticket;
+  }
+
+  public async sendTestAlert(): Promise<{ success: boolean; dryRun: boolean; message: string }> {
+    return this.request<{ success: boolean; dryRun: boolean; message: string }>('/api/telegram/test', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
   }
 
   public async checkHealth(): Promise<{ status: string }> {

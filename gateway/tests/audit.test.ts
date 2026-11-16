@@ -25,6 +25,7 @@ const logQueries = () => mock.query.mock.calls.filter(([sql]) => sql.includes('F
 beforeEach(async () => {
   vi.clearAllMocks();
   user.role = 'ADMIN';
+  user.is_active = true;
   mock.query.mockImplementation(async (sql: string) => ({
     rows: sql.includes('FROM users WHERE id') ? [{ ...user }] : [row], rowCount: 1,
   }));
@@ -46,8 +47,15 @@ describe('read-only audit log API', () => {
     expect(mock.query).not.toHaveBeenCalled();
   });
 
-  it('uses the current database role and rejects a Viewer even with an Admin JWT claim', async () => {
+  it('allows a Viewer with valid session to read audit logs', async () => {
     user.role = 'VIEWER';
+    const result = await getLogs();
+    expect(result.statusCode).toBe(200);
+    expect(logQueries()).toHaveLength(1);
+  });
+
+  it('rejects an inactive account with 403', async () => {
+    user.is_active = false;
     expect((await getLogs()).statusCode).toBe(403);
     expect(logQueries()).toHaveLength(0);
   });
@@ -198,5 +206,200 @@ describe('read-only audit log API', () => {
     expect(result.json().code).toBe('AUDIT_UNAVAILABLE');
     expect(result.body).not.toContain('private-password');
     expect(result.body).not.toContain('connection-string');
+  });
+
+  describe('audit log purge preview API', () => {
+    const previewLogs = (suffix = '') =>
+      app.inject({
+        method: 'GET',
+        url: `/api/audit/logs/purge-preview${suffix}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+    it('requires authentication before preview', async () => {
+      const result = await app.inject({ method: 'GET', url: '/api/audit/logs/purge-preview?retention=7d' });
+      expect(result.statusCode).toBe(401);
+    });
+
+    it('rejects a Viewer with 403 Forbidden', async () => {
+      user.role = 'VIEWER';
+      const result = await previewLogs('?retention=7d');
+      expect(result.statusCode).toBe(403);
+    });
+
+    it.each(['?retention=invalid', '?retention=2d', '?retention=1w', '?retention=all'])(
+      'rejects invalid retention %s with 400',
+      async (suffix) => {
+        const result = await previewLogs(suffix);
+        expect(result.statusCode).toBe(400);
+        expect(result.json().code).toBe('INVALID_RETENTION');
+      }
+    );
+
+    it('returns preview counts and cutoff timestamp for 7d with records to delete', async () => {
+      const mockCutoff = new Date('2026-11-03T16:00:00Z');
+      mock.query.mockImplementation(async (sql: string) => {
+        if (sql.includes('records_to_delete')) {
+          return {
+            rows: [
+              {
+                cutoff_time: mockCutoff,
+                records_to_delete: 42,
+                records_to_keep: 58,
+                total_records: 100,
+              },
+            ],
+          };
+        }
+        return { rows: [user] };
+      });
+
+      const result = await previewLogs('?retention=7d');
+      expect(result.statusCode).toBe(200);
+      expect(result.json()).toEqual({
+        success: true,
+        retention: '7d',
+        retention_label: 'Giữ 7 ngày gần nhất',
+        cutoff_time: mockCutoff.toISOString(),
+        records_to_delete: 42,
+        records_to_keep: 58,
+        total_records: 100,
+        can_purge: true,
+      });
+
+      const previewCalls = mock.query.mock.calls.filter(([sql]) => sql.includes('records_to_delete'));
+      expect(previewCalls).toHaveLength(1);
+      expect(previewCalls[0][1]).toEqual(['7 days']);
+      // Read-only: never calls purge function or mutate table
+      expect(mock.query.mock.calls.some(([sql]) => sql.includes('purge_audit_logs'))).toBe(false);
+    });
+
+    it('returns can_purge=false when no records are older than cutoff', async () => {
+      const mockCutoff = new Date('2026-11-03T16:00:00Z');
+      mock.query.mockImplementation(async (sql: string) => {
+        if (sql.includes('records_to_delete')) {
+          return {
+            rows: [
+              {
+                cutoff_time: mockCutoff,
+                records_to_delete: 0,
+                records_to_keep: 100,
+                total_records: 100,
+              },
+            ],
+          };
+        }
+        return { rows: [user] };
+      });
+
+      const result = await previewLogs('?retention=7d');
+      expect(result.statusCode).toBe(200);
+      expect(result.json()).toMatchObject({
+        records_to_delete: 0,
+        records_to_keep: 100,
+        can_purge: false,
+      });
+    });
+
+    it('sanitizes preview database failure with 503', async () => {
+      mock.query.mockImplementation(async (sql: string) => {
+        if (sql.includes('records_to_delete')) throw new Error('database connection timeout');
+        return { rows: [user] };
+      });
+
+      const result = await previewLogs('?retention=7d');
+      expect(result.statusCode).toBe(503);
+      expect(result.json().code).toBe('AUDIT_PREVIEW_FAILED');
+      expect(result.body).not.toContain('database connection timeout');
+    });
+  });
+
+  describe('audit log purge API', () => {
+    const purgeLogs = (bodyOrQuery?: Record<string, any>) =>
+      app.inject({
+        method: 'DELETE',
+        url: '/api/audit/logs',
+        headers: { authorization: `Bearer ${token}` },
+        payload: bodyOrQuery,
+      });
+
+    it('requires authentication before purge', async () => {
+      const result = await app.inject({ method: 'DELETE', url: '/api/audit/logs', payload: { retention: '7d' } });
+      expect(result.statusCode).toBe(401);
+    });
+
+    it('rejects a Viewer with 403 Forbidden', async () => {
+      user.role = 'VIEWER';
+      const result = await purgeLogs({ retention: '7d' });
+      expect(result.statusCode).toBe(403);
+    });
+
+    it.each(['', 'invalid', '2d', '1w', 'all', '90d', null])(
+      'rejects invalid retention %s with 400',
+      async (retention) => {
+        const result = await purgeLogs({ retention });
+        expect(result.statusCode).toBe(400);
+        expect(result.json().code).toBe('INVALID_RETENTION');
+      }
+    );
+
+    it.each([
+      ['1d', '1 day', 'Giữ 1 ngày gần nhất'],
+      ['7d', '7 days', 'Giữ 7 ngày gần nhất'],
+      ['30d', '30 days', 'Giữ 30 ngày gần nhất'],
+    ])('allows Admin to purge logs with retention %s', async (retention, expectedInterval, label) => {
+      mock.query.mockImplementation(async (sql: string) => {
+        if (sql.includes('purge_audit_logs')) {
+          return { rows: [{ deleted_count: 15 }] };
+        }
+        return { rows: [user] };
+      });
+
+      const result = await purgeLogs({ retention });
+      expect(result.statusCode).toBe(200);
+      expect(result.json()).toMatchObject({
+        success: true,
+        deleted_count: 15,
+        retention,
+        retention_label: label,
+        message: expect.stringContaining(`15 bản ghi nhật ký (${label})`),
+      });
+
+      const purgeCalls = mock.query.mock.calls.filter(([sql]) => sql.includes('purge_audit_logs'));
+      expect(purgeCalls).toHaveLength(1);
+      expect(purgeCalls[0][1][0]).toBe(expectedInterval);
+      expect(purgeCalls[0][1][1]).toBe(user.id);
+    });
+
+    it('reports informative message when 0 records were purged without presenting as error', async () => {
+      mock.query.mockImplementation(async (sql: string) => {
+        if (sql.includes('purge_audit_logs')) {
+          return { rows: [{ deleted_count: 0 }] };
+        }
+        return { rows: [user] };
+      });
+
+      const result = await purgeLogs({ retention: '7d' });
+      expect(result.statusCode).toBe(200);
+      expect(result.json()).toEqual({
+        success: true,
+        deleted_count: 0,
+        retention: '7d',
+        retention_label: 'Giữ 7 ngày gần nhất',
+        message: 'Không có bản ghi nhật ký nào cũ hơn mốc Giữ 7 ngày gần nhất để dọn dẹp.',
+      });
+    });
+
+    it('sanitizes purge database failure with 503', async () => {
+      mock.query.mockImplementation(async (sql: string) => {
+        if (sql.includes('purge_audit_logs')) throw new Error('database connection timeout');
+        return { rows: [user] };
+      });
+
+      const result = await purgeLogs({ retention: '7d' });
+      expect(result.statusCode).toBe(503);
+      expect(result.json().code).toBe('AUDIT_PURGE_FAILED');
+      expect(result.body).not.toContain('database connection timeout');
+    });
   });
 });

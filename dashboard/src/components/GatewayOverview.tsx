@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Activity, AlertCircle, ArrowRight, ArrowUpRight, Check, Clock3, Cpu, Database, Globe, HardDrive, MemoryStick, Network, RefreshCw, Server, Shield, ShieldCheck } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowRight, ArrowUpRight, Bell, Check, Clock3, Cpu, Database, Globe, HardDrive, MemoryStick, Network, RefreshCw, Server, Shield, ShieldCheck, X } from "lucide-react";
 import { api } from "../services/api.js";
 import type { HostService, HostServiceState, HostSnapshot, UserSession } from "../types/index.js";
 import { formatBytes, formatDateTime, formatTime, formatUptime } from "../utils/format.js";
@@ -37,7 +37,31 @@ export const GatewayOverview: React.FC<Props> = ({ currentUser, onNavigateFleet,
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testAlertStatus, setTestAlertStatus] = useState<{
+    loading: boolean;
+    type?: "success" | "warning" | "danger" | "info";
+    message?: string;
+  }>({ loading: false });
   const refresh = useRef<(() => Promise<void>) | null>(null);
+
+  const handleSendTestAlert = async () => {
+    if (testAlertStatus.loading) return;
+    setTestAlertStatus({ loading: true, type: "info", message: "Đang gửi cảnh báo thử nghiệm tới Telegram..." });
+    try {
+      const res = await api.sendTestAlert();
+      setTestAlertStatus({
+        loading: false,
+        type: res.dryRun ? "warning" : "success",
+        message: res.message,
+      });
+    } catch (err: any) {
+      setTestAlertStatus({
+        loading: false,
+        type: "danger",
+        message: err.message || "Không thể gửi cảnh báo thử nghiệm tới Telegram.",
+      });
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -81,11 +105,48 @@ export const GatewayOverview: React.FC<Props> = ({ currentUser, onNavigateFleet,
     <div className="overview workspace-page gateway-overview host-overview" id="gateway-overview" data-stale={stale}>
       <div className="page-heading">
         <h1>Tổng quan</h1>
-        <button className="button secondary" aria-label="Làm mới" title="Làm mới thông số Gateway"
-          onClick={() => void refresh.current?.()} disabled={busy}>
-          <RefreshCw size={18} className={busy ? "animate-spin" : ""} /><span>Làm mới</span>
-        </button>
+        <div className="page-heading-actions">
+          <button
+            className="button secondary test-alert-btn"
+            aria-label="Gửi cảnh báo thử"
+            title="Gửi tin nhắn cảnh báo thử nghiệm tới kênh Telegram On-Call"
+            onClick={handleSendTestAlert}
+            disabled={testAlertStatus.loading}
+          >
+            <Bell size={17} className={testAlertStatus.loading ? "animate-spin" : ""} />
+            <span>{testAlertStatus.loading ? "Đang gửi..." : "Gửi cảnh báo thử"}</span>
+          </button>
+          <button className="button secondary" aria-label="Làm mới" title="Làm mới thông số Gateway"
+            onClick={() => void refresh.current?.()} disabled={busy}>
+            <RefreshCw size={18} className={busy ? "animate-spin" : ""} /><span>Làm mới</span>
+          </button>
+        </div>
       </div>
+      {testAlertStatus.message && (
+        <div
+          className={`notice ${testAlertStatus.type || "info"}`}
+          role="status"
+          style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {testAlertStatus.type === "success" && <Check size={18} />}
+            {testAlertStatus.type === "warning" && <AlertTriangle size={18} />}
+            {testAlertStatus.type === "danger" && <AlertCircle size={18} />}
+            {testAlertStatus.type === "info" && <RefreshCw size={18} className="animate-spin" />}
+            <span>{testAlertStatus.message}</span>
+          </div>
+          {!testAlertStatus.loading && (
+            <button
+              onClick={() => setTestAlertStatus({ loading: false })}
+              style={{ background: "transparent", border: "none", cursor: "pointer", color: "inherit", padding: "2px" }}
+              aria-label="Đóng thông báo"
+              title="Đóng thông báo"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+      )}
       {error && <div className="notice warning" role="alert"><AlertCircle size={18} />{error}{snapshot && " Đang hiển thị dữ liệu cũ."}</div>}
       {loading && !snapshot ? (
         <div className="gateway-loading" aria-busy="true" aria-label="Đang tải thông số Gateway">
@@ -160,7 +221,7 @@ export const GatewayOverview: React.FC<Props> = ({ currentUser, onNavigateFleet,
                 <ol>{[...selected.observations].reverse().map((point, i) => <li key={`${point.at}-${i}`}><time dateTime={point.at}>{formatDateTime(point.at)}</time><span data-state={point.state}><i className="gateway-status-dot" data-state={point.state} />{states[point.state]}</span></li>)}</ol>
               </details>
               {selected.id === "wireguard_gateway" && <button className="button secondary gateway-context-action" onClick={onNavigateFleet}>Xem máy chủ<ArrowUpRight size={17} /></button>}
-              {selected.id === "gateway" && currentUser.role === "ADMIN" && <button className="button secondary gateway-context-action" onClick={() => onNavigateAudit("LOGIN_FAILED")}>Nhật ký đăng nhập thất bại<ArrowUpRight size={17} /></button>}
+              {selected.id === "gateway" && <button className="button secondary gateway-context-action" onClick={() => onNavigateAudit("LOGIN_FAILED")}>Nhật ký đăng nhập thất bại<ArrowUpRight size={17} /></button>}
             </div>}
           </section>
         </div>

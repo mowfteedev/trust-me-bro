@@ -126,17 +126,15 @@ export const ConsoleLayout: React.FC<ConsoleLayoutProps> = ({
             <span>Máy chủ</span>
             <ChevronRight size={14} />
           </button>
-          {currentUser.role === "ADMIN" && (
-            <button
-              className={`nav-item ${activeTab === "audit" ? "active" : ""}`}
-              aria-current={activeTab === "audit" ? "page" : undefined}
-              onClick={() => selectTab("audit")}
-            >
-              <ClipboardList size={18} />
-              <span>Nhật ký hoạt động</span>
-              <ChevronRight size={14} />
-            </button>
-          )}
+          <button
+            className={`nav-item ${activeTab === "audit" ? "active" : ""}`}
+            aria-current={activeTab === "audit" ? "page" : undefined}
+            onClick={() => selectTab("audit")}
+          >
+            <ClipboardList size={18} />
+            <span>Nhật ký hoạt động</span>
+            <ChevronRight size={14} />
+          </button>
         </nav>
       </aside>
       <div className="console-workspace">

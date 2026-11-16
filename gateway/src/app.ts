@@ -11,6 +11,7 @@ import { telemetryRoutes } from './routes/telemetry.js';
 import { bastionRoutes } from './routes/bastion.js';
 import { auditRoutes } from './routes/audit.js';
 import { hostRoutes } from './routes/host.js';
+import { telegramRoutes } from './routes/telegram.js';
 
 export async function buildServer(): Promise<FastifyInstance> {
   const fastify = Fastify({
@@ -107,6 +108,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(bastionRoutes); // Hỗ trợ cả đường dẫn trực tiếp /ws/terminal/:node_id
   await fastify.register(auditRoutes, { prefix: '/api/audit' });
   await fastify.register(hostRoutes, { prefix: '/api' });
+  await fastify.register(telegramRoutes, { prefix: '/api/telegram' });
 
   return fastify;
 }

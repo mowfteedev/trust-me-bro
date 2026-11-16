@@ -203,6 +203,38 @@ paths:
           schema: {type: string}
       responses:
         '101': {description: Upgrade; xác thực ứng dụng tiếp tục bằng AUTH frame}
+  /api/audit/logs/purge-preview:
+    get:
+      summary: Xem trước số lượng bản ghi nhật ký dự kiến dọn dẹp, chỉ ADMIN
+      description: |
+        Tính toán số lượng bản ghi cũ hơn mốc thời gian chỉ định (1d, 7d, 30d) và số bản ghi giữ lại.
+        Chỉ đọc dữ liệu, không thực hiện xóa. Chỉ ADMIN có quyền xem.
+      security: [{BearerAuth: []}]
+      parameters:
+        - name: retention
+          in: query
+          schema: {type: string, enum: ['1d', '7d', '30d'], default: '7d'}
+      responses:
+        '200':
+          description: Dữ liệu xem trước dọn dẹp
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, retention, retention_label, cutoff_time, records_to_delete, records_to_keep, total_records, can_purge]
+                properties:
+                  success: {type: boolean}
+                  retention: {type: string, enum: ['1d', '7d', '30d']}
+                  retention_label: {type: string}
+                  cutoff_time: {type: string}
+                  records_to_delete: {type: integer}
+                  records_to_keep: {type: integer}
+                  total_records: {type: integer}
+                  can_purge: {type: boolean}
+        '400': {description: Mốc thời gian retention không hợp lệ}
+        '401': {description: Chưa xác thực}
+        '403': {description: Chỉ ADMIN được xem trước dọn nhật ký}
+        '503': {description: Lỗi DB hoặc dịch vụ không khả dụng}
   /api/audit/logs:
     get:
       summary: Nhật ký hoạt động chỉ đọc, chỉ ADMIN
@@ -222,7 +254,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, BASTION_TICKET_ISSUED, BASTION_SESSION_START, BASTION_SESSION_END, CPU_HIGH, NODE_OFFLINE]
+            enum: [LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, BASTION_TICKET_ISSUED, BASTION_SESSION_START, BASTION_SESSION_END, CPU_HIGH, NODE_OFFLINE, TELEGRAM_TEST, AUDIT_PURGED]
       responses:
         '200':
           description: Trang nhật ký, has_more cho biết còn trang tiếp
@@ -233,6 +265,34 @@ paths:
         '401': {description: Chưa xác thực hoặc phiên đã hết hiệu lực}
         '403': {description: Chỉ ADMIN được xem nhật ký}
         '503': {description: Không thể đọc DB hoặc xác thực phiên}
+    delete:
+      summary: Dọn dẹp nhật ký hoạt động cũ, chỉ ADMIN
+      description: |
+        Xóa các bản ghi audit_logs cũ hơn mốc thời gian chỉ định (1d, 7d, 30d).
+        Chỉ ADMIN có quyền thực thi. Ghi lại sự kiện AUDIT_PURGED sau khi dọn dẹp.
+      security: [{BearerAuth: []}]
+      parameters:
+        - name: retention
+          in: query
+          required: true
+          schema: {type: string, enum: ['1d', '7d', '30d']}
+      responses:
+        '200':
+          description: Đã xóa thành công và trả về số lượng bản ghi đã xóa
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, deleted_count, retention, message]
+                properties:
+                  success: {type: boolean}
+                  deleted_count: {type: integer}
+                  retention: {type: string, enum: ['1d', '7d', '30d']}
+                  message: {type: string}
+        '400': {description: Mốc thời gian retention không hợp lệ}
+        '401': {description: Chưa xác thực}
+        '403': {description: Chỉ ADMIN được xóa nhật ký}
+        '503': {description: Lỗi DB hoặc dịch vụ không khả dụng}
 components:
   securitySchemes:
     BearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}

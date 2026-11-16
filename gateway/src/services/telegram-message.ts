@@ -51,3 +51,14 @@ export function formatTelegramRecovery(nodeName: string, ipAddress: string, down
     `Thời điểm phục hồi: ${vietnamTime.format(recoveredAt)} (UTC+7)`,
   ].join('\n');
 }
+
+export function formatTelegramTest(username: string, role: string, now = new Date()): string {
+  const roleDisplay = role === 'ADMIN' ? 'Quản trị viên (ADMIN)' : 'Người quan sát (VIEWER)';
+  return [
+    '🚨 [THỬ NGHIỆM] ZT-ServerOps | Cảnh báo thử nghiệm',
+    'Mức độ: Kiểm tra hệ thống (Test)',
+    `Người thực hiện: ${username} (${roleDisplay})`,
+    `Thời điểm gửi: ${vietnamTime.format(now)} (UTC+7)`,
+    'Ghi chú: Đây là tin nhắn thử nghiệm đường truyền cảnh báo On-Call. Các máy chủ và dịch vụ đang vận hành bình thường, không có sự cố.',
+  ].join('\n');
+}

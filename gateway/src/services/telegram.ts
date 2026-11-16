@@ -1,7 +1,7 @@
 import { config } from '../config/env.js';
 import { generateNumericOtp } from '../utils/crypto.js';
 import { query } from './db.js';
-import { formatTelegramAlert, formatTelegramRecovery } from './telegram-message.js';
+import { formatTelegramAlert, formatTelegramRecovery, formatTelegramTest } from './telegram-message.js';
 
 /**
  * ==============================================================================
@@ -124,6 +124,45 @@ export class TelegramService {
 
   public async sendRecovery(nodeName: string, ipAddress: string, downtimeSeconds: number | null, recoveredAt: Date): Promise<boolean> {
     return this.deliver(nodeName, 'INFO', formatTelegramRecovery(nodeName, ipAddress, downtimeSeconds, recoveredAt));
+  }
+
+  /**
+   * Gửi cảnh báo thử nghiệm tới kênh quản trị viên đã ghép nối
+   */
+  public async sendTestAlert(username: string, role: string): Promise<{ success: boolean; dryRun: boolean; reason?: string }> {
+    if (this.stopped || this.mode === 'disabled') {
+      return { success: false, dryRun: false, reason: 'Dịch vụ cảnh báo Telegram đang bị vô hiệu hóa trên hệ thống.' };
+    }
+
+    const text = formatTelegramTest(username, role);
+
+    if (this.mode === 'dry-run') {
+      console.log('[TELEGRAM TEST / DRY-RUN — GIẢ LẬP]', text);
+      return {
+        success: true,
+        dryRun: true,
+        reason: 'Hệ thống đang ở chế độ giả lập (dry-run). Cảnh báo thử nghiệm đã được mô phỏng thành công, chưa gửi ra ngoài Telegram.',
+      };
+    }
+
+    if (!this.botToken || !this.pairedChatId) {
+      console.warn('[TELEGRAM TEST] Chưa cấu hình botToken hoặc chưa ghép nối pairedChatId.');
+      return {
+        success: false,
+        dryRun: false,
+        reason: 'Kênh Telegram chưa được ghép nối với quản trị viên. Vui lòng gửi lệnh /pair <MÃ_OTP> tới bot trước khi gửi cảnh báo.',
+      };
+    }
+
+    const delivered = await this.deliver('ZT-Gateway', 'INFO', text);
+    if (delivered) {
+      return { success: true, dryRun: false };
+    }
+    return {
+      success: false,
+      dryRun: false,
+      reason: 'Không thể kết nối hoặc gửi tin nhắn tới máy chủ Telegram API sau 3 lần thử.',
+    };
   }
 
   private async deliver(nodeName: string, severity: 'INFO' | 'WARNING' | 'CRITICAL', text: string): Promise<boolean> {
