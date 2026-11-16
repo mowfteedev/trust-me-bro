@@ -76,3 +76,7 @@ VM Windows/Linux, reboot, firewall từ Internet, Telegram thật và đăng nh�
 013 và provisioner bằng image mới, rồi tạo lại Gateway cùng helper WireGuard.
 Không chạy image cũ với schema chưa đối chiếu. Không xóa volume, đổi danh tính
 Worker hoặc triển khai EC2 chỉ vì checkout nhánh này.
+
+Bản chức năng đã push: `3a126a3`; commit `551e797` lưu nguyên các thay đổi
+đã có trước đợt này. Manifest riêng tư ghi SHA source và image; không đưa
+image archive, backup hoặc credentials vào Git.

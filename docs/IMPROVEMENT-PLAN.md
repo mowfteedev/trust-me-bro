@@ -8,7 +8,7 @@ Cloudflare. Bàn giao bằng nhánh Git để kiểm tra, không tự triển kh
 
 - [x] P0. Đọc quy tắc, khảo sát source, lưu bản thay đổi hiện có riêng tư;
   tạo nhánh `improve/system-renovation-20261116`, giữ nguyên công việc cũ.
-- [ ] P1. Chuẩn hóa bản bàn giao: rà soát thay đổi cũ; thêm manifest xác định
+- [x] P1. Chuẩn hóa bản bàn giao: rà soát thay đổi cũ; thêm manifest xác định
   commit, trạng thái source, migration và image; giữ README ngắn.
 - [x] P2. Bảo mật: bỏ OTP/chat ID khỏi log thường, che lỗi DB, kiểm tra nguồn
   IP và quyền truy cập; không thay cấu hình Cloudflare đang dùng.
@@ -27,7 +27,7 @@ Cloudflare. Bàn giao bằng nhánh Git để kiểm tra, không tự triển kh
   theo người dùng/IP; đo tài nguyên trên lab, không benchmark production.
 - [x] P9. Trang sự cố: mở/đã phục hồi, thời gian, kết quả gửi; liên kết máy
   và audit; có Loading/Empty/Error, phân trang, Admin/Viewer chỉ xem.
-- [ ] P10. Rà soát tích hợp: build, hồi quy phù hợp, browser desktop/mobile;
+- [x] P10. Rà soát tích hợp: build, hồi quy phù hợp, browser desktop/mobile;
   cập nhật bằng chứng và hạn chế; rà bí mật/diff, commit và push nhánh.
 
 ## Thứ tự và vùng thay đổi
@@ -49,4 +49,5 @@ Mỗi mục hoàn tất phải ghi lệnh kiểm và kết quả vào hồ sơ b
 - Kiểm hiện tại: acceptance runner với runtime labs PASS; PG tài khoản
   10/10, PG delivery 10/10; full-stack 17/17; Firefox 11 ca; các ca VM,
   reboot/Internet, Telegram thật và app-login sau restore chưa kiểm chứng.
-  Chi tiết trong RENOVATION-RESULTS.md. P1/P10 chờ chốt Git/push.
+  Chi tiết trong RENOVATION-RESULTS.md. P1/P10 đã chốt source, manifest sạch và push commit chức năng 3a126a3;
+  CI GitHub kiểm riêng đúng commit.
