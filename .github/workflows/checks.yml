@@ -1,0 +1,66 @@
+name: Local checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -B -m unittest discover -s tests -p 'test_*.py'
+      - run: python3 -B -m unittest discover -s deploy/native/tests -p 'test_*.py'
+  node:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [gateway, dashboard]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: '${{ matrix.component }}/package-lock.json'
+      - run: npm ci
+        working-directory: '${{ matrix.component }}'
+      - run: npm test
+        working-directory: '${{ matrix.component }}'
+      - run: npm run build
+        working-directory: '${{ matrix.component }}'
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+      - run: go test ./...
+        working-directory: agent
+      - run: go build ./...
+        working-directory: agent
+        env:
+          GOOS: windows
+          GOARCH: amd64
+  runtime-db:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm --prefix gateway ci
+      - run: npm --prefix gateway run build
+      - run: node tests/runtime-accounts.cjs
+      - run: python3 tests/runtime-recovery.py --output /tmp/zt-recovery-ci
+      - run: python3 tests/runtime-alerts-lab.py --output /tmp/zt-alerts-ci

@@ -3,6 +3,8 @@ import { Moon, Sun } from "lucide-react";
 import { GatewayOverview } from "./components/GatewayOverview.js";
 import { ClusterOverview } from "./components/ClusterOverview.js";
 import { AuditLog } from "./components/AuditLog.js";
+import { AccountsPage } from "./components/AccountsPage.js";
+import { IncidentsPage } from "./components/IncidentsPage.js";
 import { TerminalModal } from "./components/TerminalModal.js";
 import { useSession } from "./hooks/useSession.js";
 import { ConsoleLayout, ConsoleTab } from "./layouts/ConsoleLayout.js";
@@ -95,7 +97,9 @@ export const App: React.FC = () => {
         )
       }
     >
-      {activeTab === "audit" ? (
+      {activeTab === "accounts" ? <AccountsPage currentUser={session.currentUser} />
+      : activeTab === "incidents" ? <IncidentsPage onOpenNode={openFleet} onOpenAudit={name => openAudit('', name)} />
+      : activeTab === "audit" ? (
         <AuditLog
           key={auditContext.revision}
           initialFilters={auditContext}

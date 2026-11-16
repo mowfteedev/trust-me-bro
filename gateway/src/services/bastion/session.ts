@@ -167,7 +167,7 @@ export async function attachBastionSession(
     return;
   }
 
-  const { userId, sessionVersion, authExpiresAt } = authResult.ticketData;
+  const { userId, sessionVersion, authExpiresAt, authSessionId } = authResult.ticketData;
   currentUserId = userId;
 
   const userOpenSessions = Array.from(activeSessions.values()).filter(s => s.userId === userId).length;
@@ -188,6 +188,7 @@ export async function attachBastionSession(
     sessionId,
     userId,
     sessionVersion,
+    authSessionId,
     nodeId: nodeIdentifier,
     nodeName: nodeIdentifier,
     state: 'INIT',
@@ -218,6 +219,14 @@ export async function attachBastionSession(
     }
 
     dbUser = userRes.rows[0];
+
+    if (authSessionId) {
+      const revoked = await query('SELECT jti FROM revoked_auth_sessions WHERE jti = $1 AND expires_at > now();', [authSessionId]);
+      if (revoked.rows.length > 0) {
+        runCleanup(4401, 'Session Revoked', 'Phiên đăng nhập của vé đã bị thu hồi');
+        return;
+      }
+    }
 
     if (dbUser.role !== 'ADMIN') {
       runCleanup(4403, 'Forbidden Role', 'Tài khoản không đủ quyền hạn quản trị để mở Web SSH');

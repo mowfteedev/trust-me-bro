@@ -7,6 +7,7 @@ export const AUDIT_ACTIONS = [
   'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT_SUCCESS', 'BASTION_TICKET_ISSUED',
   'BASTION_SESSION_START', 'BASTION_SESSION_END', 'CPU_HIGH', 'NODE_OFFLINE',
   'TELEGRAM_TEST', 'AUDIT_PURGED',
+  'CPU_RECOVERED', 'USER_CREATED', 'USER_UPDATED', 'USER_PASSWORD_RESET', 'PASSWORD_CHANGED',
 ] as const;
 
 const PAGE_SIZE = 25;
@@ -32,6 +33,9 @@ export interface AuditLogDetails {
   deleted_count?: number;
   cutoff_time?: string;
   retention?: string;
+  username?: string;
+  is_active?: boolean;
+  scope?: 'current' | 'all';
 }
 
 export interface AuditLogItem {
@@ -63,6 +67,11 @@ function safeDetails(raw: unknown, action: string): AuditLogDetails {
   if (action === 'LOGIN_FAILED' && typeof values.attempted_username === 'string') {
     result.attempted_username = values.attempted_username.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 50);
   }
+  if (['USER_CREATED', 'USER_UPDATED', 'USER_PASSWORD_RESET', 'PASSWORD_CHANGED'].includes(action)) {
+    if (typeof values.username === 'string') result.username = values.username.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 50);
+    if (typeof values.is_active === 'boolean') result.is_active = values.is_active;
+  }
+  if (action === 'LOGOUT_SUCCESS' && (values.scope === 'current' || values.scope === 'all')) result.scope = values.scope;
   for (const key of ['cpu_percent', 'threshold'] as const) {
     const value = values[key];
     if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100) {
@@ -120,6 +129,8 @@ export const auditRoutes: FastifyPluginAsync = async (fastify) => {
       const placeholder = `$${params.length}`;
       filters.push(`(u.username ILIKE ${placeholder} ESCAPE '!'
         OR (a.action = 'LOGIN_FAILED' AND a.details->>'attempted_username' ILIKE ${placeholder} ESCAPE '!')
+        OR (a.action IN ('USER_CREATED','USER_UPDATED','USER_PASSWORD_RESET','PASSWORD_CHANGED')
+          AND a.details->>'username' ILIKE ${placeholder} ESCAPE '!')
         OR n.name ILIKE ${placeholder} ESCAPE '!'
         OR host(a.ip_address) ILIKE ${placeholder} ESCAPE '!'
         OR host(n.ip_address) ILIKE ${placeholder} ESCAPE '!'
@@ -140,6 +151,8 @@ export const auditRoutes: FastifyPluginAsync = async (fastify) => {
             'attempted_username', a.details->'attempted_username',
             'dry_run', a.details->'dry_run', 'result', a.details->'result',
             'role', a.details->'role',
+            'username', a.details->'username', 'is_active', a.details->'is_active',
+            'scope', a.details->'scope',
             'deleted_count', a.details->'deleted_count',
             'cutoff_time', a.details->'cutoff_time',
             'retention', a.details->'retention'

@@ -6,6 +6,7 @@ export interface ActiveSession {
   sessionId: string;
   userId: string;
   sessionVersion: number;
+  authSessionId?: string;
   nodeId: string;
   nodeName: string;
   state: 'INIT' | 'PROBING' | 'CONNECTING' | 'READY' | 'CLOSING' | 'CLOSED';
@@ -54,6 +55,12 @@ async function checkSessions(): Promise<void> {
       'SELECT id, is_active, role, session_version FROM users WHERE id = ANY($1);',
       [userIds]
     );
+    const authSessionIds = Array.from(new Set(Array.from(sessionSnapshot.values())
+      .map(session => session.authSessionId).filter((id): id is string => Boolean(id))));
+    const revoked = authSessionIds.length ? await query(
+      'SELECT jti FROM revoked_auth_sessions WHERE jti = ANY($1::uuid[]) AND expires_at > now();', [authSessionIds],
+    ) : { rows: [] };
+    const revokedIds = new Set(revoked.rows.map((row: any) => row.jti));
 
     // A stopped/restarted owner must not apply a response from the previous run.
     if (generation !== maintenanceGeneration) return;
@@ -74,7 +81,8 @@ async function checkSessions(): Promise<void> {
       aliveSessionIds.push(sessionId);
       const user = userMap.get(session.userId);
 
-      if (!user || !user.is_active || user.role !== 'ADMIN' || Number(user.session_version) !== Number(session.sessionVersion)) {
+      if (!user || !user.is_active || user.role !== 'ADMIN' || Number(user.session_version) !== Number(session.sessionVersion)
+        || (session.authSessionId && revokedIds.has(session.authSessionId))) {
         console.warn(`🔒 [BASTION REVOCATION] Thu hồi phiên ${sessionId} của user ${session.userId} do vi phạm trạng thái tài khoản CSDL`);
         session.cleanupFn(4403, 'Session Revoked', 'Phiên làm việc đã bị quản trị viên thu hồi hoặc bạn đã đăng xuất');
       }
@@ -135,6 +143,14 @@ export function revokeUserSessions(userId: string, currentVersion: number): void
   for (const session of activeSessions.values()) {
     if (session.userId === userId && session.sessionVersion < currentVersion && session.state !== 'CLOSED') {
       session.cleanupFn(4403, 'Session Revoked', 'Bạn đã đăng xuất; phiên Web SSH đã bị thu hồi');
+    }
+  }
+}
+
+export function revokeAuthSessionSessions(authSessionId: string): void {
+  for (const session of activeSessions.values()) {
+    if (session.authSessionId === authSessionId && session.state !== 'CLOSED') {
+      session.cleanupFn(4403, 'Session Revoked', 'Phiên đăng nhập này đã đăng xuất');
     }
   }
 }

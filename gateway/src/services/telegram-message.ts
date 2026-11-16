@@ -59,6 +59,14 @@ export function formatTelegramTest(username: string, role: string, now = new Dat
     'Mức độ: Kiểm tra hệ thống (Test)',
     `Người thực hiện: ${username} (${roleDisplay})`,
     `Thời điểm gửi: ${vietnamTime.format(now)} (UTC+7)`,
-    'Ghi chú: Đây là tin nhắn thử nghiệm đường truyền cảnh báo On-Call. Các máy chủ và dịch vụ đang vận hành bình thường, không có sự cố.',
+    'Ghi chú: Đây là tin nhắn thử đường truyền cảnh báo. Trạng thái sự cố thực tế được xem trên Dashboard.',
+  ].join('\n');
+}
+
+export function formatTelegramCpuRecovery(nodeName: string, cpuPercent: number, threshold: number, recoveredAt: Date): string {
+  return [
+    'ZT-ServerOps | CPU trở lại bình thường', 'Mức độ: Thông tin', `Máy chủ: ${nodeName}`,
+    `CPU ghi nhận: ${cpuPercent}%`, `Ngưỡng phục hồi: < ${threshold}%`,
+    `Thời điểm phục hồi: ${vietnamTime.format(recoveredAt)} (UTC+7)`,
   ].join('\n');
 }

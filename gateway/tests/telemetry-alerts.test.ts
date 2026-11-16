@@ -101,172 +101,112 @@ describe('cross-platform telemetry validation (mock DB)', () => {
     });
 });
 
-describe('CPU alert lifecycle (mock DB)', () => {
-  it('keeps the incident across the hysteresis band and reopens only after recovery', async () => {
-    let active = false;
-    mock.tx.mockImplementation(async (sql: string) => {
-      if (sql.startsWith('SELECT id FROM alerts')) return { rows: active ? [{ id: 'incident' }] : [], rowCount: active ? 1 : 0 };
-      if (sql.includes('INSERT INTO alerts')) active = true;
-      if (sql.includes('UPDATE alerts') && sql.includes("message LIKE 'CPU_HIGH:%'")) active = false;
-      return { rows: [], rowCount: 1 };
-    });
-    for (const cpu of [85, 84.8, 85.1, 75]) {
-      expect((await beacon(cpu)).statusCode).toBe(200);
-      expect(active).toBe(true);
-      expect(mock.sendAlert).toHaveBeenCalledTimes(1);
+const intents = () => mock.tx.mock.calls.filter(([sql]) => sql.includes('INSERT INTO alert_notifications'));
+function incidentDatabase() {
+  let cpuOpen = false;
+  let offlineOpen = false;
+  mock.tx.mockImplementation(async (sql: string) => {
+    if (sql.includes('FOR UPDATE')) return { rows: [{ id: node.id, heartbeat_gap_seconds: '57.4' }], rowCount: 1 };
+    if (sql.startsWith('SELECT id FROM alerts')) return { rows: cpuOpen ? [{ id: 'cpu-incident' }] : [], rowCount: 1 };
+    if (sql.includes('INSERT INTO alerts')) {
+      cpuOpen = true;
+      return { rows: [{ id: 'cpu-incident' }], rowCount: 1 };
     }
+    if (sql.includes('UPDATE alerts') && sql.includes("message LIKE 'CPU_HIGH:%'")) {
+      const rows = cpuOpen ? [{ id: 'cpu-incident', resolved_at: new Date('2026-11-16T12:00:00Z') }] : [];
+      cpuOpen = false; return { rows, rowCount: rows.length };
+    }
+    if (sql.includes('UPDATE alerts') && sql.includes("message LIKE 'NODE_OFFLINE:%'")) {
+      const rows = offlineOpen ? [{ id: 'offline-incident', resolved_at: new Date('2026-11-16T12:00:00Z') }] : [];
+      offlineOpen = false; return { rows, rowCount: rows.length };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+  return { offline: () => { offlineOpen = true; } };
+}
+
+describe('durable CPU/offline incident lifecycle (mock DB)', () => {
+  it('queues one opening and recovery through hysteresis, then permits a new incident', async () => {
+    incidentDatabase();
+    for (const cpu of [85, 84.8, 85.1, 75]) expect((await beacon(cpu)).statusCode).toBe(200);
+    expect(intents()).toHaveLength(1);
+    expect(intents()[0][1]).toEqual(['cpu-incident', 'OPEN', expect.stringContaining('CPU cao')]);
     expect((await beacon(74.9)).statusCode).toBe(200);
-    expect(active).toBe(false);
-    expect((await beacon(84.9)).statusCode).toBe(200);
-    expect(active).toBe(false);
-    expect(mock.sendAlert).toHaveBeenCalledTimes(1);
+    expect((await beacon(74)).statusCode).toBe(200);
+    expect(intents()).toHaveLength(2);
+    expect(intents()[1][1]).toEqual(['cpu-incident', 'RECOVERY', expect.stringContaining('CPU trở lại bình thường')]);
+    expect(mock.tx.mock.calls.filter(([sql]) => sql.includes("'CPU_RECOVERED'"))).toHaveLength(1);
     expect((await beacon(85)).statusCode).toBe(200);
-    expect(active).toBe(true);
-    expect(mock.sendAlert).toHaveBeenCalledTimes(2);
-    expect(mock.tx.mock.calls.filter(([sql]) => sql.includes("'CPU_HIGH'"))).toHaveLength(2);
-  });
-  it('records a CPU threshold alert and audit, then sends only after commit', async () => {
-    mock.sendAlert.mockImplementation(async () => {
-      expect(mock.tx.mock.calls.at(-1)?.[0]).toBe('COMMIT');
-      return true;
-    });
-    expect((await beacon(90)).statusCode).toBe(200);
-    expect(mock.tx.mock.calls.some(([sql]) => sql.includes("'CPU_HIGH'"))).toBe(true);
-    expect(mock.sendAlert).toHaveBeenCalledWith(node.name, 'WARNING', expect.stringContaining('CPU_HIGH:'));
-  });
-  it('does not repeat a CPU alert while that incident is unresolved', async () => {
-    mock.tx.mockImplementation(async (sql: string) => ({
-      rows: sql.startsWith('SELECT id FROM alerts') ? [{ id: 'existing-incident' }] : [], rowCount: 1,
-    }));
-    expect((await beacon(99)).statusCode).toBe(200);
+    expect(intents()).toHaveLength(3);
     expect(mock.sendAlert).not.toHaveBeenCalled();
   });
-  it('resolves CPU and offline incidents on a low fresh beacon', async () => {
-    expect((await beacon(20)).statusCode).toBe(200);
-    const sql = mock.tx.mock.calls.map(([query]) => query).join('\n');
-    expect(sql).toContain("message LIKE 'CPU_HIGH:%'");
-    expect(sql).toContain("message LIKE 'NODE_OFFLINE:%'");
-    expect(sql).toContain("SET status = 'HEALTHY'");
-    expect(mock.sendAlert).not.toHaveBeenCalled();
+  it('persists intent before commit without making an external transport request', async () => {
+    incidentDatabase();
+    const transport = vi.fn(); vi.stubGlobal('fetch', transport);
+    expect((await beacon(95)).statusCode).toBe(200);
+    const statements = mock.tx.mock.calls.map(([sql]) => sql);
+    expect(statements.findIndex(sql => sql.includes('INSERT INTO alert_notifications')))
+      .toBeLessThan(statements.indexOf('COMMIT'));
+    expect(transport).not.toHaveBeenCalled();
   });
-  it('rolls back CPU persistence failure and does not notify', async () => {
-    mock.tx.mockImplementation(async (sql: string) => {
-      if (sql.includes('INSERT INTO alerts')) throw new Error('private-db-error');
-      return { rows: [], rowCount: 1 };
+  it('rolls back the incident if the durable intent cannot be saved', async () => {
+    incidentDatabase();
+    const previous = mock.tx.getMockImplementation()!;
+    mock.tx.mockImplementation(async (sql, params) => {
+      if (sql.includes('INSERT INTO alert_notifications')) throw new Error('private-queue-error');
+      return previous(sql, params);
     });
-    const result = await beacon(95);
-    expect(result.statusCode).toBe(500);
-    expect(result.body).not.toContain('private-db-error');
+    const response = await beacon(95);
+    expect(response.statusCode).toBe(500);
+    expect(response.body).not.toContain('private-queue-error');
     expect(mock.tx).toHaveBeenCalledWith('ROLLBACK');
     expect(mock.sendAlert).not.toHaveBeenCalled();
   });
-});
-
-describe('offline recovery notification (mock DB and Telegram)', () => {
-  const recoveredAt = new Date('2026-11-09T13:00:28Z');
-  const incident = { id: 'b388736c-c617-4e01-b4c6-d93241cc00ad', resolved_at: recoveredAt };
-  function unresolvedIncident(gap: unknown) {
-    let open = true;
-    mock.tx.mockImplementation(async (sql: string) => {
-      if (sql.includes('FOR UPDATE')) return { rows: [{ id: node.id, heartbeat_gap_seconds: gap }], rowCount: 1 };
-      if (sql.includes('UPDATE alerts') && sql.includes("message LIKE 'NODE_OFFLINE:%'")) {
-        const rows = open ? [incident] : []; open = false;
-        return { rows, rowCount: rows.length };
-      }
-      return { rows: [], rowCount: 1 };
-    });
-  }
-
-  it('notifies after commit once for an incident, not on subsequent healthy heartbeats', async () => {
-    unresolvedIncident('57.4');
-    mock.sendRecovery.mockImplementation(async () => {
-      expect(mock.tx.mock.calls.at(-1)?.[0]).toBe('COMMIT');
-      return true;
-    });
+  it('queues offline recovery once across fresh authenticated beacons', async () => {
+    const state = incidentDatabase(); state.offline();
     for (let i = 0; i < 3; i++) expect((await beacon(20)).statusCode).toBe(200);
-    expect(mock.sendRecovery).toHaveBeenCalledExactlyOnceWith(node.name, node.ip_address, 57, recoveredAt);
-    expect(mock.sendAlert).not.toHaveBeenCalled();
-    const claim = mock.tx.mock.calls.find(([sql]) => sql.includes('UPDATE alerts') && sql.includes("message LIKE 'NODE_OFFLINE:%'"))?.[0];
-    expect(claim).toContain('resolved_at IS NULL');
-    expect(claim).toMatch(/RETURNING[\s\S]*id[\s\S]*resolved_at/i);
+    expect(intents()).toHaveLength(1);
+    expect(intents()[0][1]).toEqual(['offline-incident', 'RECOVERY', expect.stringContaining('57 giây')]);
+    expect(mock.sendRecovery).not.toHaveBeenCalled();
   });
-
-  it('dispatches only for claimed incident rows across overlapping beacons', async () => {
-    unresolvedIncident('57.4');
-    const replies = await Promise.all([beacon(20), beacon(20)]);
-    expect(replies.every(reply => reply.statusCode === 200)).toBe(true);
-    expect(mock.sendRecovery).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([
-    ['0', 0], ['58.8', 59], [null, null], [undefined, null], ['not-a-number', null], ['-5', null],
-  ])('reports heartbeat gap %s without inventing a duration', async (gap, expected) => {
-    unresolvedIncident(gap);
+  it('does not invent a recovery on a normal healthy beacon', async () => {
+    incidentDatabase();
     expect((await beacon(20)).statusCode).toBe(200);
-    expect(mock.sendRecovery).toHaveBeenCalledExactlyOnceWith(node.name, node.ip_address, expected, recoveredAt);
+    expect(intents()).toHaveLength(0);
   });
-
-  it('does not send recovery when no offline incident was closed', async () => {
-    expect((await beacon(20)).statusCode).toBe(200);
-    expect(mock.sendRecovery).not.toHaveBeenCalled();
+  it('does not queue an incident or update metrics for a token revoked under the node lock', async () => {
+    mock.tx.mockResolvedValue({ rows: [], rowCount: 0 });
+    expect((await beacon(95)).statusCode).toBe(401);
+    expect(intents()).toHaveLength(0);
+    expect(mock.tx.mock.calls.some(([sql]) => sql.includes('INSERT INTO metrics_history'))).toBe(false);
   });
-
-  it('does not send a recovery if persistence fails at commit', async () => {
-    mock.tx.mockImplementation(async (sql: string) => {
-      if (sql.includes('FOR UPDATE')) return { rows: [{ id: node.id, heartbeat_gap_seconds: '57' }], rowCount: 1 };
-      if (sql.includes('UPDATE alerts') && sql.includes("message LIKE 'NODE_OFFLINE:%'")) return { rows: [incident], rowCount: 1 };
-      if (sql === 'COMMIT') throw new Error('isolated-commit-failure');
-      return { rows: [], rowCount: 1 };
-    });
-    expect((await beacon(20)).statusCode).toBe(500);
-    expect(mock.tx).toHaveBeenCalledWith('ROLLBACK');
-    expect(mock.sendRecovery).not.toHaveBeenCalled();
-  });
-
-  it('rejects a revoked token without a recovery message or incident update', async () => {
-    mock.tx.mockImplementation(async (sql: string) => ({ rows: [], rowCount: sql.includes('FOR UPDATE') ? 0 : 1 }));
-    expect((await beacon(20)).statusCode).toBe(401);
-    expect(mock.sendRecovery).not.toHaveBeenCalled();
-    expect(mock.tx.mock.calls.some(([sql]) => sql.includes('UPDATE alerts'))).toBe(false);
-  });
-
-  it('returns the heartbeat response while Telegram delivery remains pending', async () => {
-    unresolvedIncident('57.4');
-    let complete!: (value: boolean) => void;
-    mock.sendRecovery.mockImplementation(() => new Promise<boolean>(resolve => { complete = resolve; }));
-    try {
-      expect((await beacon(20)).statusCode).toBe(200);
-      expect(mock.sendRecovery).toHaveBeenCalledTimes(1);
-    } finally { complete?.(true); }
-  }, 1500);
 });
 
-describe('Liveness (mock DB)', () => {
+describe('Liveness notification persistence (mock DB)', () => {
   beforeEach(() => {
     mock.query.mockImplementation(async (sql: string) => ({
       rows: sql.startsWith('SELECT id, name, ip_address, last_seen') ? [node] : [], rowCount: 1,
     }));
+    mock.tx.mockImplementation(async (sql: string) => ({ rows: sql.includes('INSERT INTO alerts') ? [{ id: 'offline-id' }] : [], rowCount: 1 }));
   });
-  it('marks stale at 15s, records offline event atomically and notifies once', async () => {
+  it('marks stale at 15s and commits offline incident, intent and audit together', async () => {
     const result = await runSweeperCycle();
     expect(mock.query).toHaveBeenCalledWith(expect.stringContaining("SET status = 'WARNING'"), [15, 30]);
     expect(result.offlineNodesDetected).toEqual([node.name]);
-    expect(mock.tx.mock.calls.map(([sql]) => sql)).toEqual([
-      'BEGIN', expect.stringContaining("SET status = 'OFFLINE'"),
-      expect.stringContaining('INSERT INTO alerts'), expect.stringContaining('INSERT INTO audit_logs'), 'COMMIT',
-    ]);
-    expect(mock.sendAlert).toHaveBeenCalledTimes(1);
+    expect(intents()).toHaveLength(1);
+    expect(intents()[0][1]).toEqual(['offline-id', 'OPEN', expect.stringContaining('Mất kết nối máy chủ')]);
+    expect(mock.tx.mock.calls.at(-1)?.[0]).toBe('COMMIT');
+    expect(mock.sendAlert).not.toHaveBeenCalled();
   });
-  it('does not alert or count a node which recovered between select and update', async () => {
+  it('does not alert when a node recovers before the age recheck', async () => {
     mock.tx.mockResolvedValue({ rows: [], rowCount: 0 });
     expect((await runSweeperCycle()).offlineNodesDetected).toEqual([]);
-    expect(mock.sendAlert).not.toHaveBeenCalled();
-    expect(mock.tx.mock.calls.some(([sql]) => sql.includes('INSERT INTO alerts'))).toBe(false);
+    expect(intents()).toHaveLength(0);
   });
-  it('rolls back offline status if audit persistence fails, leaving it retryable', async () => {
+  it('rolls back if audit persistence fails', async () => {
     mock.tx.mockImplementation(async (sql: string) => {
       if (sql.includes('INSERT INTO audit_logs')) throw new Error('audit failed');
-      return { rows: [], rowCount: 1 };
+      return { rows: sql.includes('INSERT INTO alerts') ? [{ id: 'offline-id' }] : [], rowCount: 1 };
     });
     expect((await runSweeperCycle()).offlineNodesDetected).toEqual([]);
     expect(mock.tx).toHaveBeenCalledWith('ROLLBACK');
@@ -431,5 +371,48 @@ describe('Telegram (mock fetch only)', () => {
     expect(await sending).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     service.stop();
+  });
+});
+
+describe('queued Telegram transport and safe logs (fake fetch)', () => {
+  it('never writes the pairing OTP or recipient identifier to normal logs', async () => {
+    mock.config.TELEGRAM_MODE = 'live';
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const service = new TelegramService();
+    const otp = service.getPairOtp();
+    await service.pairWithOtp('private-fixture-chat', otp);
+    await service.pairWithOtp('untrusted-private-fixture-chat', otp);
+    const output = [...log.mock.calls, ...warn.mock.calls].flat().join(' ');
+    expect(output).not.toContain(otp);
+    expect(output).not.toContain('private-fixture-chat');
+    service.stop(); log.mockRestore(); warn.mockRestore();
+  });
+  it('makes only one transport attempt so the database owns the retry budget', async () => {
+    mock.config.TELEGRAM_MODE = 'live';
+    const request = vi.fn().mockRejectedValue(new Error('https://api.telegram.org/botprivate-token'));
+    vi.stubGlobal('fetch', request);
+    const service = new TelegramService();
+    await service.pairWithOtp('queued-fixture-chat', service.getPairOtp());
+    expect(await service.deliverQueued('fixture')).toEqual({ status: 'RETRY', error: 'TRANSPORT_ERROR' });
+    expect(request).toHaveBeenCalledTimes(1);
+    service.stop();
+  });
+  it('classifies a permanent recipient failure without retrying', async () => {
+    mock.config.TELEGRAM_MODE = 'live';
+    const request = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({ ok: false }) });
+    vi.stubGlobal('fetch', request);
+    const service = new TelegramService();
+    await service.pairWithOtp('queued-fixture-chat', service.getPairOtp());
+    expect(await service.deliverQueued('fixture')).toEqual({ status: 'FAILED', error: 'TELEGRAM_HTTP_403' });
+    expect(request).toHaveBeenCalledTimes(1);
+    service.stop();
+  });
+  it.each(['dry-run', 'disabled'])('keeps %s distinct from actual delivery', async mode => {
+    mock.config.TELEGRAM_MODE = mode;
+    const request = vi.fn(); vi.stubGlobal('fetch', request);
+    const service = new TelegramService();
+    expect(await service.deliverQueued('fixture')).toEqual({ status: mode === 'dry-run' ? 'DRY_RUN' : 'DISABLED' });
+    expect(request).not.toHaveBeenCalled(); service.stop();
   });
 });

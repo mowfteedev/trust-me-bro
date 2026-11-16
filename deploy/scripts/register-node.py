@@ -87,6 +87,8 @@ def main():
     prepare.add_argument('--node-name', default='node-windows-01')
     prepare.add_argument('--node-ip', default='10.100.0.3')
     prepare.add_argument('--gateway-endpoint', required=True, help='Reachable host IPv4:UDP-port, e.g. 192.168.1.10:51820')
+    prepare.add_argument('--worker-os', choices=['windows', 'linux'], default='windows')
+    prepare.add_argument('--node-type', choices=['VM', 'BARE_METAL'], default='VM')
     prepare.add_argument('--bundle', type=Path, default=KEYS / 'windows-worker-01')
     register = commands.add_parser('register', help='Insert VM identity and append/apply its peer; preserves existing nodes.')
     register.add_argument('--bundle', type=Path, default=KEYS / 'windows-worker-01')
@@ -119,7 +121,7 @@ def main():
         gateway_public = key((KEYS / 'wireguard_gateway_public.key').read_text().strip())
         peer_check(gateway_config.read_text(), public, str(address))
         bundle.mkdir(mode=0o700, parents=False, exist_ok=False)
-        metadata = {'node_name': args.node_name, 'node_ip': str(address), 'node_type': 'VM',
+        metadata = {'node_name': args.node_name, 'node_ip': str(address), 'node_type': args.node_type,
                     'wireguard_public_key': public, 'gateway_endpoint': args.gateway_endpoint,
                     'tunnel_name': 'zt-worker'}
         write_private(bundle / 'metadata.json', json.dumps(metadata, indent=2) + '\n')
@@ -128,21 +130,21 @@ def main():
         write_private(bundle / 'agent-config.json', json.dumps({
             'GATEWAY_URL': 'http://10.100.0.1:3000', 'NODE_ID': args.node_name,
             'NODE_TOKEN': token, 'NETWORK_INTERFACE': 'zt-worker',
-            'DISK_MOUNT_POINT': 'C:\\', 'BEACON_INTERVAL_SECONDS': '3.0',
+            'DISK_MOUNT_POINT': 'C:\\' if args.worker_os == 'windows' else '/', 'BEACON_INTERVAL_SECONDS': '3.0',
             'MAX_BACKOFF_SECONDS': '30.0', 'HTTP_TIMEOUT_SECONDS': '3.0',
             'JITTER_RATIO': '0.0',
         }, indent=2) + '\n')
         write_private(bundle / 'zt-worker.conf', f'[Interface]\nPrivateKey = {private}\nAddress = {address}/32\n\n[Peer]\nPublicKey = {gateway_public}\nEndpoint = {args.gateway_endpoint}\nAllowedIPs = 10.100.0.1/32\nPersistentKeepalive = 25\n')
         write_private(bundle / 'bastion_id_ed25519.pub', (KEYS / 'bastion_id_ed25519.pub').read_text())
         print(f'Prepared private bundle: {bundle}. No peer/DB changes. Transfer securely to the dedicated VM.')
-        print('After Windows setup, copy its host PUBLIC key back and run register with --host-public-key.')
+        print('After Worker setup, copy its host PUBLIC key back and run register with --host-public-key.')
     else:
         if args.ssh_user is not None and not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]{0,31}', args.ssh_user):
             parser.error('SSH user must be a local account name of 1–32 characters.')
         if bundle.stat().st_mode & 0o077:
             raise ValueError('Bundle permissions must be 0700 on the Gateway.')
         metadata = json.loads((bundle / 'metadata.json').read_text())
-        if not re.fullmatch(r'[a-zA-Z0-9_-]{3,64}', metadata['node_name']) or metadata['node_type'] != 'VM':
+        if not re.fullmatch(r'[a-zA-Z0-9_-]{3,64}', metadata['node_name']) or metadata['node_type'] not in ('VM', 'BARE_METAL'):
             raise ValueError('Invalid VM identity in bundle.')
         public = key(metadata['wireguard_public_key'])
         address = str(ipaddress.ip_address(metadata['node_ip']))

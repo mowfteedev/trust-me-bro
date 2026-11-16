@@ -12,7 +12,7 @@ import { formatTelegramAlert, formatTelegramRecovery, formatTelegramTest } from 
  *
  * LÝ DO PHI TRỰC GIÁC (RATIONALE):
  * BUG-005 Phòng ngừa: Tuyệt đối không tự động lấy chatId của tin nhắn đầu tiên trên internet.
- * Hệ thống sinh một mã One-Time Pairing Code (OTP) ngẫu nhiên 6 chữ số in ra màn hình console máy chủ.
+ * Mã ghép nối chỉ đọc qua chức năng quản trị được bảo vệ; không ghi vào log thường.
  * Quản trị viên bắt buộc phải chat trực tiếp: /pair <MÃ_OTP> mới được kích hoạt quyền nhận cảnh báo.
  * Lưu trữ trạng thái ghép nối trong bảng system_settings để duy trì tính liên tục sau khi khởi động lại.
  */
@@ -35,8 +35,7 @@ export class TelegramService {
 
     if (this.mode === 'live' && this.botToken) {
       console.log('🤖 [TELEGRAM BOT] Đã kích hoạt dịch vụ thông báo On-Call.');
-      console.log(`🔐 [TELEGRAM OTP] Mã ghép nối quản trị viên (Pairing OTP): \x1b[33m${this.pairOtp}\x1b[0m`);
-      console.log(`💬 [TELEGRAM HƯỚNG DẪN] Gửi tin nhắn: /pair ${this.pairOtp} tới Bot để nhận cảnh báo.`);
+      console.log('[TELEGRAM] Ghép nối bằng mã trong cấu hình quản trị được bảo vệ.');
 
     } else {
       console.log(`[TELEGRAM] Chế độ ${this.mode}; dry-run chỉ ghi log giả lập, không gửi ra ngoài.`);
@@ -54,10 +53,10 @@ export class TelegramService {
       );
       if (res.rows.length > 0 && res.rows[0].value) {
         this.pairedChatId = res.rows[0].value;
-        console.log(`✔ [TELEGRAM BOT] Đã nạp Chat ID quản trị viên từ DB: ${this.pairedChatId}`);
+        console.log('[TELEGRAM BOT] Đã nạp kênh nhận cảnh báo.');
       }
     } catch (err: any) {
-      console.warn('⚠️ [TELEGRAM WARNING] Không thể nạp chat ID đã ghép nối từ DB:', err.message);
+      console.warn('[TELEGRAM] Không thể nạp cấu hình kênh nhận cảnh báo.');
     }
     this.startPolling();
   }
@@ -83,7 +82,7 @@ export class TelegramService {
     if (this.mode !== 'live' || this.stopped) return false;
     // Khóa chống chiếm quyền (Anti-Hijack Guard): Không cho phép ghi đè khi đã ghép nối thành công
     if (this.pairedChatId !== null && this.pairedChatId !== chatId) {
-      console.warn(`⚠️ [TELEGRAM SECURITY] Từ chối ghép nối từ Chat ID ${chatId} do bot đã có quản trị viên.`);
+      console.warn('[TELEGRAM SECURITY] Từ chối thay kênh nhận cảnh báo đã ghép.');
       return false;
     }
 
@@ -105,10 +104,10 @@ export class TelegramService {
         }
 
         this.pairedChatId = chatId;
-        console.log(`✔ [TELEGRAM BOT] Ghép nối thành công và đã lưu DB với Chat ID: ${chatId}`);
+        console.log('[TELEGRAM BOT] Đã lưu ghép nối kênh nhận cảnh báo.');
         return true;
       } catch (err: any) {
-        console.error('❌ [TELEGRAM DB] Lỗi lưu cấu hình telegram_paired_chat_id vào DB:', err.message);
+        console.error('[TELEGRAM] Không thể lưu cấu hình ghép nối.');
         return false;
       }
     }
@@ -163,6 +162,29 @@ export class TelegramService {
       dryRun: false,
       reason: 'Không thể kết nối hoặc gửi tin nhắn tới máy chủ Telegram API sau 3 lần thử.',
     };
+  }
+
+  /** A single bounded transport attempt; persistent retry budget belongs to the DB queue. */
+  public async deliverQueued(text: string): Promise<{
+    status: 'SENT' | 'DRY_RUN' | 'DISABLED' | 'RETRY' | 'FAILED'; error?: string;
+  }> {
+    if (this.stopped) return { status: 'RETRY', error: 'GATEWAY_STOPPING' };
+    if (this.mode === 'disabled') return { status: 'DISABLED' };
+    if (this.mode === 'dry-run') return { status: 'DRY_RUN' };
+    if (!this.botToken || !this.pairedChatId) return { status: 'RETRY', error: 'CHANNEL_NOT_READY' };
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: this.pairedChatId, text }),
+        signal: AbortSignal.timeout(config.TELEGRAM_REQUEST_TIMEOUT_MS),
+      });
+      const data: any = await response.json();
+      if (response.ok && data.ok === true) return { status: 'SENT' };
+      const permanent = response.status >= 400 && response.status < 500 && response.status !== 429;
+      return { status: permanent ? 'FAILED' : 'RETRY', error: `TELEGRAM_HTTP_${response.status}` };
+    } catch {
+      return { status: 'RETRY', error: 'TRANSPORT_ERROR' };
+    }
   }
 
   private async deliver(nodeName: string, severity: 'INFO' | 'WARNING' | 'CRITICAL', text: string): Promise<boolean> {
@@ -229,16 +251,16 @@ export class TelegramService {
             const text: string = msg.text.trim();
             const chatId = String(msg.chat.id);
 
-            if (text.startsWith('/pair')) {
+            if (/^\/pair(?:@[A-Za-z0-9_]+)?(?:\s|$)/.test(text)) {
               const parts = text.split(/\s+/);
               const providedOtp = parts[1] || '';
 
               if (await this.pairWithOtp(chatId, providedOtp)) {
                 await this.replyTelegram(chatId, `✔ Ghép nối thành công! Kênh này sẽ tiếp nhận cảnh báo On-Call của ZT-ServerOps.`);
               } else {
-                await this.replyTelegram(chatId, `❌ Mã OTP không chính xác. Vui lòng kiểm tra lại trên màn hình console máy chủ.`);
+                await this.replyTelegram(chatId, `❌ Mã OTP không chính xác. Vui lòng lấy mã từ quản trị viên hệ thống.`);
               }
-            } else if (text === '/status') {
+            } else if (/^\/status(?:@[A-Za-z0-9_]+)?$/.test(text)) {
               const statusMsg = this.pairedChatId === chatId
                 ? '✔ Tài khoản của bạn ĐANG KẾT NỐI nhận cảnh báo hệ thống.'
                 : '⚠️ Tài khoản của bạn CHƯA ĐƯỢC GHÉP NỐI. Sử dụng: /pair <MÃ_OTP>';

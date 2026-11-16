@@ -2,12 +2,19 @@ import { FastifyPluginAsync } from 'fastify';
 import { authenticate, authorize } from '../middlewares/auth.middleware.js';
 import { telegramService } from '../services/telegram.js';
 import { query } from '../services/db.js';
+import { config } from '../config/env.js';
 
 let isSendingTestAlert = false;
 let lastSentTestAt = 0;
 const TEST_ALERT_COOLDOWN_MS = 15000; // 15 giây cooldown chống spam
 
 export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get('/pairing', { preHandler: [authenticate, authorize(['ADMIN'])] }, async (_req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    const paired = telegramService.isPaired();
+    return { mode: config.TELEGRAM_MODE, paired,
+      otp: !paired && config.TELEGRAM_MODE === 'live' ? telegramService.getPairOtp() : null };
+  });
   fastify.post('/test', {
     preHandler: [authenticate, authorize(['ADMIN', 'VIEWER'])],
   }, async (req, reply) => {

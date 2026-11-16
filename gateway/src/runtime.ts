@@ -9,6 +9,7 @@ import { startTicketCleaner, stopTicketCleaner } from './services/bastion/ticket
 import { startSweeper, stopSweeper } from './services/sweeper.js';
 import { telegramService } from './services/telegram.js';
 import { validateBastionKey } from './services/bastion/key.js';
+import { startAlertDelivery, stopAlertDelivery } from './services/alert-delivery.js';
 
 let server: FastifyInstance | undefined;
 let startup: Promise<void> | undefined;
@@ -53,6 +54,7 @@ async function start(): Promise<void> {
   startTicketCleaner();
   startSessionMaintenance();
   startSweeper();
+  startAlertDelivery();
 
   const address = await server.listen({ port: config.GATEWAY_PORT, host: config.GATEWAY_HOST });
   console.log(`🚀 [GATEWAY ENGINE] Control Plane đang hoạt động tại: ${address}`);
@@ -78,6 +80,8 @@ async function stop(): Promise<void> {
   stopSessionMaintenance();
   shutdownAllBastionSessions();
   stopSweeper();
+  try { await stopAlertDelivery(); }
+  catch { console.warn('[SHUTDOWN] Chu kỳ gửi cảnh báo bị lỗi; tiếp tục đóng tài nguyên.'); }
   telegramService.stop();
   try {
     await server?.close();

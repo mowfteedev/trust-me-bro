@@ -50,7 +50,7 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       }
 
       const ttlSeconds = Math.min(30, remainingSeconds);
-      const ticket = createBastionTicket(node_id, user.id, user.session_version, ttlSeconds, authExpiresAt);
+      const ticket = createBastionTicket(node_id, user.id, user.session_version, ttlSeconds, authExpiresAt, user.jti);
 
       // Ghi nhận sự kiện cấp vé Bastion vào audit_logs - BẮT BUỘC THÀNH CÔNG (FAIL-CLOSED)
       const clientIp = normalizeClientIp(req.ip);

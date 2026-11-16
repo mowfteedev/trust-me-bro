@@ -60,6 +60,33 @@ const login = (remoteAddress = '10.100.0.2', forwardedIp?: string, username = us
   payload: { username, password } });
 
 describe('bounded failed-login audit and trusted proxy', () => {
+  it('keeps separate authenticated user budgets behind one IP and ignores forged JWT bucket selectors', async () => {
+    app.get('/isolated-rate', async () => ({ ok: true }));
+    const tokens = ['one', 'two'].map(id => app.jwt.sign({ id }));
+    for (let i = 0; i < 100; i++) {
+      for (const token of tokens) {
+        expect((await app.inject({ url: '/isolated-rate', remoteAddress: '192.0.2.90',
+          headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(200);
+      }
+    }
+    for (let i = 0; i < 120; i++) {
+      expect((await app.inject({ url: '/isolated-rate', remoteAddress: '192.0.2.91',
+        headers: { authorization: `Bearer forged-${i}` } })).statusCode).toBe(200);
+    }
+    expect((await app.inject({ url: '/isolated-rate', remoteAddress: '192.0.2.91',
+      headers: { authorization: 'Bearer another-forged' } })).statusCode).toBe(429);
+  });
+
+  it('does not grant cross-origin browser access and hides database readiness errors', async () => {
+    const result = await app.inject({ url: '/healthz', headers: { origin: 'https://untrusted.example' } });
+    expect(result.headers['access-control-allow-origin']).toBeUndefined();
+    const db = await import('../src/services/db.js');
+    vi.mocked(db.checkDatabaseHealth).mockResolvedValueOnce({ healthy: false, latencyMs: 3, error: 'password=private-db-detail' });
+    const readiness = await app.inject('/readyz');
+    expect(readiness.statusCode).toBe(503);
+    expect(readiness.body).not.toContain('private-db-detail');
+    expect(readiness.json().database).toEqual({ healthy: false, latencyMs: 3 });
+  });
   it('returns the same generic 401 for missing users and bad passwords without serializing secrets', async () => {
     const wrongPassword = await login();
     lookupUser = null;

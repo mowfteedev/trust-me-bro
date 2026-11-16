@@ -5,14 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({
   query: vi.fn(),
   sendTestAlert: vi.fn(),
+  isPaired: vi.fn(), getPairOtp: vi.fn(),
 }));
 
 vi.mock('../src/services/db.js', () => ({ query: mock.query }));
 vi.mock('../src/services/telegram.js', () => ({
   telegramService: {
     sendTestAlert: mock.sendTestAlert,
+    isPaired: mock.isPaired, getPairOtp: mock.getPairOtp,
   },
 }));
+vi.mock('../src/config/env.js', () => ({ config: { TELEGRAM_MODE: 'live' } }));
 
 import { telegramRoutes } from '../src/routes/telegram.js';
 
@@ -38,6 +41,7 @@ let viewerToken: string;
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  mock.isPaired.mockReturnValue(false); mock.getPairOtp.mockReturnValue('isolated-pairing-fixture');
   mock.query.mockImplementation(async (sql: string, params?: any[]) => {
     if (sql.includes('FROM users WHERE id')) {
       const id = params?.[0];
@@ -73,6 +77,20 @@ beforeEach(async () => {
     role: viewerUser.role,
     session_version: 1,
   });
+});
+
+it('pairing information requires Admin, is no-store, and hides OTP once paired', async () => {
+  expect((await app.inject('/api/telegram/pairing')).statusCode).toBe(401);
+  const forbidden = await app.inject({ url: '/api/telegram/pairing', headers: { authorization: `Bearer ${viewerToken}` } });
+  expect(forbidden.statusCode).toBe(403);
+  expect(mock.getPairOtp).not.toHaveBeenCalled();
+  const allowed = await app.inject({ url: '/api/telegram/pairing', headers: { authorization: `Bearer ${adminToken}` } });
+  expect(allowed.headers['cache-control']).toBe('no-store');
+  expect(allowed.json()).toEqual({ mode: 'live', paired: false, otp: 'isolated-pairing-fixture' });
+  mock.isPaired.mockReturnValue(true);
+  const paired = await app.inject({ url: '/api/telegram/pairing', headers: { authorization: `Bearer ${adminToken}` } });
+  expect(paired.json().otp).toBeNull();
+  expect(mock.getPairOtp).toHaveBeenCalledTimes(1);
 });
 
 afterEach(async () => {

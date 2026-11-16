@@ -13,9 +13,9 @@ export function useSession() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    const onExpired = () => {
+    const onExpired = (event?: Event) => {
       setCurrentUser(null);
-      setLoginError("Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.");
+      setLoginError((event as Event & { message?: string })?.message || "Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.");
     };
     window.addEventListener("zt-session-expired", onExpired);
     return () => window.removeEventListener("zt-session-expired", onExpired);

@@ -1,4 +1,4 @@
-import { NodeItem, MetricSnapshot, UserSession, AuditLogPage, HostSnapshot } from '../types/index.js';
+import { NodeItem, MetricSnapshot, UserSession, AuditLogPage, HostSnapshot, ManagedUser, IncidentPage } from '../types/index.js';
 
 const TOKEN_STORAGE_KEY = 'zt_session_token';
 const USER_STORAGE_KEY = 'zt_user_profile';
@@ -130,6 +130,48 @@ class ApiService {
 
   public async getHost(): Promise<HostSnapshot> {
     return this.request<HostSnapshot>('/api/host');
+  }
+
+  public async getUsers(page = 1): Promise<{ data: ManagedUser[]; has_more: boolean }> {
+    return this.request(`/api/users?page=${page}`);
+  }
+
+  public async createUser(input: { username: string; password: string; role: 'ADMIN' | 'VIEWER' }): Promise<void> {
+    await this.request('/api/users', { method: 'POST', body: JSON.stringify(input) });
+  }
+
+  public async updateUser(id: string, input: { role: 'ADMIN' | 'VIEWER'; is_active: boolean }): Promise<void> {
+    await this.request(`/api/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) });
+  }
+
+  public async resetPassword(id: string, password: string): Promise<void> {
+    await this.request(`/api/users/${encodeURIComponent(id)}/reset-password`, { method: 'POST', body: JSON.stringify({ password }) });
+  }
+
+  public async changePassword(current_password: string, new_password: string): Promise<void> {
+    const sessionToken = this.token;
+    await this.request('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) });
+    if (this.token === sessionToken) {
+      this.clearSession();
+      window.dispatchEvent(Object.assign(new Event('zt-session-expired'), { message: 'Đã đổi mật khẩu. Vui lòng đăng nhập lại.' }));
+    }
+  }
+
+  public async logoutAll(): Promise<void> {
+    const sessionToken = this.token;
+    await this.request('/api/auth/logout-all', { method: 'POST', body: JSON.stringify({}) });
+    if (this.token === sessionToken) {
+      this.clearSession();
+      window.dispatchEvent(Object.assign(new Event('zt-session-expired'), { message: 'Đã đăng xuất tất cả thiết bị. Vui lòng đăng nhập lại.' }));
+    }
+  }
+
+  public async getTelegramPairing(): Promise<{ mode: string; paired: boolean; otp: string | null }> {
+    return this.request('/api/telegram/pairing');
+  }
+
+  public async getIncidents(state: 'open' | 'resolved' | 'all', page = 1): Promise<IncidentPage> {
+    return this.request(`/api/incidents?state=${state}&page=${page}&page_size=20`);
   }
 
   public async getNodes(): Promise<NodeItem[]> {

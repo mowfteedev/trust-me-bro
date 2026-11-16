@@ -7,6 +7,7 @@ const mock = vi.hoisted(() => ({
   stopSessionMaintenance: vi.fn(), shutdownAllBastionSessions: vi.fn(),
   startSweeper: vi.fn(), stopSweeper: vi.fn(), initTelegram: vi.fn(), stopTelegram: vi.fn(),
   validateBastionKey: vi.fn(),
+  startAlertDelivery: vi.fn(), stopAlertDelivery: vi.fn(),
 }));
 vi.mock('../src/app.js', () => ({ buildServer: mock.buildServer }));
 vi.mock('../src/config/env.js', () => ({ config: {
@@ -23,6 +24,7 @@ vi.mock('../src/services/bastion/registry.js', () => ({
   shutdownAllBastionSessions: mock.shutdownAllBastionSessions,
 }));
 vi.mock('../src/services/sweeper.js', () => ({ startSweeper: mock.startSweeper, stopSweeper: mock.stopSweeper }));
+vi.mock('../src/services/alert-delivery.js', () => ({ startAlertDelivery: mock.startAlertDelivery, stopAlertDelivery: mock.stopAlertDelivery }));
 vi.mock('../src/services/telegram.js', () => ({ telegramService: { init: mock.initTelegram, stop: mock.stopTelegram } }));
 
 const events = ['SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection'] as const;
@@ -51,6 +53,15 @@ it('imports runtime without installing listeners or starting background services
   expect(mock.startSweeper).not.toHaveBeenCalled();
   expect(mock.initTelegram).not.toHaveBeenCalled();
   expect(mock.validateBastionKey).not.toHaveBeenCalled();
+});
+
+it('still closes HTTP, Telegram and pool if an in-flight delivery cycle rejects', async () => {
+  await runtime.startGateway();
+  mock.stopAlertDelivery.mockRejectedValueOnce(new Error('isolated database outage'));
+  await runtime.stopGateway();
+  expect(mock.stopTelegram).toHaveBeenCalledTimes(1);
+  expect(mock.close).toHaveBeenCalledTimes(1);
+  expect(mock.closeDatabasePool).toHaveBeenCalledTimes(1);
 });
 
 it('starts once and removes its own listeners and services on repeated shutdown', async () => {

@@ -56,7 +56,7 @@ paths:
         '503': {description: Không xác thực được trạng thái DB}
   /api/auth/logout:
     post:
-      summary: Tăng session_version, thu hồi các phiên của tài khoản
+      summary: Thu hồi phiên JWT hiện tại; JWT cũ thiếu jti thu hồi mọi phiên
       security: [{BearerAuth: []}]
       responses:
         '200': {description: Đã thu hồi phiên và ghi audit}
@@ -254,7 +254,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, BASTION_TICKET_ISSUED, BASTION_SESSION_START, BASTION_SESSION_END, CPU_HIGH, NODE_OFFLINE, TELEGRAM_TEST, AUDIT_PURGED]
+            enum: [LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, BASTION_TICKET_ISSUED, BASTION_SESSION_START, BASTION_SESSION_END, CPU_HIGH, NODE_OFFLINE, TELEGRAM_TEST, AUDIT_PURGED, CPU_RECOVERED, USER_CREATED, USER_UPDATED, USER_PASSWORD_RESET, PASSWORD_CHANGED]
       responses:
         '200':
           description: Trang nhật ký, has_more cho biết còn trang tiếp
@@ -293,11 +293,207 @@ paths:
         '401': {description: Chưa xác thực}
         '403': {description: Chỉ ADMIN được xóa nhật ký}
         '503': {description: Lỗi DB hoặc dịch vụ không khả dụng}
+  /api/auth/logout-all:
+    post:
+      summary: Thu hồi toàn bộ phiên đăng nhập và Web SSH của tài khoản
+      security: [{BearerAuth: []}]
+      responses:
+        '200': {description: Đã tăng session_version và thu hồi phiên}
+        '401': {description: Phiên không hợp lệ}
+        '503': {description: Không thể xác nhận thu hồi}
+  /api/auth/change-password:
+    post:
+      summary: Đổi mật khẩu và thu hồi mọi phiên của chính mình
+      security: [{BearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [current_password, new_password]
+              properties:
+                current_password: {type: string, minLength: 1, maxLength: 128, writeOnly: true}
+                new_password: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+      responses:
+        '200': {description: Đã đổi mật khẩu; cần đăng nhập lại}
+        '400': {description: Sai mật khẩu hiện tại hoặc dữ liệu không hợp lệ}
+        '401': {description: Chưa đăng nhập}
+        '503': {description: Không cập nhật được tài khoản}
+  /api/users:
+    get:
+      summary: Admin xem danh sách tài khoản; không trả password hash
+      security: [{BearerAuth: []}]
+      parameters:
+        - {in: query, name: page, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
+      responses:
+        '200':
+          description: Danh sách phân trang 25 tài khoản
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  page: {type: integer}
+                  page_size: {type: integer, enum: [25]}
+                  has_more: {type: boolean}
+                  data: {type: array, items: {$ref: '#/components/schemas/ManagedUser'}}
+        '403': {description: Chỉ Admin được phép}
+    post:
+      summary: Admin tạo tài khoản và ghi audit trong cùng transaction
+      security: [{BearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username, password, role]
+              properties:
+                username: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{2,49}$'}
+                password: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+                role: {type: string, enum: [ADMIN, VIEWER]}
+      responses:
+        '201': {description: Tài khoản đã tạo}
+        '400': {description: Dữ liệu không hợp lệ}
+        '403': {description: Chỉ Admin được phép}
+        '409': {description: Tên đăng nhập đã tồn tại}
+  /api/users/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    patch:
+      summary: Đổi quyền hoặc khóa tài khoản; giữ Admin cuối cùng và chống tự khóa
+      security: [{BearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              additionalProperties: false
+              properties:
+                role: {type: string, enum: [ADMIN, VIEWER]}
+                is_active: {type: boolean}
+      responses:
+        '200': {description: Đã cập nhật; phiên cũ bị thu hồi nếu quyền thay đổi}
+        '403': {description: Chỉ Admin được phép}
+        '404': {description: Tài khoản không tồn tại}
+        '409': {description: Tự khóa hoặc mất Admin cuối cùng}
+  /api/users/{id}/reset-password:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    post:
+      summary: Admin đặt lại mật khẩu và thu hồi mọi phiên của tài khoản đích
+      security: [{BearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                password: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+      responses:
+        '200': {description: Đã đặt lại mật khẩu}
+        '403': {description: Chỉ Admin được phép}
+        '404': {description: Tài khoản không tồn tại}
+  /api/telegram/pairing:
+    get:
+      summary: Admin chủ động đọc trạng thái hoặc OTP ghép bot; no-store
+      security: [{BearerAuth: []}]
+      responses:
+        '200':
+          description: OTP chỉ có khi live và chưa ghép kênh; không trả token/chat ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mode: {type: string, enum: [disabled, dry-run, live]}
+                  paired: {type: boolean}
+                  otp: {type: string, nullable: true}
+        '403': {description: Chỉ Admin được phép}
+  /api/telegram/test:
+    post:
+      summary: Admin và Viewer gửi tin thử tới kênh đã ghép; không tạo sự cố
+      security: [{BearerAuth: []}]
+      responses:
+        '200': {description: Gửi thành công hoặc giả lập có nhãn dryRun}
+        '400': {description: Chưa cấu hình hoặc gửi thất bại}
+        '401': {description: Chưa đăng nhập}
+        '409': {description: Đang có yêu cầu gửi thử}
+        '429': {description: Chưa hết khoảng chờ 15 giây}
+  /api/incidents:
+    get:
+      summary: Admin và Viewer xem sự cố cùng kết quả gửi Telegram
+      security: [{BearerAuth: []}]
+      parameters:
+        - {in: query, name: state, schema: {type: string, enum: [open, resolved, all], default: open}}
+        - {in: query, name: page, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
+        - {in: query, name: page_size, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {in: query, name: node_id, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Sự cố và phân trang; dữ liệu gửi cũ chưa có bằng chứng trả null
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {type: array, items: {$ref: '#/components/schemas/Incident'}}
+                  pagination:
+                    type: object
+                    properties:
+                      page: {type: integer}
+                      page_size: {type: integer}
+                      total: {type: integer}
+                      total_pages: {type: integer}
+        '400': {description: Bộ lọc không hợp lệ}
+        '401': {description: Chưa đăng nhập}
+        '503': {description: Không đọc được dữ liệu sự cố}
 components:
   securitySchemes:
     BearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
     NodeTokenAuth: {type: apiKey, in: header, name: X-Node-Token}
   schemas:
+    ManagedUser:
+      allOf:
+        - {$ref: '#/components/schemas/User'}
+        - type: object
+          properties:
+            is_active: {type: boolean}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+    DeliveryStatus:
+      type: object
+      nullable: true
+      properties:
+        status: {type: string, enum: [PENDING, PROCESSING, SENT, FAILED, DRY_RUN, DISABLED]}
+        attempts: {type: integer, minimum: 0, maximum: 3}
+        last_attempt_at: {type: string, format: date-time, nullable: true}
+        last_error: {type: string, nullable: true}
+    Incident:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        node_id: {type: string, format: uuid}
+        node_name: {type: string}
+        ip_address: {type: string}
+        type: {type: string, enum: [NODE_OFFLINE, CPU_HIGH, OTHER]}
+        severity: {type: string}
+        message: {type: string}
+        created_at: {type: string, format: date-time}
+        resolved_at: {type: string, format: date-time, nullable: true}
+        duration_seconds: {type: integer, minimum: 0}
+        opening_delivery: {$ref: '#/components/schemas/DeliveryStatus'}
+        recovery_delivery: {$ref: '#/components/schemas/DeliveryStatus'}
     AuditLogPage:
       type: object
       required: [success, data, page, page_size, has_more]
@@ -326,6 +522,9 @@ components:
           additionalProperties: false
           properties:
             attempted_username: {type: string, maxLength: 50}
+            username: {type: string, maxLength: 50}
+            is_active: {type: boolean}
+            scope: {type: string, enum: [current, all]}
             session_id: {type: string, maxLength: 96}
             reason: {type: string, maxLength: 160}
             target_ip: {type: string, maxLength: 64}

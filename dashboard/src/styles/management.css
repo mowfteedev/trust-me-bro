@@ -1,0 +1,38 @@
+.management-page { display: grid; gap: 24px; min-width: 0; }
+.management-page h1, .management-page h2 { margin: 0; }
+.management-page h1 { display: flex; align-items: center; gap: 12px; font-size: 1.65rem; }
+.management-page h2 { font-size: 1.15rem; }
+.management-panel { min-width: 0; padding: 24px; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); }
+.management-panel > h2 { margin-bottom: 20px; }
+.account-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.management-form { display: grid; gap: 16px; max-width: 620px; }
+.management-form label, .management-toolbar label { display: grid; gap: 8px; font-weight: 500; }
+.management-form input, .management-form select, .management-toolbar select { width: 100%; min-width: 0; min-height: 46px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised, var(--panel)); color: var(--text); font: inherit; }
+.management-page .field-hint { margin: 0; color: var(--muted); font-size: .92rem; line-height: 1.6; }
+.management-page .button { min-height: 46px; }
+.account-sessions, .password-reset { border-top: 1px solid var(--border); padding-top: 24px; margin-top: 24px; }
+.account-sessions p { color: var(--muted); line-height: 1.6; }
+.management-table-wrap { overflow-x: auto; }
+.management-table { width: 100%; border-collapse: collapse; text-align: left; }
+.management-table td, .management-table th { padding: 14px 12px; border-bottom: 1px solid var(--border); }
+.management-table th { color: var(--muted); font-size: .95rem; }
+.management-pagination, .management-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+.management-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.management-toolbar select { min-width: 180px; }
+.management-toolbar > span { color: var(--muted); padding-bottom: 12px; }
+.incident-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.incident-card { display: grid; gap: 18px; border-top: 3px solid #d89e28; }
+.incident-card.is-resolved { border-top-color: #2cad92; }
+.incident-title { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.incident-state { color: var(--muted); font-size: .9rem; white-space: nowrap; }
+.incident-node { display: flex; align-items: center; gap: 6px; padding: 6px 0; min-height: 44px; border: 0; background: transparent; color: var(--accent, #33c6cb); text-align: left; font: inherit; font-weight: 600; cursor: pointer; overflow-wrap: anywhere; }
+.incident-facts { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.incident-facts dt { color: var(--muted); font-size: .9rem; margin-bottom: 6px; }
+.incident-facts dd { margin: 0; overflow-wrap: anywhere; line-height: 1.5; }
+.incident-delivery { display: flex; flex-wrap: wrap; gap: 16px; font-size: .93rem; }
+.delivery-status { display: inline-block; padding: 4px 8px; border-radius: 6px; background: var(--raised, var(--panel)); margin-left: 5px; }
+.delivery-sent { color: #2cad92; }.delivery-failed { color: #e6646e; }
+.delivery-pending, .delivery-processing { color: #c7982f; }
+.management-page :focus-visible { outline: 2px solid var(--accent, #33c6cb); outline-offset: 3px; }
+@media (max-width: 1100px) { .incident-list { grid-template-columns: 1fr; } }
+@media (max-width: 700px) { .account-grid { grid-template-columns: 1fr; }.management-panel { padding: 18px; }.incident-title { flex-wrap: wrap; }.incident-facts { grid-template-columns: 1fr; }.management-toolbar { align-items: stretch; }.management-page h1 { font-size: 1.4rem; } }

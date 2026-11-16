@@ -1,486 +1,229 @@
-# Hướng dẫn thêm máy chủ giám sát (Worker Node) vào hệ thống ZT-ServerOps
+# Thêm Worker Windows, Linux và máy vật lý
 
-Tài liệu này cung cấp quy trình chuẩn hóa để đăng ký và kết nối một máy chủ mới (**Worker Node**) vào cụm giám sát **ZT-ServerOps**, áp dụng cho cả môi trường máy ảo và máy vật lý.
+Gateway hiện tại dùng Compose, API `http://10.100.0.1:3000` qua WireGuard.
+Bản native TV box cũ dùng API3100; không trộn bundle của hai Gateway.
+Các địa chỉ dưới đây là quy hoạch mẫu, phải kiểm tra chưa được sử dụng.
 
----
+| Máy | Overlay | Loại | Tài khoản SSH |
+|---|---|---|---|
+| Gateway | 10.100.0.1 | Gateway | — |
+| Docker demo đã có | 10.100.0.2 | DOCKER | ztuser |
+| VM Windows | 10.100.0.3 | VM | ztuser |
+| VM Linux | 10.100.0.4 | VM | ztuser |
+| Máy vật lý Linux riêng | 10.100.0.6 | BARE_METAL | ztuser |
 
-## 1. Nguyên tắc kiến trúc & An ninh cốt lõi
+## 1. Chuẩn bị trên từng máy
 
-1. **Mô hình kết nối M2M WireGuard (Overlay Network)**:
-   - Toàn bộ lưu lượng telemetry (CPU, RAM, Disk, Uptime) và quản trị từ xa (Web SSH) đều lưu thông qua mạng ảo WireGuard (dải `10.100.0.0/24`).
-   - Gateway có IP overlay cố định: `10.100.0.1`.
-   - Mỗi Worker được cấp một địa chỉ IP overlay riêng biệt (`10.100.0.2` đến `10.100.0.254`).
-2. **Nguyên tắc Zero Inbound & Cấm mở SSH ra Internet**:
-   - Dịch vụ OpenSSH Server trên Worker **chỉ được phép lắng nghe trên IP overlay VPN** (`10.100.0.x:22`).
-   - Tường lửa trên Worker (nftables/iptables trên Linux, Windows Defender Firewall trên Windows) bắt buộc thiết lập chính sách mặc định **DROP / BLOCK** toàn bộ lưu lượng vào từ card mạng ngoài (LAN / Internet).
-   - Tắt hoàn toàn xác thực bằng mật khẩu (`PasswordAuthentication no`), tắt đăng nhập tài khoản root (`PermitRootLogin no`), chỉ cho phép xác thực bằng khóa công khai (Ed25519) từ Bastion Gateway `10.100.0.1`.
-3. **Danh tính độc lập (Per-Node Identity)**:
-   - Mỗi máy bắt buộc phải có: `node-name` duy nhất, IP overlay duy nhất, token ngẫu nhiên riêng (48 ký tự), cặp khóa WireGuard riêng và cặp khóa SSH Host riêng.
-   - **Tuyệt đối không sao chép danh tính, token hoặc khóa riêng tư giữa các máy**.
-4. **Xác thực khóa máy chủ qua kênh tin cậy (Out-of-Band Host Key Pinning)**:
-   - Khóa công khai của SSH Server (`ssh_host_ed25519_key.pub`) trên Worker phải được sao chép sang Gateway qua kênh tin cậy (console nội bộ, thư mục chia sẻ có bảo vệ hoặc sao chép ngoại tuyến).
-   - Không sử dụng `ssh-keyscan` qua mạng chưa xác thực để tránh tấn công giả mạo (Man-In-The-Middle). Gateway sẽ ghim chặt vân tay SHA256 của khóa này vào cơ sở dữ liệu.
+**Máy phát triển:** dùng source đúng commit và Go theo `agent/go.mod` để build
+binary tĩnh; không cần Go trên Worker. Ví dụ từ thư mục repo:
 
----
-
-## 2. Bảng phân định dải IP và tài khoản chuẩn
-
-| Máy | Vai trò | IP Overlay VPN | Tài khoản Web SSH | Cổng SSH |
-| :--- | :--- | :--- | :--- | :--- |
-| **Gateway EC2** | Máy chủ trung tâm | `10.100.0.1` | — | N/A |
-| **node-worker-01** | Docker Worker (laptop) | `10.100.0.2` | `ztuser` | `10.100.0.2:22` |
-| **node-windows-01** | Máy ảo Windows | `10.100.0.3` | `ztuser` | `10.100.0.3:22` |
-| **node-linux-01** | Máy ảo Linux | `10.100.0.4` | `ztuser` | `10.100.0.4:22` |
-| **node-armbian-01** | Máy vật lý (TV box) | `10.100.0.5` | `ztuser` | `10.100.0.5:22` |
-| *Máy mới tiếp theo* | Worker kế tiếp | `10.100.0.6...` | `ztuser` | `10.100.0.x:22` |
-
----
-
-## 3. Quy trình chuẩn bị trên Gateway
-
-> **Thực hiện trên máy Gateway EC2** `[GATEWAY]`.
-
-### Bước G1. Khởi tạo gói danh tính riêng cho máy mới (Prepare Bundle)
-Chạy script `register-node.py` với hành động `prepare` để sinh bộ khóa WireGuard, token xác thực và cấu hình định danh độc lập:
-
-```bash
-# [GATEWAY] Chạy trong thư mục gốc của dự án trên Gateway
-python3 deploy/scripts/register-node.py \
-  --project zt_ec2 \
-  --env-file keys/ec2.env \
-  prepare \
-  --node-name <TEN_NODE_MOI> \
-  --node-ip <IP_OVERLAY_MOI> \
-  --gateway-endpoint <IP_PUBLIC_GATEWAY>:51820 \
-  --bundle keys/<TEN_THU_MUC_BUNDLE>
+```sh
+cd agent
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /tmp/zt-agent-linux-amd64 .
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o /tmp/zt-agent-linux-arm64 .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /tmp/zt-agent-windows-amd64.exe .
 ```
 
-*Ví dụ minh họa:*
-```bash
-python3 deploy/scripts/register-node.py \
-  --project zt_ec2 \
-  --env-file keys/ec2.env \
-  prepare \
-  --node-name node-windows-01 \
-  --node-ip 10.100.0.3 \
-  --gateway-endpoint 198.51.100.10:51820 \
-  --bundle keys/windows-worker-01
+Gửi binary đúng kiến trúc, script cài và bundle qua kênh riêng. So sánh SHA256
+binary ở hai đầu. Không gửi private key/token vào chat hoặc đưa vào Git.
+
+**Host VM:** chọn NAT, không port-forward vào VM. Có console trước khi sửa
+firewall/SSH. Máy vật lý phải có quyền quản trị và đường truy cập console;
+nếu đang phục vụ ứng dụng khác, cần kiểm tra chính sách mạng trước khi áp dụng
+bộ cấu hình dành cho máy riêng. TV box đang chạy Worker namespace giữ nguyên
+cấu hình hiện có, không chạy các bước cài mới dưới đây lên nó.
+
+## 2. Tạo bundle trên Gateway
+
+Chạy trong repo ở Gateway, không chạy lại init-secrets. Ví dụ Linux:
+
+```sh
+python3 deploy/scripts/register-node.py --project zt_ec2 --env-file keys/ec2.env prepare \
+  --node-name node-linux-01 --node-ip 10.100.0.4 \
+  --gateway-endpoint 192.0.2.10:51820 --worker-os linux --node-type VM \
+  --bundle keys/linux-worker-01
+python3 deploy/scripts/worker_check.py --bundle keys/linux-worker-01 --worker-os linux
 ```
 
-Sau khi chạy xong, thư mục `keys/<TEN_THU_MUC_BUNDLE>` sẽ được tạo với quyền `0700`, chứa các tệp bảo mật:
-- `zt-worker.conf`: File cấu hình giao thức WireGuard của Worker.
-- `node.token`: Token xác thực telemetry của node (48 ký tự ngẫu nhiên).
-- `agent-config.json`: File cấu hình cho Mini-Agent.
-- `bastion_id_ed25519.pub`: Khóa công khai của Bastion Gateway (dùng cấp quyền cho `ztuser`).
-- `metadata.json`: Bản ghi metadata định danh node.
+Thay `192.0.2.10` bằng endpoint thật. Với Windows dùng `--worker-os windows`,
+node/IP `.3` và bundle riêng. Máy vật lý Linux dùng `--worker-os linux
+--node-type BARE_METAL`, IP `.6`, tên và bundle riêng. `prepare` không sửa DB
+hoặc peer và từ chối ghi đè bundle. Token sinh từ 48 byte ngẫu nhiên, mã hóa
+URL-safe khoảng 64 ký tự; không phải token cố định 48 ký tự.
 
----
+Bundle `0700`, tệp `0600`: `zt-worker.conf`, `node.token`, `agent-config.json`,
+`metadata.json`, `bastion_id_ed25519.pub`. Chuyển riêng từng bundle cho đúng
+máy; giao diện mặc định `zt-worker`, Linux đo đĩa `/`, Windows đo `C:\`.
+`worker_check.py` chỉ kiểm file, không chứng minh handshake/firewall/reboot.
 
-## 4. Hướng dẫn chi tiết cho từng trường hợp
+## 3. VM Windows — PowerShell quản trị trong VM
 
----
+Cài WireGuard chính thức và OpenSSH Server; đặt bundle ở `C:\staging\worker`.
+Chép thư mục `deploy\windows` và `agent\install-windows.ps1` từ đúng source.
 
-### TRƯỜNG HỢP 1: Máy ảo Windows (Windows 10 / 11 / Server 2022)
-
-#### Điều kiện ban đầu:
-- Hypervisor hỗ trợ: VMware Workstation/ESXi, VirtualBox, Hyper-V, KVM.
-- **Thiết lập card mạng trên Hypervisor** `[HOST MÁY ẢO]`:
-  - Chọn chế độ mạng **NAT** (khuyến nghị) để máy ảo tự do kết nối Internet ra Gateway mà không nhận kết nối trực tiếp từ mạng LAN ngoài.
-  - **Tắt toàn bộ Inbound Port Forwarding** trên hypervisor liên quan đến máy ảo này.
-- **Yêu cầu phần mềm trong máy ảo Windows** `[WORKER]`:
-  - Cài đặt ứng dụng **WireGuard for Windows** chính thức (từ `https://www.wireguard.com/install/`).
-  - Cài đặt tính năng **OpenSSH Server** của Windows:
-    ```powershell
-    # [WORKER: PowerShell Admin] Cài đặt OpenSSH Server
-    Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-    ```
-
-#### Bước W1. Lấy khóa công khai máy chủ SSH trên Windows `[WORKER]`
-Tạo host key Ed25519 cho OpenSSH nếu chưa có:
 ```powershell
-# [WORKER: PowerShell Admin] Khởi tạo Host Key
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
 ssh-keygen -A
+Get-NetAdapter
 ```
-Khóa công khai máy chủ nằm tại: `C:\ProgramData\ssh\ssh_host_ed25519_key.pub`.
-Xuất vân tay SHA256 để đối chiếu:
+
+Tạo `ztuser` nếu chưa có, là tài khoản thường, không thuộc Administrators.
+Mật khẩu nhập riêng, không chép vào tài liệu/lệnh:
+
 ```powershell
-# [WORKER: PowerShell Admin] Kiểm tra Fingerprint
+New-LocalUser -Name ztuser -Password (Read-Host 'Mat khau tai khoan Windows' -AsSecureString)
+```
+
+Từ console VM, thay `Ethernet0` bằng đúng NIC NAT; liệt kê mọi NIC transport
+đang hoạt động. Script chỉ dành cho máy Windows lab riêng; không chạy trên
+Windows host đang làm việc của người dùng với `-DedicatedVm`.
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File deploy\windows\setup-worker.ps1 `
+  -TunnelConfigPath C:\staging\worker\zt-worker.conf `
+  -GatewaySshPublicKeyPath C:\staging\worker\bastion_id_ed25519.pub `
+  -TransportInterfaceAlias @('Ethernet0') -VpnAddress 10.100.0.3 `
+  -SshUser ztuser -DedicatedVm
+powershell.exe -ExecutionPolicy Bypass -File agent\install-windows.ps1 `
+  -BinaryPath C:\staging\zt-agent-windows-amd64.exe `
+  -ConfigPath C:\staging\worker\agent-config.json -ValidateOnly
+powershell.exe -ExecutionPolicy Bypass -File agent\install-windows.ps1 `
+  -BinaryPath C:\staging\zt-agent-windows-amd64.exe `
+  -ConfigPath C:\staging\worker\agent-config.json
+```
+
+Installer cài **ZTServerOpsAgent** với `--service`, quyền LocalService,
+khởi động tự động; giữ cấu hình cũ nếu không có `-UpdateConfig`. Không dùng
+`New-Service` trực tiếp với binary thiếu `--service`.
+
+Lấy **PUBLIC host key** `C:\ProgramData\ssh\ssh_host_ed25519_key.pub` từ
+console/kênh tin cậy, chuyển lại Gateway. Đối chiếu:
+
+```powershell
 ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub
-```
-Sao chép tệp `ssh_host_ed25519_key.pub` này ra kênh tin cậy (kéo qua thư mục chia sẻ riêng hoặc chuyển qua Gateway) và lưu vào `keys/<TEN_THU_MUC_BUNDLE>/host_ed25519.pub` trên máy Gateway.
-
-#### Bước W2. Đăng ký node vào Gateway `[GATEWAY]`
-Sau khi đã có file `host_ed25519.pub` trên Gateway, thực hiện lệnh đăng ký:
-```bash
-# [GATEWAY] Đăng ký node vào Database và kích hoạt WireGuard peer
-python3 deploy/scripts/register-node.py \
-  --project zt_ec2 \
-  --env-file keys/ec2.env \
-  register \
-  --bundle keys/windows-worker-01 \
-  --host-public-key keys/windows-worker-01/host_ed25519.pub \
-  --ssh-user ztuser
+Get-Service ZTServerOpsAgent,sshd,'WireGuardTunnel$zt-worker'
+powershell.exe -ExecutionPolicy Bypass -File deploy\windows\check-worker.ps1
 ```
 
-#### Bước W3. Thiết lập tài khoản và VPN/SSH trên Windows `[WORKER]`
-Chuyển 2 tệp `zt-worker.conf` và `bastion_id_ed25519.pub` từ bundle về máy ảo Windows (ví dụ lưu tại `C:\staging`).
-1. Tạo tài khoản cục bộ `ztuser` (không cấp quyền Administrator):
-   ```powershell
-   # [WORKER: PowerShell Admin] Tạo tài khoản ztuser không có quyền admin
-   $pass = ConvertTo-SecureString -String ([System.Guid]::NewGuid().ToString()) -AsPlainText -Force
-   New-LocalUser -Name "ztuser" -Password $pass -FullName "ZT Worker Service User" -Description "Unprivileged Web SSH account"
-   ```
-2. Chạy script thiết lập tự động có sẵn trong repo:
-   ```powershell
-   # [WORKER: PowerShell Admin] Chạy thiết lập mạng & OpenSSH
-   powershell.exe -ExecutionPolicy Bypass -File deploy\windows\setup-worker.ps1 `
-     -TunnelConfigPath "C:\staging\zt-worker.conf" `
-     -GatewaySshPublicKeyPath "C:\staging\bastion_id_ed25519.pub" `
-     -TransportInterfaceAlias @("Ethernet0") `
-     -VpnAddress "10.100.0.3" `
-     -SshUser "ztuser" `
-     -DedicatedVm
-   ```
-   *Lưu ý: Thay `Ethernet0` bằng tên chính xác của card mạng vật lý/NAT trên máy ảo Windows (`Get-NetAdapter`).*
+Máy Windows vật lý dùng cùng Agent; bộ setup mạng ở trên có ràng buộc máy lab
+riêng. Với máy có domain/GPO/dịch vụ khác, phải thiết kế rule phù hợp trước,
+không mặc định nó tương đương DedicatedVm.
 
-#### Bước W4. Cài đặt Mini-Agent làm Windows Service `[WORKER]`
-1. Chép binary `zt-agent.exe` và file `agent-config.json` vào thư mục `C:\Program Files\ZT-ServerOps\agent\`.
-2. Phân quyền thư mục chỉ cho phép `SYSTEM` và `Administrators` toàn quyền, cấp quyền đọc cho `LOCAL SERVICE`.
-3. Cài đặt và kích hoạt dịch vụ chạy nền:
-   ```powershell
-   # [WORKER: PowerShell Admin] Cài đặt Windows Service cho Mini-Agent
-   New-Service -Name "zt-agent" `
-     -BinaryPathName '"C:\Program Files\ZT-ServerOps\agent\zt-agent.exe" --config "C:\Program Files\ZT-ServerOps\agent\agent-config.json"' `
-     -DisplayName "ZT-ServerOps Telemetry Agent" `
-     -StartupType Automatic
-   Start-Service -Name "zt-agent"
-   ```
+## 4. VM Linux hoặc máy vật lý Linux riêng — console của Worker
 
----
+Ví dụ Debian/Ubuntu. Thay `.4` bằng `.6` với máy vật lý; binary amd64 hoặc
+arm64 phải đúng `uname -m`. Đặt bundle ở `/root/worker-bundle` riêng tư và
+repo/scripts ở thư mục quản trị, không đặt khóa trong home dùng chung.
 
-### TRƯỜNG HỢP 2: Máy ảo Linux (Debian 12 / Ubuntu 22.04+)
-
-#### Điều kiện ban đầu:
-- Hệ điều hành: Debian 12 (Bookworm) hoặc Ubuntu 22.04/24.04 LTS.
-- **Card mạng Hypervisor** `[HOST MÁY ẢO]`: Chọn chế độ **NAT**; không cấu hình port forwarding inbound.
-- **Yêu cầu gói phần mềm** `[WORKER]`:
-  ```bash
-  # [WORKER] Cài đặt các tiện ích cần thiết
-  sudo apt-get update && sudo apt-get install -y wireguard wireguard-tools openssh-server nftables curl
-  ```
-
-#### Bước L1. Khởi tạo và lấy Host Key Ed25519 trên Linux `[WORKER]`
-Kiểm tra hoặc sinh host key:
-```bash
-# [WORKER] Sinh SSH host key nếu chưa có
+```sh
+sudo apt-get update
+sudo apt-get install -y wireguard wireguard-tools openssh-server nftables curl
 sudo ssh-keygen -A
-# [WORKER] Xem khóa công khai và vân tay
-cat /etc/ssh/ssh_host_ed25519_key.pub
-ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
-```
-Lưu nội dung dòng `ssh-ed25519 ...` vào tệp `keys/<TEN_THU_MUC_BUNDLE>/host_ed25519.pub` trên Gateway.
-
-#### Bước L2. Đăng ký node vào Gateway `[GATEWAY]`
-```bash
-# [GATEWAY]
-python3 deploy/scripts/register-node.py \
-  --project zt_ec2 \
-  --env-file keys/ec2.env \
-  register \
-  --bundle keys/linux-worker-01 \
-  --host-public-key keys/linux-worker-01/host_ed25519.pub \
-  --ssh-user ztuser
+sudo install -m 600 /root/worker-bundle/zt-worker.conf /etc/wireguard/zt-worker.conf
+sudo systemctl enable --now wg-quick@zt-worker
 ```
 
-#### Bước L3. Cấu hình WireGuard & Zero Inbound Tường lửa `[WORKER]`
-1. Chép tệp `zt-worker.conf` vào `/etc/wireguard/wg0.conf`:
-   ```bash
-   # [WORKER]
-   sudo cp /path/to/zt-worker.conf /etc/wireguard/wg0.conf
-   sudo chmod 600 /etc/wireguard/wg0.conf
-   sudo systemctl enable --now wg-quick@wg0
-   ```
-2. Cấu hình tường lửa `nftables` chặn toàn bộ traffic ngoài, chỉ cho phép SSH qua WireGuard:
-   Chép tệp `deploy/linux/nftables-worker.conf` vào `/etc/nftables.conf`:
-   ```nftables
-   #!/usr/sbin/nft -f
-   table inet zt_worker {
-     chain input {
-       type filter hook input priority 0; policy drop;
-       iifname "lo" accept
-       ct state established,related accept
-       ct state invalid drop
-       iifname "wg0" ip saddr 10.100.0.1 tcp dport 22 accept
-       # Cho phép DHCP client
-       udp sport 67 udp dport 68 accept
-     }
-     chain forward {
-       type filter hook forward priority 0; policy drop;
-     }
-     chain output {
-       type filter hook output priority 0; policy accept;
-     }
-   }
-   ```
-   Kích hoạt tường lửa:
-   ```bash
-   # [WORKER]
-   sudo nft -f /etc/nftables.conf
-   sudo systemctl enable --now nftables
-   ```
+Tạo tài khoản thường và cấp Bastion **public** key. Nếu tài khoản đã có, giữ
+UID/home/quyền của nó; không chạy `useradd` lại. Thực hiện từ root console:
 
-#### Bước L4. Cấu hình OpenSSH Server & Tài khoản `ztuser` `[WORKER]`
-1. Tạo tài khoản `ztuser` không có quyền sudo, mở khóa cho SSH key auth:
-   ```bash
-   # [WORKER]
-   sudo useradd -m -s /bin/bash ztuser
-   sudo usermod -p '*' ztuser
-   sudo mkdir -p /home/ztuser/.ssh
-   sudo chmod 700 /home/ztuser/.ssh
-   sudo cp /path/to/bastion_id_ed25519.pub /home/ztuser/.ssh/authorized_keys
-   sudo chmod 600 /home/ztuser/.ssh/authorized_keys
-   sudo chown -R ztuser:ztuser /home/ztuser/.ssh
-   ```
-2. Cấu hình drop-in cho OpenSSH `/etc/ssh/sshd_config.d/99-zt-worker.conf`:
-   ```ini
-   Port 22
-   AddressFamily inet
-   ListenAddress 10.100.0.4
-   HostKey /etc/ssh/ssh_host_ed25519_key
-   PermitRootLogin no
-   PasswordAuthentication no
-   KbdInteractiveAuthentication no
-   AuthenticationMethods publickey
-   AllowUsers ztuser@10.100.0.1
-   DisableForwarding yes
-   ```
-3. Khởi động lại dịch vụ SSH:
-   ```bash
-   # [WORKER]
-   sudo sshd -t
-   sudo systemctl restart ssh
-   ```
-
-#### Bước L5. Cài đặt Mini-Agent `[WORKER]`
-1. Chép binary tĩnh `zt-agent` vào `/opt/zt-worker/zt-agent` (chmod 755).
-2. Tạo cấu hình `/opt/zt-worker/agent-config.json` từ bundle:
-   ```json
-   {
-     "GATEWAY_URL": "http://10.100.0.1:3000",
-     "NODE_ID": "node-linux-01",
-     "NODE_TOKEN": "<TOKEN_DOC_TU_FILE_NODE_TOKEN>",
-     "NETWORK_INTERFACE": "wg0",
-     "DISK_MOUNT_POINT": "/",
-     "BEACON_INTERVAL_SECONDS": "3.0",
-     "MAX_BACKOFF_SECONDS": "30.0",
-     "HTTP_TIMEOUT_SECONDS": "3.0",
-     "JITTER_RATIO": "0.0"
-   }
-   ```
-3. Tạo systemd unit `/etc/systemd/system/zt-agent.service`:
-   ```ini
-   [Unit]
-   Description=ZT-ServerOps Telemetry Agent
-   After=network.target wg-quick@wg0.service
-   Wants=wg-quick@wg0.service
-
-   [Service]
-   Type=simple
-   ExecStart=/opt/zt-worker/zt-agent --config /opt/zt-worker/agent-config.json
-   Restart=always
-   RestartSec=5s
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-4. Kích hoạt dịch vụ:
-   ```bash
-   # [WORKER]
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now zt-agent.service
-   ```
-
----
-
-### TRƯỜNG HỢP 3: Máy vật lý (Bare-Metal / Linux ARM64 / TV box)
-
-Trường hợp máy vật lý dùng chung mạng với các dịch vụ khác (ví dụ TV box Armbian đang chạy sẵn cụm dịch vụ cũ hoặc có dải IP trùng lặp), giải pháp tối ưu và an toàn nhất là sử dụng **Linux Network Namespace (`netns`)** để cô lập hoàn toàn giao diện WireGuard và Mini-Agent, không gây xung đột với bất kỳ tiến trình nào trên máy host.
-
-#### Bước P1. Đăng ký node trên Gateway `[GATEWAY]`
-Thực hiện các bước `prepare` và `register` tương tự Trường hợp 2 với tên node và IP riêng (ví dụ `node-armbian-01`, IP `10.100.0.5`).
-
-#### Bước P2. Thiết lập Network Namespace cô lập trên máy vật lý `[WORKER]`
-Tạo script điều khiển `/opt/zt-worker/zt-worker-manager.sh`:
-```bash
-#!/bin/bash
-set -euo pipefail
-
-NETNS="zt-worker"
-CONF="/opt/zt-worker/zt-worker.conf"
-NODE_IP="10.100.0.5"
-GW_IP="10.100.0.1"
-
-start() {
-    # 1. Tạo network namespace
-    if ! ip netns list | grep -qw "$NETNS"; then
-        ip netns add "$NETNS"
-    fi
-    ip netns exec "$NETNS" ip link set lo up
-
-    # 2. Xóa interface cũ nếu tồn tại
-    if ip netns exec "$NETNS" ip link show wg0 &>/dev/null; then
-        ip netns exec "$NETNS" ip link del wg0 || true
-    fi
-
-    # 3. Tạo interface WireGuard và chuyển vào namespace
-    ip link add dev wg0 type wireguard
-    ip link set wg0 netns "$NETNS"
-
-    # 4. Áp dụng cấu hình và định tuyến
-    grep -vE '^\s*Address' "$CONF" | ip netns exec "$NETNS" wg setconf wg0 /dev/stdin
-    ip netns exec "$NETNS" ip addr add "${NODE_IP}/32" dev wg0
-    ip netns exec "$NETNS" ip link set wg0 up
-    ip netns exec "$NETNS" ip route add "${GW_IP}/32" dev wg0
-
-    # 5. Khởi động OpenSSH daemon riêng trong namespace
-    if ! ip netns exec "$NETNS" pgrep -f sshd_config_ztworker &>/dev/null; then
-        ip netns exec "$NETNS" /usr/sbin/sshd -f /etc/ssh/sshd_config_ztworker
-    fi
-
-    # 6. Chạy Mini-Agent
-    exec ip netns exec "$NETNS" /opt/zt-worker/zt-agent --config /opt/zt-worker/agent-config.json
-}
-
-stop() {
-    PID=$(ip netns exec "$NETNS" pgrep -f sshd_config_ztworker || true)
-    if [ -n "$PID" ]; then
-        kill "$PID" || true
-    fi
-    if ip netns list | grep -qw "$NETNS"; then
-        ip netns exec "$NETNS" ip link del wg0 2>/dev/null || true
-        ip netns del "$NETNS" || true
-    fi
-}
-
-case "${1:-start}" in
-    start) start ;;
-    stop) stop ;;
-    *) echo "Usage: $0 {start|stop}"; exit 1 ;;
-esac
-```
-Phân quyền:
-```bash
-# [WORKER]
-sudo chmod 755 /opt/zt-worker/zt-worker-manager.sh
+```sh
+id ztuser || useradd -m -s /bin/bash ztuser
+usermod -p '*' ztuser
+install -d -m 700 -o ztuser -g ztuser /home/ztuser/.ssh
+install -m 600 -o ztuser -g ztuser /root/worker-bundle/bastion_id_ed25519.pub /home/ztuser/.ssh/authorized_keys
 ```
 
-#### Bước P3. Tạo systemd unit quản lý `[WORKER]`
-Tạo file `/etc/systemd/system/zt-worker.service`:
+Máy riêng mới: sao lưu `/etc/ssh/sshd_config`, dùng template
+`deploy/linux/sshd-worker.conf`, thay `ListenAddress` đúng overlay. Template
+chỉ cho key-auth từ Gateway, không root/password/forwarding. Kiểm tra trước
+khi restart; giữ console để phục hồi. Dùng template làm cấu hình chính tránh
+`ListenAddress` cũ còn hiệu lực qua include; bảo toàn cấu hình cũ riêng.
+
+```sh
+cp -an /etc/ssh/sshd_config /etc/ssh/sshd_config.before-zt
+install -m 600 deploy/linux/sshd-worker.conf /etc/ssh/sshd_config
+# Sửa ListenAddress trong /etc/ssh/sshd_config theo IP Worker trước lệnh sau.
+sshd -t
+systemctl restart ssh
+```
+
+Để SSH chờ overlay sau reboot, tạo `/etc/systemd/system/ssh.service.d/zt.conf`:
+
 ```ini
 [Unit]
-Description=ZT-ServerOps Worker (Isolated Namespace)
-After=network.target network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/opt/zt-worker/zt-worker-manager.sh start
-ExecStop=/opt/zt-worker/zt-worker-manager.sh stop
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-```
-Kích hoạt tự chạy khi khởi động máy:
-```bash
-# [WORKER]
-sudo systemctl daemon-reload
-sudo systemctl enable --now zt-worker.service
+Wants=wg-quick@zt-worker.service
+After=wg-quick@zt-worker.service
 ```
 
----
+Firewall: sao lưu ruleset, sửa bản sao của `deploy/linux/nftables-worker.conf`
+cho đúng interface `zt-worker` và NIC transport (template cũ dùng `wg0`,
+`enp1s0`). Kiểm tra bằng `nft -c -f <file>` trước khi cài vào cấu hình
+nftables của máy riêng. Không flush hoặc chèn đè ruleset máy đang có dịch vụ.
+Rule cho SSH chỉ từ Gateway trên overlay; NAT không thay thế host firewall.
+Dùng IPv4/IPv6 độc lập khi kiểm, không kết luận Internet isolation từ một
+lệnh ping thất bại.
 
-## 5. Bảng kiểm tra nghiệm thu (Verification Checklist)
+Cài Agent bằng binary đã build. Các lệnh sau chạy **trong root shell**, token
+đọc từ file, không nằm trong argv/history. Installer giữ `.env` khi cài lại:
 
-Sau khi hoàn tất cài đặt, bắt buộc thực hiện kiểm chứng theo 5 bước dưới đây:
+```sh
+read -r NODE_TOKEN < /root/worker-bundle/node.token
+export NODE_TOKEN
+export NODE_ID=node-linux-01 NETWORK_INTERFACE=zt-worker DISK_MOUNT_POINT=/
+export GATEWAY_URL=http://10.100.0.1:3000
+export ZT_AGENT_BINARY=/root/zt-agent-linux-amd64
+bash agent/install.sh
+unset NODE_TOKEN
+systemctl daemon-reload
+systemctl is-active zt-agent wg-quick@zt-worker ssh
+curl --noproxy '*' -m 5 http://10.100.0.1:3000/readyz
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
 
-### 1. Kiểm tra kết nối WireGuard
-Trên Worker, chạy lệnh:
-- Linux thông thường: `sudo wg show`
-- Linux dùng Namespace: `sudo ip netns exec zt-worker wg show`
-- Windows: Xem trạng thái Tunnel trong ứng dụng WireGuard GUI hoặc `Get-Service WireGuardTunnel$zt-worker`.
+Với máy vật lý đổi `NODE_ID`, IP và binary arm64 nếu cần. Agent chạy bằng
+`zt-agent`, không root. Service thật là `zt-agent.service`; đường cài
+`/opt/zt-serverops/agent`, khác các script chuyển TV box cũ.
 
-*Tiêu chí đạt:* Thấy dòng `latest handshake` dưới 30 giây, số bytes `transfer` gửi và nhận đều tăng dần.
+## 5. Đăng ký trên Gateway, sau khi có trusted PUBLIC host key
 
-### 2. Kiểm tra Telemetry trên Dashboard
-1. Truy cập Dashboard ZT-ServerOps qua trình duyệt.
-2. Tại menu **Máy chủ (Fleet)**:
-   - Node mới xuất hiện với tên đã đăng ký (ví dụ `node-windows-01`, `node-armbian-01`).
-   - Cột **Trạng thái** hiển thị badge xanh `HEALTHY` (Online).
-   - Chỉ số **CPU**, **RAM**, **Disk** và **Uptime** hiển thị số đo thực tế và cập nhật đều đặn mỗi 3 giây.
-   - Nhịp `heartbeat age` luôn duy trì dưới 4 giây.
+```sh
+python3 deploy/scripts/register-node.py --project zt_ec2 --env-file keys/ec2.env register \
+  --bundle keys/linux-worker-01 \
+  --host-public-key keys/linux-worker-01/host_ed25519.pub --ssh-user ztuser
+```
 
-### 3. Kiểm tra Web SSH Terminal
-1. Đăng nhập vào Dashboard bằng tài khoản có quyền `ADMIN`.
-2. Bấm nút **Mở Web SSH** tại dòng máy chủ vừa thêm.
-3. Cửa sổ dòng lệnh Terminal bật lên:
-   - Thấy banner hệ điều hành của node đích.
-   - Dấu nhắc hiển thị đúng `ztuser@<node-name>:~$`.
-   - Chạy lệnh kiểm tra: `whoami`, `uname -a`, `df -h`.
-   - Gõ `exit` để đóng phiên terminal an toàn.
-4. Đăng nhập bằng tài khoản `VIEWER`: Xác nhận nút **Mở Web SSH** bị ẩn/vô hiệu hóa hoàn toàn.
+Làm tương tự với Windows/máy thật và bundle riêng. Không lấy pin bằng
+`ssh-keyscan` trên mạng chưa tin cậy. `register` chạy lại cùng bundle + pin
+sẽ giữ danh tính; nếu khác token/IP/name/type/pin hoặc đã thu hồi thì từ chối.
+Không sửa host pin chỉ để bỏ qua lỗi xác thực.
 
-### 4. Kiểm tra Cảnh báo Sự cố & Phục hồi Telegram (Offline -> Online)
-1. Thử ngắt kết nối Worker (dừng service: `sudo systemctl stop zt-worker` hoặc tắt card mạng).
-2. Quan sát trên Dashboard: Sau khoảng 15 giây, trạng thái chuyển sang màu vàng `STALE`.
-3. Sau khoảng 30–35 giây: Trạng thái chuyển sang màu đỏ `OFFLINE`.
-4. Bot Telegram gửi thông báo khẩn cấp:
-   ```text
-   🚨 [ZT-ServerOps] CẢNH BÁO MẤT TÍN HIỆU
-   Máy chủ: <TEN_NODE>
-   IP: 10.100.0.x
-   Mức độ: CRITICAL
-   Thời gian không nhận tín hiệu: 30s
-   ```
-5. Bật lại dịch vụ Worker: `sudo systemctl start zt-worker`.
-6. Quan sát Telegram: Sau 3–5 giây, Bot gửi ngay thông báo phục hồi:
-   ```text
-   ✅ [ZT-ServerOps] MÁY CHỦ ĐÃ KẾT NỐI LẠI
-   Máy chủ: <TEN_NODE>
-   IP: 10.100.0.x
-   Trạng thái: HEALTHY (Online)
-   Thời gian gián đoạn: 35s
-   ```
+## 6. Nghiệm thu và thay/gỡ máy
 
-### 5. Kiểm tra Khả năng Tự Khởi Động (Reboot Verification)
-1. Khởi động lại máy Worker: `sudo reboot` (Linux) hoặc `Restart-Computer` (Windows).
-2. Sau khi máy khởi động lại xong:
-   - Dịch vụ WireGuard và Agent tự động chạy ngầm mà không cần người dùng đăng nhập Desktop.
-   - Dashboard tự động ghi nhận máy trở lại `HEALTHY` sau 5–10 giây.
-   - Kiểm tra mức tiêu thụ RAM thực tế của tiến trình Agent: đảm bảo duy trì trong khoảng **4MB – 12MB RAM**, không gây quá tải cho hệ thống.
+Ghi bằng chứng đúng môi trường, theo [checklist](../docs/ACCEPTANCE.md):
 
----
+1. WireGuard có handshake mới và byte hai chiều tăng; `/readyz` xác nhận DB.
+2. Dashboard thấy CPU/RAM/disk/uptime thật; Agent ACK đều theo nhịp cấu hình.
+3. Admin mở Web SSH, `whoami` đúng máy; Viewer gọi trực tiếp API SSH bị chặn.
+4. Thử mất/khôi phục kết nối trên node lab, đối chiếu ngưỡng thực tế từ env;
+   Telegram mặc định giả lập trong lab, không tự gửi vào nhóm thật.
+5. Reboot từng Worker; service tự chạy và danh tính giữ nguyên. Đo RSS thực,
+   không coi ngân sách Go heap là RSS. Ghi số đo thay vì cam kết sẵn 4–12MB.
+6. Từ máy ngoài độc lập thử cổng Worker, cả IPv4/IPv6 nếu có; chứng minh probe
+   đến đúng host. Chưa làm thì ghi CHƯA KIỂM CHỨNG.
 
-## 6. Xử lý sự cố thường gặp (Troubleshooting) & Khôi phục (Rollback)
+**Nâng Agent:** dùng cùng installer, giữ bundle/token/host key; Windows mặc
+định giữ config, Linux giữ `.env`. Kiểm lại ACK và Web SSH sau thay binary.
+**Thay hẳn máy:** dùng name/IP/bundle mới; không sao chép danh tính máy cũ.
 
-| Hiện tượng | Nguyên nhân gốc rễ | Hướng khắc phục |
-| :--- | :--- | :--- |
-| **WireGuard không handshake** (transfer: 0 B received) | Sai public key của Gateway, hoặc cổng UDP 51820 trên Gateway bị chặn bởi Security Group / Firewall. | Kiểm tra lại Endpoint trong file conf. Đảm bảo Security Group của Gateway EC2 đã mở Inbound `Custom UDP 51820`. |
-| **Agent báo `beacon connection failed`** | Interface WireGuard chưa có route tới `10.100.0.1`, hoặc Gateway Fastify chưa lắng nghe. | Kiểm tra `ip route` xem `10.100.0.1` có trỏ qua interface VPN không. Thử `curl http://10.100.0.1:3000/healthz`. |
-| **Web SSH báo `All configured authentication methods failed`** | Tài khoản `ztuser` trên Linux vừa tạo bị khóa mật khẩu (`Account is locked`), hoặc quyền tệp `.ssh` sai. | Chạy lệnh `sudo usermod -p '*' ztuser` để mở khóa cho SSH key auth. Đảm bảo quyền `chmod 700 ~/.ssh` và `chmod 600 ~/.ssh/authorized_keys`. |
-| **Web SSH báo `Host key verification failed`** | Khóa host trên máy Worker bị thay đổi hoặc không khớp với vân tay SHA256 đã đăng ký ban đầu. | Cơ chế chống tấn công giả mạo (MITM) đang hoạt động. Cần kiểm tra lại tệp `ssh_host_ed25519_key.pub` trên Worker và cập nhật lại fingerprint qua CLI. |
+**Gỡ:** đóng Web SSH đang mở; trên Gateway thu hồi token trước, gỡ đúng public
+peer cả cấu hình lưu và runtime, không xóa DB/nhật ký để giữ lịch sử. Chỉ làm
+trên node được chọn và sao lưu trước; không xóa khóa Gateway hoặc peer khác.
+Windows dùng `restore-worker.ps1 -DedicatedVm` để khôi phục SSH/firewall theo
+setup-state; Agent gỡ riêng bằng dừng/xóa `ZTServerOpsAgent` sau khi đã sao lưu
+config. Linux dừng/disable `zt-agent` và đúng `wg-quick@zt-worker`, khôi phục
+SSH/firewall từ bản trước khi cài, giữ console và kiểm đường quản trị rồi mới
+xóa file của node. TV namespace dùng đúng lifecycle riêng đã cài; không gỡ
+bằng các lệnh cho Worker Linux thông thường.
 
-### Hướng dẫn Hủy đăng ký / Khôi phục (Rollback)
-Nếu muốn gỡ bỏ một node khỏi hệ thống:
-1. **Trên Gateway**:
-   - Xóa peer trong `keys/wg0-gateway.conf`.
-   - Áp dụng thay đổi ngay lập tức: `docker compose exec wireguard_gateway wg set wg0 peer <PUBLIC_KEY_CUA_NODE> remove`.
-   - Thu hồi token hoặc xóa node trong Database:
-     ```sql
-     UPDATE nodes SET is_token_revoked = true, status = 'OFFLINE' WHERE name = '<TEN_NODE>';
-     ```
-2. **Trên Worker**:
-   - Dừng và vô hiệu hóa service:
-     - Linux: `sudo systemctl disable --now zt-worker.service` (hoặc `zt-agent.service`).
-     - Windows: Chạy script `deploy\windows\restore-worker.ps1 -DedicatedVm` để phục hồi nguyên trạng tường lửa và cấu hình SSH cũ.
+Tài liệu này mô tả quy trình; không phải bằng chứng Windows/Linux VM mới đã
+được cài, reboot hoặc kiểm firewall thành công.

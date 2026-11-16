@@ -23,6 +23,7 @@ export interface AuthUserPayload {
   username: string;
   role: 'ADMIN' | 'VIEWER';
   session_version: number;
+  jti?: string;
   exp?: number;
   authExpiresAt?: number;
 }
@@ -73,13 +74,21 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply): Pr
     });
   }
 
+  if (payload.jti !== undefined && (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.jti)
+    || typeof payload.exp !== 'number')) {
+    return reply.status(401).send({ status: 401, code: 'INVALID_TOKEN', title: 'Phiên không hợp lệ',
+      detail: 'Yêu cầu đăng nhập lại.' });
+  }
+
   // 2. Xác thực trạng thái tài khoản và phiên với CSDL theo chuẩn Zero Trust Fail-Closed
   let dbUser: any;
   try {
-    const userRes = await query(
-      'SELECT id, username, role, is_active, session_version FROM users WHERE id = $1 LIMIT 1;',
-      [payload.id]
-    );
+    const userRes = payload.jti
+      ? await query(`SELECT id, username, role, is_active, session_version,
+          EXISTS (SELECT 1 FROM revoked_auth_sessions r WHERE r.jti = $2::uuid
+            AND r.user_id = users.id AND r.expires_at > now()) AS session_revoked
+          FROM users WHERE id = $1 LIMIT 1;`, [payload.id, payload.jti])
+      : await query('SELECT id, username, role, is_active, session_version FROM users WHERE id = $1 LIMIT 1;', [payload.id]);
 
     if (userRes.rows.length === 0 || !userRes.rows[0].is_active) {
       return reply.status(403).send({
@@ -105,7 +114,7 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply): Pr
   }
 
   // 3. Kiểm tra tính hợp lệ của phiên làm việc (Session Revocation / Logout Invalidation)
-  if (Number(dbUser.session_version) !== Number(payload.session_version)) {
+  if (dbUser.session_revoked === true || Number(dbUser.session_version) !== Number(payload.session_version)) {
     return reply.status(401).send({
       type: 'https://tools.ietf.org/html/rfc7807',
       title: 'Phiên làm việc đã bị thu hồi',
@@ -123,6 +132,7 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply): Pr
     username: dbUser.username,
     role: dbUser.role as 'ADMIN' | 'VIEWER',
     session_version: dbUser.session_version,
+    jti: payload.jti,
     exp: expSeconds,
     authExpiresAt,
   };

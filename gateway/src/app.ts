@@ -12,11 +12,17 @@ import { bastionRoutes } from './routes/bastion.js';
 import { auditRoutes } from './routes/audit.js';
 import { hostRoutes } from './routes/host.js';
 import { telegramRoutes } from './routes/telegram.js';
+import { usersRoutes } from './routes/users.js';
+import { incidentsRoutes } from './routes/incidents.js';
 
 export async function buildServer(): Promise<FastifyInstance> {
   const fastify = Fastify({
     logger: process.env.NODE_ENV === 'test' ? false : {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+      redact: {
+        paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+        censor: '[REDACTED]',
+      },
     },
     // Only the configured Caddy peer may supply the client IP through X-Forwarded-For.
     trustProxy: config.TRUSTED_PROXY_IP || false,
@@ -24,22 +30,20 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // Install before routes: encapsulated plugins inherit the error handler at registration.
   fastify.setErrorHandler((error, req, reply) => {
-    req.log.error(error);
-
     // Fastify 5 exposes thrown values as unknown; non-Error throws remain a 500.
     const requestError = error instanceof Error ? error as FastifyError : undefined;
     const statusCode = requestError?.statusCode || 500;
     // BẢO MẬT: Không rò rỉ chi tiết lỗi CSDL hay stack trace ra ngoài nếu là lỗi 500 ở Production
-    const isProd = config.NODE_ENV === 'production';
-    const detail = (statusCode >= 500 && isProd)
+    req.log.error({ statusCode, request_id: req.id }, 'Request failed');
+    const detail = statusCode >= 500
       ? 'Đã xảy ra lỗi nội bộ trên hệ thống'
       : (requestError?.message || 'Đã xảy ra lỗi nội bộ trên hệ thống');
 
     reply.status(statusCode).send({
       type: 'https://tools.ietf.org/html/rfc7807',
-      title: requestError?.name || 'Lỗi xử lý yêu cầu',
+      title: statusCode >= 500 ? 'Lỗi xử lý yêu cầu' : requestError?.name || 'Lỗi xử lý yêu cầu',
       status: statusCode,
-      code: requestError?.code || 'INTERNAL_ERROR',
+      code: statusCode >= 500 ? 'INTERNAL_ERROR' : requestError?.code || 'INTERNAL_ERROR',
       detail,
       request_id: req.id,
       timestamp: new Date().toISOString(),
@@ -47,14 +51,23 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await fastify.register(cors, {
-    origin: true,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    origin: false, // Dashboard and API share one origin; Agents do not need CORS.
   });
 
   await fastify.register(rateLimit, {
-    max: 120, // Tối đa 120 yêu cầu mỗi phút trên mỗi địa chỉ IP
+    max: 120,
     timeWindow: '1 minute',
+    keyGenerator: async (request) => {
+      // Never let an unverified JWT/header select a different rate-limit bucket.
+      // Login remains IP-limited even when the caller supplies an existing JWT.
+      if (request.routeOptions.url !== '/api/auth/login' && request.headers.authorization) {
+        try {
+          const identity = await request.jwtVerify<{ id: string }>();
+          if (typeof identity.id === 'string') return `user:${identity.id}`;
+        } catch { /* Invalid/expired credentials share the ordinary IP bucket. */ }
+      }
+      return `ip:${request.ip}`;
+    },
     errorResponseBuilder: (_req, context) => Object.assign(new Error(
       `Bạn đã vượt quá giới hạn ${context.max} yêu cầu trong 1 phút. Vui lòng thử lại sau.`
     ), {
@@ -89,7 +102,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!dbHealth.healthy) {
       return reply.status(503).send({
         status: 'DOWN',
-        database: dbHealth,
+        database: { healthy: false, latencyMs: dbHealth.latencyMs },
         timestamp: new Date().toISOString(),
       });
     }
@@ -109,6 +122,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(auditRoutes, { prefix: '/api/audit' });
   await fastify.register(hostRoutes, { prefix: '/api' });
   await fastify.register(telegramRoutes, { prefix: '/api/telegram' });
+  await fastify.register(usersRoutes, { prefix: '/api/users' });
+  await fastify.register(incidentsRoutes, { prefix: '/api/incidents' });
 
   return fastify;
 }

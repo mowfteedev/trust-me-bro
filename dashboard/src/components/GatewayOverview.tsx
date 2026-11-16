@@ -5,6 +5,7 @@ import type { HostService, HostServiceState, HostSnapshot, UserSession } from ".
 import { formatBytes, formatDateTime, formatTime, formatUptime } from "../utils/format.js";
 import { appendHostHistory, type HostHistoryPoint, type HostResource } from "../utils/hostHistory.js";
 import { HostResourceTrend } from "./HostResourceTrend.js";
+import { startVisiblePolling } from "../utils/visiblePolling.js";
 
 const states: Record<HostServiceState, string> = {
   healthy: "Ổn định", running: "Đang chạy", unhealthy: "Lỗi kiểm tra",
@@ -84,9 +85,8 @@ export const GatewayOverview: React.FC<Props> = ({ currentUser, onNavigateFleet,
       }
     };
     refresh.current = load;
-    void load();
-    const timer = setInterval(load, 5000);
-    return () => { active = false; refresh.current = null; clearInterval(timer); };
+    const stop = startVisiblePolling(load, 5000);
+    return () => { active = false; refresh.current = null; stop(); };
   }, []);
 
   const host = snapshot?.host;

@@ -24,6 +24,11 @@ import { AuditLogPage, UserSession } from "../types/index.js";
 import { formatTime } from "../utils/format.js";
 
 const events = [
+  { value: 'CPU_RECOVERED', label: 'CPU trở lại bình thường', icon: Check, tone: 'auth' },
+  { value: 'USER_CREATED', label: 'Tạo tài khoản', icon: Shield, tone: 'auth' },
+  { value: 'USER_UPDATED', label: 'Đổi quyền hoặc khóa tài khoản', icon: Shield, tone: 'warning' },
+  { value: 'USER_PASSWORD_RESET', label: 'Đặt lại mật khẩu', icon: Shield, tone: 'warning' },
+  { value: 'PASSWORD_CHANGED', label: 'Đổi mật khẩu', icon: Shield, tone: 'auth' },
   {
     value: "LOGIN_FAILED",
     label: "Đăng nhập thất bại",
@@ -81,6 +86,9 @@ const events = [
   },
 ];
 const detailLabels: Record<string, string> = {
+  username: 'Tài khoản được cập nhật',
+  is_active: 'Đang hoạt động',
+  scope: 'Phạm vi đăng xuất',
   attempted_username: "Tài khoản thử đăng nhập",
   session_id: "ID phiên SSH",
   reason: "Lý do",
@@ -611,7 +619,9 @@ export const AuditLog: React.FC<AuditLogProps> = ({ initialFilters, onOpenNode, 
                                               "vi-VN",
                                             )
                                           : "Chưa nhận heartbeat"
-                                        : value}
+                                        : key === 'scope'
+                                          ? value === 'current' ? 'Thiết bị hiện tại' : 'Tất cả thiết bị'
+                                          : typeof value === 'boolean' ? value ? 'Có' : 'Không' : value}
                                   </dd>
                                 </div>
                               ))}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../services/api.js";
 import { MetricSnapshot } from "../types/index.js";
+import { startVisiblePolling } from "../utils/visiblePolling.js";
 
 export function useNodeHistory(nodeId: string | undefined) {
   const [metricsHistory, setMetricsHistory] = useState<MetricSnapshot[]>([]);
@@ -30,11 +31,10 @@ export function useNodeHistory(nodeId: string | undefined) {
         if (isCurrent) setHistoryLoading(false);
       }
     };
-    fetchHistory();
-    const historyTimer = setInterval(fetchHistory, 3000);
+    const stop = startVisiblePolling(fetchHistory, 5000);
     return () => {
       isCurrent = false;
-      clearInterval(historyTimer);
+      stop();
     };
   }, [nodeId]);
 

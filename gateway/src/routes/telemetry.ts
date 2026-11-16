@@ -4,7 +4,8 @@ import { query, getClient } from '../services/db.js';
 import { hashToken, timingSafeCompare } from '../utils/crypto.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
 import { config } from '../config/env.js';
-import { telegramService } from '../services/telegram.js';
+import { enqueueAlertNotification } from '../services/alert-delivery.js';
+import { formatTelegramAlert, formatTelegramRecovery, formatTelegramCpuRecovery } from '../services/telegram-message.js';
 
 /**
  * ==============================================================================
@@ -177,7 +178,6 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
 
       // 7. Ghi nhận số liệu và cập nhật Liveness trong 1 ACID Transaction duy nhất
       let cpuAlertMessage: string | undefined;
-      let recoveredOffline: { resolved_at: Date }[] = [];
       let heartbeatGapSeconds: number | null = null;
       const client = await getClient();
       try {
@@ -240,7 +240,10 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
            RETURNING id, resolved_at;`,
           [node.id]
         );
-        recoveredOffline = recovered.rows;
+        for (const incident of recovered.rows) {
+          await enqueueAlertNotification(client, incident.id, 'RECOVERY', formatTelegramRecovery(
+            node.name, node.ip_address, heartbeatGapSeconds, new Date(incident.resolved_at)));
+        }
         if (beacon.cpu.percent >= config.CPU_ALERT_THRESHOLD_PERCENT) {
           const active = await client.query(
             `SELECT id FROM alerts WHERE node_id = $1 AND resolved_at IS NULL
@@ -248,10 +251,12 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
           );
           if (active.rows.length === 0) {
             cpuAlertMessage = `CPU_HIGH: ${node.name} CPU ${beacon.cpu.percent}% >= ${config.CPU_ALERT_THRESHOLD_PERCENT}%.`;
-            await client.query(
-              `INSERT INTO alerts (node_id, severity, message) VALUES ($1, 'WARNING', $2);`,
+            const created = await client.query(
+              `INSERT INTO alerts (node_id, severity, message) VALUES ($1, 'WARNING', $2) RETURNING id;`,
               [node.id, cpuAlertMessage]
             );
+            await enqueueAlertNotification(client, created.rows[0].id, 'OPEN',
+              formatTelegramAlert(node.name, 'WARNING', cpuAlertMessage));
             await client.query(
               `INSERT INTO audit_logs (node_id, action, target, details)
                VALUES ($1, 'CPU_HIGH', $2, $3);`,
@@ -259,10 +264,20 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
             );
           }
         } else if (beacon.cpu.percent < config.CPU_RECOVERY_THRESHOLD_PERCENT) {
-          await client.query(
+          const recoveredCpu = await client.query(
             `UPDATE alerts SET resolved_at = now()
-             WHERE node_id = $1 AND resolved_at IS NULL AND message LIKE 'CPU_HIGH:%';`, [node.id]
+             WHERE node_id = $1 AND resolved_at IS NULL AND message LIKE 'CPU_HIGH:%'
+             RETURNING id, resolved_at;`, [node.id]
           );
+          for (const incident of recoveredCpu.rows) {
+            await enqueueAlertNotification(client, incident.id, 'RECOVERY', formatTelegramCpuRecovery(
+              node.name, beacon.cpu.percent, config.CPU_RECOVERY_THRESHOLD_PERCENT, new Date(incident.resolved_at)));
+            await client.query(
+              `INSERT INTO audit_logs (node_id, action, target, details)
+               VALUES ($1, 'CPU_RECOVERED', $2, $3);`,
+              [node.id, node.name, JSON.stringify({ cpu_percent: beacon.cpu.percent, threshold: config.CPU_RECOVERY_THRESHOLD_PERCENT })],
+            );
+          }
         }
         await client.query('COMMIT');
       } catch (txErr) {
@@ -272,20 +287,8 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
         client.release();
       }
 
-      // Telegram delivery must not delay the 3-second telemetry heartbeat.
-      // UPDATE ... RETURNING claims each incident once under the node lock; notify only after commit.
-      for (const incident of recoveredOffline) {
-        void telegramService.sendRecovery(node.name, node.ip_address, heartbeatGapSeconds,
-          new Date(incident.resolved_at)).catch((err) => {
-          req.log.warn({ err }, 'Không thể gửi thông báo phục hồi; sự cố đã đóng trong DB');
-        });
-      }
-      if (cpuAlertMessage) {
-        void telegramService.sendAlert(node.name, 'WARNING', cpuAlertMessage).catch((err) => {
-          req.log.warn({ err }, 'Không thể gửi cảnh báo CPU; cảnh báo đã lưu trong DB');
-        });
-      }
-
+      // Notification intents were committed with the incident; the runtime queue sends them.
+      // No external request is awaited on this 3-second heartbeat path.
       return reply.status(200).send({
         success: true,
         node_id: node.name,

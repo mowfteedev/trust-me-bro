@@ -8,6 +8,40 @@ export interface UserSession {
   role: UserRole;
 }
 
+export interface ManagedUser extends UserSession {
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeliveryStatus {
+  status: 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED' | 'DRY_RUN' | 'DISABLED';
+  attempts: number;
+  last_attempt_at: string | null;
+  last_error: string | null;
+}
+
+export interface Incident {
+  id: string;
+  node_id: string;
+  node_name: string | null;
+  ip_address: string | null;
+  type: 'NODE_OFFLINE' | 'CPU_HIGH' | 'OTHER';
+  severity: string;
+  message: string;
+  created_at: string;
+  resolved_at: string | null;
+  duration_seconds: number;
+  opening_delivery: DeliveryStatus | null;
+  recovery_delivery: DeliveryStatus | null;
+}
+
+export interface IncidentPage {
+  success: boolean;
+  data: Incident[];
+  pagination: { page: number; page_size: number; total: number; total_pages: number };
+}
+
 export interface NodeItem {
   id: string;
   name: string;

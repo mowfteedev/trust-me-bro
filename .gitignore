@@ -38,6 +38,12 @@ evidence*/
 
 # Tài liệu và bộ nhớ chỉ giữ cục bộ
 /docs/
+!/docs/
+/docs/*
+!/docs/IMPROVEMENT-PLAN.md
+!/docs/OPERATIONS.md
+!/docs/ACCEPTANCE.md
+!/docs/RENOVATION-RESULTS.md
 /.memory/
 /*.md
 !/README.md

@@ -1,11 +1,14 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { verifyPassword } from '../utils/crypto.js';
 import { query } from '../services/db.js';
 import { config } from '../config/env.js';
 import { authenticate, AuthUserPayload } from '../middlewares/auth.middleware.js';
 import { normalizeClientIp } from '../utils/client-ip.js';
-import { revokeUserSessions } from '../services/bastion/registry.js';
+import { revokeUserSessions, revokeAuthSessionSessions } from '../services/bastion/registry.js';
+import { changeAccountPassword } from '../services/user-management.js';
+import { accountFailure, NewPasswordSchema } from './users.js';
 
 /**
  * ==============================================================================
@@ -17,12 +20,16 @@ import { revokeUserSessions } from '../services/bastion/registry.js';
 
 const LoginRequestSchema = z.object({
   username: z.string().min(1, 'Tên đăng nhập không được để trống').max(50),
-  password: z.string().min(1, 'Mật khẩu không được để trống'),
+  password: z.string().min(1, 'Mật khẩu không được để trống').max(128),
 });
 
 const DUMMY_HASH = 'c0ffee00deadbeef1337c0ffee00dead:c0ffee00deadbeef1337c0ffee00deadbeef1337c0ffee00deadbeef1337c0ffee00deadbeef1337c0ffee00deadbeef1337c0ffee00deadbeef1337c0ffee00deadbeef';
 
 export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
+  fastify.addHook('onSend', async (_req, reply, payload) => {
+    reply.header('Cache-Control', 'no-store');
+    return payload;
+  });
   /**
    * POST /api/auth/login
    * Đăng nhập và phát hành JSON Web Token (HMAC-SHA256) kèm session_version
@@ -110,6 +117,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         username: user.username,
         role: user.role,
         session_version: Number(user.session_version) || 1,
+        jti: randomUUID(),
       };
 
       const token = fastify.jwt.sign(payload, {
@@ -156,27 +164,32 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     }
   });
 
-  /**
-   * POST /api/auth/logout
-   * Thu hồi toàn bộ phiên làm việc phía máy chủ bằng cách tăng session_version (Server-Side Session Revocation)
-   */
-  fastify.post('/logout', { preHandler: [authenticate] }, async (req, reply) => {
+  // Legacy JWTs without jti retain their previous all-device logout behavior.
+  const logoutHandler = (allDevices: boolean) => async (req: Parameters<typeof authenticate>[0], reply: Parameters<typeof authenticate>[1]) => {
     const user = req.user as AuthUserPayload;
     try {
-      const revoked = await query(
-        'UPDATE users SET session_version = session_version + 1, updated_at = NOW() WHERE id = $1 RETURNING session_version;',
-        [user.id]
-      );
-      const currentVersion = Number(revoked.rows[0]?.session_version);
-      if (!Number.isSafeInteger(currentVersion) || currentVersion < 1) throw new Error('Session revocation returned no valid version');
-      revokeUserSessions(user.id, currentVersion);
+      const scope = allDevices || !user.jti ? 'all' : 'current';
+      if (scope === 'all') {
+        const revoked = await query(
+          'UPDATE users SET session_version = session_version + 1, updated_at = NOW() WHERE id = $1 RETURNING session_version;',
+          [user.id]
+        );
+        const currentVersion = Number(revoked.rows[0]?.session_version);
+        if (!Number.isSafeInteger(currentVersion) || currentVersion < 1) throw new Error('Session revocation returned no valid version');
+        revokeUserSessions(user.id, currentVersion);
+      } else {
+        await query(`INSERT INTO revoked_auth_sessions (jti, user_id, expires_at)
+          VALUES ($1::uuid, $2, to_timestamp($3)) ON CONFLICT (jti) DO NOTHING;`, [user.jti, user.id, user.exp]);
+        revokeAuthSessionSessions(user.jti!);
+        await query('DELETE FROM revoked_auth_sessions WHERE expires_at <= now();');
+      }
 
       const clientIp = normalizeClientIp(req.ip);
       try {
         await query(
           `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
            VALUES ($1, 'LOGOUT_SUCCESS', 'auth', $2, $3::inet);`,
-          [user.id, JSON.stringify({ reason: 'user_initiated_logout' }), clientIp]
+          [user.id, JSON.stringify({ reason: 'user_initiated_logout', scope }), clientIp]
         );
       } catch (auditErr: any) {
         req.log.error({ auditErr }, 'Lỗi ghi audit log khi đăng xuất - Fail-Closed kích hoạt');
@@ -191,7 +204,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
 
       return reply.status(200).send({
         success: true,
-        message: 'Đăng xuất thành công. Toàn bộ phiên làm việc của tài khoản đã bị thu hồi.',
+        scope,
+        message: scope === 'all'
+          ? 'Đã thu hồi toàn bộ phiên làm việc của tài khoản.'
+          : 'Đã đăng xuất phiên hiện tại. Các thiết bị khác vẫn đăng nhập.',
       });
     } catch (err: any) {
       req.log.error({ err }, 'Lỗi khi xử lý đăng xuất');
@@ -203,6 +219,20 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         detail: 'Không thể thu hồi phiên làm việc do lỗi kết nối cơ sở dữ liệu',
       });
     }
+  };
+  fastify.post('/logout', { preHandler: [authenticate] }, logoutHandler(false));
+  fastify.post('/logout-all', { preHandler: [authenticate] }, logoutHandler(true));
+
+  fastify.post('/change-password', { preHandler: [authenticate],
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const parsed = z.object({ current_password: z.string().min(1).max(128), new_password: NewPasswordSchema }).strict().safeParse(req.body);
+    if (!parsed.success) return reply.status(400).send({ status: 400, code: 'INVALID_REQUEST',
+      title: 'Dữ liệu không hợp lệ', detail: 'Mật khẩu mới cần từ 12 đến 128 ký tự.' });
+    try {
+      await changeAccountPassword(req.user.id, req.user.id, parsed.data.new_password,
+        normalizeClientIp(req.ip), parsed.data.current_password);
+      return { success: true, message: 'Đã đổi mật khẩu và thu hồi mọi phiên. Vui lòng đăng nhập lại.' };
+    } catch (error) { return accountFailure(error, req, reply); }
   });
 
   /**

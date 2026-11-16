@@ -6,6 +6,7 @@ interface BastionTicket {
   sessionVersion: number;
   expiresAt: number;
   authExpiresAt: number;
+  authSessionId?: string;
 }
 
 const ticketStore = new Map<string, BastionTicket>();
@@ -33,7 +34,8 @@ export function createBastionTicket(
   userId: string,
   sessionVersion: number,
   ttlSeconds = 30,
-  authExpiresAt = Date.now() + 86400000
+  authExpiresAt = Date.now() + 86400000,
+  authSessionId?: string
 ): string {
   const ticket = generateSecureToken(32);
   ticketStore.set(ticket, {
@@ -42,6 +44,7 @@ export function createBastionTicket(
     sessionVersion,
     expiresAt: Date.now() + Math.max(1000, ttlSeconds * 1000),
     authExpiresAt,
+    authSessionId,
   });
   return ticket;
 }

@@ -1,6 +1,7 @@
 import { query, getClient } from './db.js';
 import { config } from '../config/env.js';
-import { telegramService } from './telegram.js';
+import { enqueueAlertNotification } from './alert-delivery.js';
+import { formatTelegramAlert } from './telegram-message.js';
 
 /**
  * ==============================================================================
@@ -97,10 +98,12 @@ export async function runSweeperCycle(): Promise<{
         );
         markedOffline = (updateRes.rowCount ?? 0) > 0;
         if (markedOffline) {
-          await client.query(
-            `INSERT INTO alerts (node_id, severity, message) VALUES ($1, 'CRITICAL', $2);`,
+          const created = await client.query(
+            `INSERT INTO alerts (node_id, severity, message) VALUES ($1, 'CRITICAL', $2) RETURNING id;`,
             [node.id, alertMsg]
           );
+          await enqueueAlertNotification(client, created.rows[0].id, 'OPEN',
+            formatTelegramAlert(node.name, 'CRITICAL', alertMsg));
           await client.query(
             `INSERT INTO audit_logs (node_id, action, target, details)
              VALUES ($1, 'NODE_OFFLINE', $2, $3);`,
@@ -116,10 +119,6 @@ export async function runSweeperCycle(): Promise<{
       }
       if (!markedOffline) continue;
       offlineNodesDetected.push(node.name);
-      // Bounded Telegram retries run independently of the liveness sweep.
-      void telegramService.sendAlert(node.name, 'CRITICAL', alertMsg).catch((err) => {
-        console.warn('[TELEGRAM] Gửi cảnh báo offline thất bại; cảnh báo đã lưu DB:', err.message);
-      });
       console.warn(`🚨 [LIVENESS ALERT] Đã chuyển máy chủ ${node.name} sang trạng thái OFFLINE.`);
     }
 

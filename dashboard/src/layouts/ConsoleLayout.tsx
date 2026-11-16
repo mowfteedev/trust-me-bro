@@ -7,11 +7,13 @@ import {
   Menu,
   Server,
   X,
+  AlertTriangle,
+  Users,
 } from "lucide-react";
 import { Brand } from "../components/Brand.js";
 import { UserSession } from "../types/index.js";
 
-export type ConsoleTab = "dashboard" | "fleet" | "audit";
+export type ConsoleTab = "dashboard" | "fleet" | "audit" | "incidents" | "accounts";
 
 interface ConsoleLayoutProps {
   currentUser: UserSession;
@@ -135,6 +137,14 @@ export const ConsoleLayout: React.FC<ConsoleLayoutProps> = ({
             <span>Nhật ký hoạt động</span>
             <ChevronRight size={14} />
           </button>
+          <button className={`nav-item ${activeTab === 'incidents' ? 'active' : ''}`}
+            aria-current={activeTab === 'incidents' ? 'page' : undefined} onClick={() => selectTab('incidents')}>
+            <AlertTriangle size={18} /><span>Sự cố</span><ChevronRight size={14} />
+          </button>
+          <button className={`nav-item ${activeTab === 'accounts' ? 'active' : ''}`}
+            aria-current={activeTab === 'accounts' ? 'page' : undefined} onClick={() => selectTab('accounts')}>
+            <Users size={18} /><span>Tài khoản</span><ChevronRight size={14} />
+          </button>
         </nav>
       </aside>
       <div className="console-workspace">
@@ -150,7 +160,7 @@ export const ConsoleLayout: React.FC<ConsoleLayoutProps> = ({
               <Menu size={21} />
             </button>
             <strong>
-              {activeTab === "audit"
+              {activeTab === 'accounts' ? 'Tài khoản' : activeTab === 'incidents' ? 'Sự cố' : activeTab === "audit"
                 ? "Nhật ký hoạt động"
                 : activeTab === "fleet"
                   ? "Máy chủ"
