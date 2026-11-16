@@ -2,6 +2,8 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middlewares/auth.middleware.js';
 import { query } from '../services/db.js';
+import { sendSpreadsheet } from '../services/spreadsheet-export.js';
+import { exportTimestamp, MAX_EXPORT_ROWS } from '../utils/xlsx.js';
 
 const filters = z.object({
   state: z.enum(['open', 'resolved', 'all']).default('open'),
@@ -11,6 +13,32 @@ const filters = z.object({
 }).strict();
 
 export const incidentsRoutes: FastifyPluginAsync = async fastify => {
+  fastify.get('/export', { preHandler: [authenticate, authorize(['ADMIN', 'VIEWER'])] }, async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    const parsed = filters.omit({ page: true, page_size: true }).strict().safeParse(req.query);
+    if (!parsed.success) return reply.code(400).send({ code: 'INVALID_INCIDENT_FILTER', detail: 'Bộ lọc xuất sự cố không hợp lệ.' });
+    const { state, node_id } = parsed.data;
+    return sendSpreadsheet(reply, req.user.id, 'incidents', async () => {
+      const result = await query(`SELECT a.id, a.node_id, n.name AS node_name,
+          host(n.ip_address) AS ip_address, a.severity, a.message,
+          a.triggered_at AS created_at, a.resolved_at,
+          GREATEST(0, floor(EXTRACT(EPOCH FROM (COALESCE(a.resolved_at, now()) - a.triggered_at))))::int AS duration_seconds,
+          (SELECT d.status FROM alert_notifications d WHERE d.alert_id = a.id AND d.phase = 'OPEN') AS opening_status,
+          (SELECT d.status FROM alert_notifications d WHERE d.alert_id = a.id AND d.phase = 'RECOVERY') AS recovery_status
+        FROM alerts a JOIN nodes n ON n.id = a.node_id
+        WHERE ($1 = 'all' OR ($1 = 'open' AND a.resolved_at IS NULL)
+          OR ($1 = 'resolved' AND a.resolved_at IS NOT NULL))
+          AND ($2::uuid IS NULL OR a.node_id = $2::uuid)
+        ORDER BY a.triggered_at DESC, a.id DESC LIMIT $3;`, [state, node_id ?? null, MAX_EXPORT_ROWS + 1]);
+      return {
+        name: 'Sự cố', headers: ['ID', 'ID máy chủ', 'Máy chủ', 'IP WireGuard', 'Mức độ', 'Nội dung',
+          'Bắt đầu (UTC+7)', 'Phục hồi (UTC+7)', 'Trạng thái', 'Thời gian (giây)', 'Gửi cảnh báo', 'Gửi phục hồi'],
+        rows: result.rows.map(row => [row.id, row.node_id, row.node_name, row.ip_address, row.severity, row.message,
+          exportTimestamp(row.created_at), exportTimestamp(row.resolved_at), row.resolved_at ? 'Đã phục hồi' : 'Đang mở',
+          row.duration_seconds, row.opening_status, row.recovery_status]),
+      };
+    });
+  });
   fastify.get('/', { preHandler: [authenticate, authorize(['ADMIN', 'VIEWER'])] }, async (req, reply) => {
     reply.header('Cache-Control', 'no-store');
     const parsed = filters.safeParse(req.query);

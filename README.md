@@ -8,6 +8,9 @@ Worker kết nối UDP 51820, không publish SSH. [Triển khai EC2](deploy/ec2/
 Tổng quan đọc tài nguyên host Gateway qua collector chỉ đọc; trang Máy chủ
 hiển thị các Worker và Web SSH.
 
+Nhật ký và Sự cố xuất Excel `.xlsx` theo bộ lọc cho Admin/Viewer;
+tối đa 10.000 dòng mỗi tệp. Chức năng dọn nhật ký cũ đã bỏ, dữ liệu được giữ nguyên.
+
 Admin quản lý tài khoản; Viewer đọc giám sát, sự cố và nhật ký. Trang Sự cố
 hiển thị kết quả gửi Telegram và phục hồi. Đăng xuất thường đóng phiên hiện
 tại; trang Tài khoản có đổi mật khẩu và thu hồi tất cả thiết bị.
@@ -42,7 +45,7 @@ live cần token và ghép nối chat. Giữ khóa, env và database ngoài Git.
 [Kiểm chứng](docs/ACCEPTANCE.md) · [Kế hoạch](docs/IMPROVEMENT-PLAN.md)
 [Kết quả cải thiện](docs/RENOVATION-RESULTS.md)
 
-Bản cải thiện cần migration **012–013** sau 011. Sao lưu trước khi cập nhật;
+Bản hiện tại cần migration **012–014** sau 011. Sao lưu trước khi cập nhật;
 chạy migrator/provisioner đúng image rồi tạo lại Gateway cùng helper WireGuard.
 Thông báo được lưu trong PostgreSQL, tối đa ba lần thử; Telegram có thể nhận
 trùng nếu kết nối mất sau khi đã tiếp nhận tin.

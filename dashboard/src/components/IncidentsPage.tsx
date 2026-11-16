@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowUpRight, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ChevronLeft, ChevronRight, RefreshCw, Download } from 'lucide-react';
 import { api } from '../services/api.js';
 import type { DeliveryStatus, IncidentPage } from '../types/index.js';
 import { formatDateTime } from '../utils/format.js';
 import { startVisiblePolling } from '../utils/visiblePolling.js';
+import { useExcelExport } from '../hooks/useExcelExport.js';
 
 const deliveryLabels: Record<DeliveryStatus['status'], string> = {
   PENDING: 'Chờ gửi', PROCESSING: 'Đang gửi', SENT: 'Telegram đã nhận', FAILED: 'Gửi thất bại',
@@ -30,6 +31,7 @@ export function IncidentsPage({ onOpenNode, onOpenAudit }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const excel = useExcelExport();
   useEffect(() => {
     let active = true, pending = false;
     setData(null); setLoading(true); setError(null);
@@ -45,7 +47,17 @@ export function IncidentsPage({ onOpenNode, onOpenAudit }: {
   }, [state, page, revision]);
 
   return <section className="management-page" aria-labelledby="incidents-heading">
-    <div className="page-heading"><h1 id="incidents-heading"><AlertTriangle size={24} /> Sự cố</h1><button className="button secondary" aria-label="Làm mới sự cố" disabled={busy} onClick={() => setRevision(value => value + 1)}><RefreshCw size={18} className={busy ? 'animate-spin' : ''} /><span>Làm mới</span></button></div>
+    <div className="page-heading"><h1 id="incidents-heading"><AlertTriangle size={24} /> Sự cố</h1>
+      <div className="page-heading-actions">
+        <button className="button secondary" aria-label="Xuất Excel sự cố"
+          title="Xuất toàn bộ sự cố theo trạng thái đang chọn" disabled={loading || excel.exporting || !data}
+          onClick={() => void excel.run(() => api.exportIncidents(state))}>
+          <Download size={18} /><span>{excel.exporting ? 'Đang xuất…' : 'Xuất Excel'}</span>
+        </button>
+        <button className="button secondary" aria-label="Làm mới sự cố" disabled={busy} onClick={() => setRevision(value => value + 1)}><RefreshCw size={18} className={busy ? 'animate-spin' : ''} /><span>Làm mới</span></button>
+      </div>
+    </div>
+    {excel.error && <div className="notice danger" role="alert">{excel.error}</div>}
     <div className="management-toolbar"><label>Trạng thái<select value={state} onChange={event => { setState(event.target.value as typeof state); setPage(1); }}><option value="open">Đang mở</option><option value="resolved">Đã phục hồi</option><option value="all">Tất cả</option></select></label><span>{data ? `${data.pagination.total} sự cố` : ''}</span></div>
     {error && <div className="notice danger" role="alert">{error} <button className="button secondary" onClick={() => setRevision(value => value + 1)}>Thử lại</button></div>}
     {loading && <p role="status">Đang tải sự cố…</p>}

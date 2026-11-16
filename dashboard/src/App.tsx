@@ -103,7 +103,6 @@ export const App: React.FC = () => {
         <AuditLog
           key={auditContext.revision}
           initialFilters={auditContext}
-          currentUser={session.currentUser}
           onOpenNode={(id, name) => openFleet(id, name)}
         />
       ) : activeTab === "dashboard" ? (

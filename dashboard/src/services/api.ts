@@ -3,17 +3,6 @@ import { NodeItem, MetricSnapshot, UserSession, AuditLogPage, HostSnapshot, Mana
 const TOKEN_STORAGE_KEY = 'zt_session_token';
 const USER_STORAGE_KEY = 'zt_user_profile';
 
-export interface PurgePreview {
-  success: boolean;
-  retention: '1d' | '7d' | '30d';
-  retention_label: string;
-  cutoff_time: string;
-  records_to_delete: number;
-  records_to_keep: number;
-  total_records: number;
-  can_purge: boolean;
-}
-
 class ApiService {
   private token: string | null = null;
   private user: UserSession | null = null;
@@ -81,7 +70,7 @@ class ApiService {
     return { serverRevoked, error: errorMsg };
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  private async response(endpoint: string, options: RequestInit = {}, timeoutMs = 10000): Promise<Response> {
     const requestToken = this.token;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -95,10 +84,10 @@ class ApiService {
     const response = await fetch(endpoint, {
       ...options,
       headers,
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
-    const data = await response.json().catch(() => null);
+    const data = response.ok ? null : await response.json().catch(() => null);
 
     if ((response.status === 401 || (response.status === 403 && data?.code === 'ACCOUNT_DISABLED'))
       && endpoint !== '/api/auth/login') {
@@ -115,7 +104,41 @@ class ApiService {
       throw new Error(errorMessage);
     }
 
-    return data as T;
+    return response;
+  }
+
+  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const response = await this.response(endpoint, options);
+    return response.json().catch(() => null) as Promise<T>;
+  }
+
+  private async downloadExcel(endpoint: string, filename: string): Promise<void> {
+    const token = this.token;
+    const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const response = await this.response(endpoint, { headers: { Accept: mime } }, 60000);
+    if (!response.headers.get('content-type')?.includes(mime)) {
+      throw new Error('Máy chủ chưa trả về file Excel hợp lệ. Vui lòng thử lại.');
+    }
+    const blob = await response.blob();
+    if (this.token !== token) throw new Error('Phiên đăng nhập đã thay đổi. Vui lòng xuất lại.');
+    const url = URL.createObjectURL(blob);
+    try {
+      const link = document.createElement('a');
+      link.href = url; link.download = filename; link.hidden = true;
+      document.body.appendChild(link);
+      try { link.click(); } finally { link.remove(); }
+    } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
+  }
+
+  public async exportAuditLogs(filters: { action: string; q: string }): Promise<void> {
+    const params = new URLSearchParams();
+    if (filters.action) params.set('action', filters.action);
+    if (filters.q) params.set('q', filters.q);
+    return this.downloadExcel(`/api/audit/logs/export?${params}`, 'zt-audit-logs.xlsx');
+  }
+
+  public async exportIncidents(state: 'open' | 'resolved' | 'all'): Promise<void> {
+    return this.downloadExcel(`/api/incidents/export?state=${state}`, 'zt-incidents.xlsx');
   }
 
   public async login(username: string, password: string): Promise<UserSession> {
@@ -189,26 +212,6 @@ class ApiService {
     if (filters.action) params.set('action', filters.action);
     if (filters.q) params.set('q', filters.q);
     return this.request<AuditLogPage>(`/api/audit/logs?${params}`);
-  }
-
-  public async getPurgePreview(retention: '1d' | '7d' | '30d'): Promise<PurgePreview> {
-    return this.request<PurgePreview>(`/api/audit/logs/purge-preview?retention=${retention}`);
-  }
-
-  public async purgeAuditLogs(retention: '1d' | '7d' | '30d'): Promise<{
-    success: boolean;
-    deleted_count: number;
-    retention: string;
-    retention_label?: string;
-    message: string;
-  }> {
-    return this.request<{ success: boolean; deleted_count: number; retention: string; retention_label?: string; message: string }>(
-      '/api/audit/logs',
-      {
-        method: 'DELETE',
-        body: JSON.stringify({ retention }),
-      }
-    );
   }
 
   public async getBastionTicket(nodeId: string): Promise<string> {

@@ -61,6 +61,8 @@ jobs:
           python-version: '3.12'
       - run: npm --prefix gateway ci
       - run: npm --prefix gateway run build
+      - run: python3 -m pip install -r tests/requirements.txt
       - run: node tests/runtime-accounts.cjs
+      - run: node tests/runtime-exports.cjs
       - run: python3 tests/runtime-recovery.py --output /tmp/zt-recovery-ci
       - run: python3 tests/runtime-alerts-lab.py --output /tmp/zt-alerts-ci

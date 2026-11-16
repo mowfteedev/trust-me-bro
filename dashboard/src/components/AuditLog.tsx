@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ClipboardList,
   Search,
@@ -17,11 +17,12 @@ import {
   Bell,
   Trash2,
   Check,
-  Info,
+  Download,
 } from "lucide-react";
-import { api, PurgePreview } from "../services/api.js";
-import { AuditLogPage, UserSession } from "../types/index.js";
+import { api } from "../services/api.js";
+import { AuditLogPage } from "../types/index.js";
 import { formatTime } from "../utils/format.js";
+import { useExcelExport } from "../hooks/useExcelExport.js";
 
 const events = [
   { value: 'CPU_RECOVERED', label: 'CPU trở lại bình thường', icon: Check, tone: 'auth' },
@@ -80,7 +81,7 @@ const events = [
   },
   {
     value: "AUDIT_PURGED",
-    label: "Dọn dẹp nhật ký",
+    label: "Đã dọn nhật ký (lịch sử)",
     icon: Trash2,
     tone: "warning",
   },
@@ -109,11 +110,9 @@ const detailLabels: Record<string, string> = {
 interface AuditLogProps {
   initialFilters?: { action?: string; q?: string };
   onOpenNode?: (id: string, name: string | null) => void;
-  currentUser?: UserSession | null;
 }
 
-export const AuditLog: React.FC<AuditLogProps> = ({ initialFilters, onOpenNode, currentUser }) => {
-  const isAdmin = (currentUser?.role ?? api.getCurrentUser()?.role) === "ADMIN";
+export const AuditLog: React.FC<AuditLogProps> = ({ initialFilters, onOpenNode }) => {
   const initialAction = events.find(event => event.value === initialFilters?.action)?.value ?? "";
   const initialSearch = initialFilters?.q?.trim().slice(0, 100) ?? "";
   const [filters, setFilters] = useState({ page: 1, action: initialAction, q: initialSearch });
@@ -124,64 +123,7 @@ export const AuditLog: React.FC<AuditLogProps> = ({ initialFilters, onOpenNode, 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
-  const [purgeDropdownOpen, setPurgeDropdownOpen] = useState(false);
-  const [purgeRetention, setPurgeRetention] = useState<"1d" | "7d" | "30d">("7d");
-  const [purging, setPurging] = useState(false);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewData, setPreviewData] = useState<PurgePreview | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [purgeFeedback, setPurgeFeedback] = useState<{ type: "success" | "info" | "error"; message: string } | null>(null);
-  const purgeMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!purgeDropdownOpen || !isAdmin) {
-      setPreviewData(null);
-      setPreviewError(null);
-      return;
-    }
-    let isCurrent = true;
-    setPreviewLoading(true);
-    setPreviewError(null);
-    api
-      .getPurgePreview(purgeRetention)
-      .then((data) => {
-        if (!isCurrent) return;
-        setPreviewData(data);
-        setPreviewLoading(false);
-      })
-      .catch((err: Error) => {
-        if (!isCurrent) return;
-        setPreviewError(err.message || "Không thể tải dữ liệu xem trước.");
-        setPreviewLoading(false);
-      });
-    return () => {
-      isCurrent = false;
-    };
-  }, [purgeDropdownOpen, purgeRetention, isAdmin]);
-
-  useEffect(() => {
-    if (!purgeDropdownOpen) return;
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (purgeMenuRef.current && !purgeMenuRef.current.contains(e.target as Node)) {
-        setPurgeDropdownOpen(false);
-      }
-    };
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPurgeDropdownOpen(false);
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [purgeDropdownOpen]);
-
-  useEffect(() => {
-    if (!purgeFeedback) return;
-    const timer = setTimeout(() => setPurgeFeedback(null), 6000);
-    return () => clearTimeout(timer);
-  }, [purgeFeedback]);
+  const excel = useExcelExport();
 
   useEffect(() => {
     let current = true;
@@ -220,213 +162,32 @@ export const AuditLog: React.FC<AuditLogProps> = ({ initialFilters, onOpenNode, 
     setFilters({ page: 1, action: "", q: "" });
   };
 
-  const formatCutoffTime = (isoString?: string) => {
-    if (!isoString) return "";
-    try {
-      const d = new Date(isoString);
-      if (isNaN(d.getTime())) return isoString;
-      return d.toLocaleString("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour12: false,
-      });
-    } catch {
-      return isoString;
-    }
-  };
-
-  const handlePurge = async () => {
-    if (purging || !previewData?.can_purge) return;
-    setPurging(true);
-    setPurgeFeedback(null);
-    try {
-      const res = await api.purgeAuditLogs(purgeRetention);
-      if (res.deleted_count > 0) {
-        setPurgeFeedback({ type: "success", message: res.message });
-      } else {
-        setPurgeFeedback({ type: "info", message: res.message });
-      }
-      setPurgeDropdownOpen(false);
-      refresh();
-    } catch (err: any) {
-      setPurgeFeedback({
-        type: "error",
-        message: err.message || "Không thể dọn dẹp nhật ký hoạt động.",
-      });
-    } finally {
-      setPurging(false);
-    }
-  };
-
   return (
     <div className="overview audit-page">
       <div className="page-heading">
         <div>
           <h1>Nhật ký hoạt động</h1>
         </div>
-        <div className="page-heading-actions" ref={purgeMenuRef}>
-          {isAdmin && (
-            <div className="audit-purge-container">
-              <button
-                type="button"
-                className="button secondary audit-purge-btn"
-                aria-label="Dọn nhật ký cũ"
-                aria-expanded={purgeDropdownOpen}
-                aria-haspopup="dialog"
-                onClick={() => setPurgeDropdownOpen((prev) => !prev)}
-                disabled={loading || purging}
-                title="Dọn dẹp nhật ký hoạt động cũ (Giữ 1 ngày, 7 ngày hoặc 30 ngày gần nhất)"
-              >
-                <Trash2 size={15} />
-                <span>Dọn nhật ký cũ</span>
-                <ChevronDown size={14} className={purgeDropdownOpen ? "rotate-180" : ""} />
-              </button>
-              {purgeDropdownOpen && (
-                <div className="audit-purge-popover" role="dialog" aria-label="Dọn nhật ký cũ">
-                  <div className="audit-purge-popover-title">
-                    <Trash2 size={16} />
-                    <span>Dọn nhật ký cũ</span>
-                  </div>
-                  <p className="audit-purge-popover-desc">
-                    Áp dụng cho toàn bộ nhật ký hệ thống (không phụ thuộc bộ lọc hay trang đang xem). Các bản ghi mới hơn mốc đã chọn sẽ được giữ nguyên.
-                  </p>
-                  <div className="audit-purge-options">
-                    <button
-                      type="button"
-                      className={`audit-purge-option-btn ${purgeRetention === "7d" ? "active" : ""}`}
-                      onClick={() => setPurgeRetention("7d")}
-                      disabled={purging || previewLoading}
-                    >
-                      <span className="option-title">Giữ 7 ngày gần nhất (Mặc định)</span>
-                      <span className="option-desc">Chỉ dọn các sự kiện cũ hơn 7 ngày trước</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`audit-purge-option-btn ${purgeRetention === "1d" ? "active" : ""}`}
-                      onClick={() => setPurgeRetention("1d")}
-                      disabled={purging || previewLoading}
-                    >
-                      <span className="option-title">Giữ 1 ngày gần nhất</span>
-                      <span className="option-desc">Chỉ dọn các sự kiện cũ hơn 24 giờ trước</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`audit-purge-option-btn ${purgeRetention === "30d" ? "active" : ""}`}
-                      onClick={() => setPurgeRetention("30d")}
-                      disabled={purging || previewLoading}
-                    >
-                      <span className="option-title">Giữ 30 ngày gần nhất</span>
-                      <span className="option-desc">Chỉ dọn các sự kiện cũ hơn 30 ngày trước</span>
-                    </button>
-                  </div>
-
-                  <div className="audit-purge-preview-box">
-                    <div className="preview-header">
-                      <span className="preview-label">Xem trước khi dọn:</span>
-                      {previewLoading && (
-                        <span className="preview-loading">
-                          <RefreshCw size={12} className="animate-spin" /> Đang kiểm tra...
-                        </span>
-                      )}
-                    </div>
-                    {previewError ? (
-                      <div className="preview-error">{previewError}</div>
-                    ) : previewData ? (
-                      <div className="preview-content">
-                        <div className="preview-row cutoff-row">
-                          <span className="row-label">Mốc cắt:</span>
-                          <span className="row-value">{formatCutoffTime(previewData.cutoff_time)}</span>
-                        </div>
-                        {previewData.records_to_delete === 0 ? (
-                          <div className="preview-empty-notice">
-                            <Info size={14} />
-                            <span>Không có nhật ký cần dọn (tất cả {previewData.total_records} bản ghi đều mới hơn mốc này).</span>
-                          </div>
-                        ) : (
-                          <div className="preview-counts-grid">
-                            <div className="count-item delete-count">
-                              <span className="count-num">{previewData.records_to_delete}</span>
-                              <span className="count-desc">Dự kiến xóa</span>
-                            </div>
-                            <div className="count-item keep-count">
-                              <span className="count-num">{previewData.records_to_keep}</span>
-                              <span className="count-desc">Sẽ giữ lại</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="audit-purge-actions">
-                    <button
-                      type="button"
-                      className="button secondary sm"
-                      onClick={() => setPurgeDropdownOpen(false)}
-                      disabled={purging}
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      type="button"
-                      className="button danger sm"
-                      onClick={handlePurge}
-                      disabled={purging || previewLoading || !previewData?.can_purge}
-                      title={!previewData?.can_purge ? "Không có bản ghi nào cũ hơn mốc này để dọn" : "Xác nhận dọn dẹp các bản ghi cũ"}
-                    >
-                      {purging ? (
-                        <>
-                          <RefreshCw size={13} className="animate-spin" />
-                          <span>Đang dọn dẹp...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Trash2 size={13} />
-                          <span>Xác nhận dọn dẹp</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+        <div className="page-heading-actions">
+          <button type="button" className="button secondary" aria-label="Xuất Excel nhật ký"
+            title="Xuất toàn bộ nhật ký theo bộ lọc đang áp dụng"
+            disabled={loading || excel.exporting || !result}
+            onClick={() => void excel.run(() => api.exportAuditLogs({ action: filters.action, q: filters.q }))}>
+            <Download size={16} /><span>{excel.exporting ? "Đang xuất…" : "Xuất Excel"}</span>
+          </button>
           <button
             type="button"
             className="button secondary"
             aria-label="Làm mới nhật ký"
             onClick={refresh}
-            disabled={loading || purging}
+            disabled={loading}
           >
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
             <span>Làm mới</span>
           </button>
         </div>
       </div>
-      {purgeFeedback && (
-        <div className={`audit-feedback-toast ${purgeFeedback.type}`}>
-          {purgeFeedback.type === "success" ? (
-            <Check size={16} />
-          ) : purgeFeedback.type === "info" ? (
-            <Info size={16} />
-          ) : (
-            <AlertCircle size={16} />
-          )}
-          <span>{purgeFeedback.message}</span>
-          <button
-            type="button"
-            className="icon-button sm"
-            onClick={() => setPurgeFeedback(null)}
-            aria-label="Đóng thông báo"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      {excel.error && <div role="alert" className="notice danger">{excel.error}</div>}
       <section className="panel audit-panel" aria-labelledby="audit-title">
         <div className="audit-panel-title">
           <h2 id="audit-title" title="Nhật ký sự kiện; không ghi nội dung lệnh terminal.">

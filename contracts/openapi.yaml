@@ -203,43 +203,11 @@ paths:
           schema: {type: string}
       responses:
         '101': {description: Upgrade; xác thực ứng dụng tiếp tục bằng AUTH frame}
-  /api/audit/logs/purge-preview:
-    get:
-      summary: Xem trước số lượng bản ghi nhật ký dự kiến dọn dẹp, chỉ ADMIN
-      description: |
-        Tính toán số lượng bản ghi cũ hơn mốc thời gian chỉ định (1d, 7d, 30d) và số bản ghi giữ lại.
-        Chỉ đọc dữ liệu, không thực hiện xóa. Chỉ ADMIN có quyền xem.
-      security: [{BearerAuth: []}]
-      parameters:
-        - name: retention
-          in: query
-          schema: {type: string, enum: ['1d', '7d', '30d'], default: '7d'}
-      responses:
-        '200':
-          description: Dữ liệu xem trước dọn dẹp
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [success, retention, retention_label, cutoff_time, records_to_delete, records_to_keep, total_records, can_purge]
-                properties:
-                  success: {type: boolean}
-                  retention: {type: string, enum: ['1d', '7d', '30d']}
-                  retention_label: {type: string}
-                  cutoff_time: {type: string}
-                  records_to_delete: {type: integer}
-                  records_to_keep: {type: integer}
-                  total_records: {type: integer}
-                  can_purge: {type: boolean}
-        '400': {description: Mốc thời gian retention không hợp lệ}
-        '401': {description: Chưa xác thực}
-        '403': {description: Chỉ ADMIN được xem trước dọn nhật ký}
-        '503': {description: Lỗi DB hoặc dịch vụ không khả dụng}
   /api/audit/logs:
     get:
-      summary: Nhật ký hoạt động chỉ đọc, chỉ ADMIN
+      summary: Nhật ký hoạt động chỉ đọc cho ADMIN và VIEWER
       description: |
-        Đọc audit_logs có sẵn; VIEWER bị từ chối. Mới nhất trước, sắp theo created_at
+        Đọc audit_logs có sẵn; ADMIN và VIEWER được phép. Mới nhất trước, sắp theo created_at
         và id giảm dần, tối đa 25 bản ghi/trang. Tìm kiếm literal trên tài khoản,
         tên/IP node, IP ghi nhận và target. Không trả raw JSON hoặc thông tin bí mật.
       security: [{BearerAuth: []}]
@@ -263,36 +231,8 @@ paths:
               schema: {$ref: '#/components/schemas/AuditLogPage'}
         '400': {description: Bộ lọc không hợp lệ}
         '401': {description: Chưa xác thực hoặc phiên đã hết hiệu lực}
-        '403': {description: Chỉ ADMIN được xem nhật ký}
+        '403': {description: Tài khoản bị khóa hoặc không có vai trò được phép}
         '503': {description: Không thể đọc DB hoặc xác thực phiên}
-    delete:
-      summary: Dọn dẹp nhật ký hoạt động cũ, chỉ ADMIN
-      description: |
-        Xóa các bản ghi audit_logs cũ hơn mốc thời gian chỉ định (1d, 7d, 30d).
-        Chỉ ADMIN có quyền thực thi. Ghi lại sự kiện AUDIT_PURGED sau khi dọn dẹp.
-      security: [{BearerAuth: []}]
-      parameters:
-        - name: retention
-          in: query
-          required: true
-          schema: {type: string, enum: ['1d', '7d', '30d']}
-      responses:
-        '200':
-          description: Đã xóa thành công và trả về số lượng bản ghi đã xóa
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [success, deleted_count, retention, message]
-                properties:
-                  success: {type: boolean}
-                  deleted_count: {type: integer}
-                  retention: {type: string, enum: ['1d', '7d', '30d']}
-                  message: {type: string}
-        '400': {description: Mốc thời gian retention không hợp lệ}
-        '401': {description: Chưa xác thực}
-        '403': {description: Chỉ ADMIN được xóa nhật ký}
-        '503': {description: Lỗi DB hoặc dịch vụ không khả dụng}
   /api/auth/logout-all:
     post:
       summary: Thu hồi toàn bộ phiên đăng nhập và Web SSH của tài khoản
@@ -458,6 +398,45 @@ paths:
         '400': {description: Bộ lọc không hợp lệ}
         '401': {description: Chưa đăng nhập}
         '503': {description: Không đọc được dữ liệu sự cố}
+  /api/audit/logs/export:
+    get:
+      summary: Admin và Viewer xuất toàn bộ nhật ký theo bộ lọc thành Excel
+      security: [{BearerAuth: []}]
+      description: Không phân trang; tối đa 10000 dòng. Vượt giới hạn trả lỗi, không cắt bớt dữ liệu. Dữ liệu bí mật không được xuất.
+      parameters:
+        - {in: query, name: action, schema: {type: string}}
+        - {in: query, name: q, schema: {type: string, maxLength: 100}}
+      responses:
+        '200':
+          description: File .xlsx thật; attachment; Cache-Control no-store
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: {type: string, format: binary}
+        '400': {description: Bộ lọc không hợp lệ}
+        '401': {description: Chưa đăng nhập}
+        '409': {description: Đang có yêu cầu xuất khác; thử lại sau}
+        '422': {description: Vượt giới hạn số dòng hoặc dung lượng; cần thu hẹp bộ lọc}
+        '429': {description: Chưa hết khoảng chờ xuất file}
+        '503': {description: Không thể đọc dữ liệu}
+  /api/incidents/export:
+    get:
+      summary: Admin và Viewer xuất toàn bộ sự cố theo bộ lọc thành Excel
+      security: [{BearerAuth: []}]
+      parameters:
+        - {in: query, name: state, schema: {type: string, enum: [open, resolved, all], default: open}}
+        - {in: query, name: node_id, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: File .xlsx theo bộ lọc, tối đa 10000 dòng; no-store; không tự cắt bớt
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: {type: string, format: binary}
+        '400': {description: Bộ lọc không hợp lệ}
+        '401': {description: Chưa đăng nhập}
+        '409': {description: Có yêu cầu xuất khác đang xử lý}
+        '422': {description: Vượt giới hạn xuất file}
+        '429': {description: Chưa hết khoảng chờ xuất file}
+        '503': {description: Không thể đọc dữ liệu}
 components:
   securitySchemes:
     BearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}

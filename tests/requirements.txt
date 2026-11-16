@@ -1,0 +1,2 @@
+# Independent Excel reader used only by the isolated export acceptance test.
+openpyxl==3.1.5

@@ -2,6 +2,8 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middlewares/auth.middleware.js';
 import { query } from '../services/db.js';
+import { sendSpreadsheet } from '../services/spreadsheet-export.js';
+import { exportTimestamp, MAX_EXPORT_ROWS } from '../utils/xlsx.js';
 
 export const AUDIT_ACTIONS = [
   'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT_SUCCESS', 'BASTION_TICKET_ISSUED',
@@ -105,18 +107,9 @@ function safeDetails(raw: unknown, action: string): AuditLogDetails {
   return result;
 }
 
-export const auditRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/logs', { preHandler: [authenticate, authorize(['ADMIN', 'VIEWER'])] }, async (req, reply) => {
-    reply.header('Cache-Control', 'no-store');
-    const parsed = AuditQuery.safeParse(req.query);
-    if (!parsed.success) {
-      return reply.status(400).send({
-        status: 400, code: 'INVALID_AUDIT_QUERY', title: 'Bộ lọc nhật ký không hợp lệ',
-        detail: 'Trang phải từ 1 đến 10000, loại sự kiện hợp lệ và tìm kiếm tối đa 100 ký tự.',
-      });
-    }
 
-    const { page, action, q } = parsed.data;
+async function readAuditRows(action: typeof AUDIT_ACTIONS[number] | undefined, q: string | undefined,
+  limit: number, offset: number) {
     const params: (string | number)[] = [];
     const filters: string[] = [];
     if (action) {
@@ -136,9 +129,8 @@ export const auditRoutes: FastifyPluginAsync = async (fastify) => {
         OR host(n.ip_address) ILIKE ${placeholder} ESCAPE '!'
         OR a.target ILIKE ${placeholder} ESCAPE '!')`);
     }
-    params.push(PAGE_SIZE + 1, (page - 1) * PAGE_SIZE);
 
-    try {
+  params.push(limit, offset);
       const result = await query<AuditLogItem>(`
         SELECT a.id, a.created_at, a.action, a.user_id, u.username,
           COALESCE(a.node_id, n.id) AS node_id, n.name AS node_name,
@@ -165,151 +157,44 @@ export const auditRoutes: FastifyPluginAsync = async (fastify) => {
         ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT $${params.length - 1} OFFSET $${params.length};`, params);
+  return result.rows.map(row => ({
+    id: row.id, created_at: row.created_at, action: row.action,
+    user_id: row.user_id, username: row.username, node_id: row.node_id,
+    node_name: row.node_name, ip_address: row.ip_address, target: row.target,
+    details: safeDetails(row.details, row.action),
+  }));
+}
 
+export const auditRoutes: FastifyPluginAsync = async fastify => {
+  fastify.get('/logs', { preHandler: [authenticate, authorize(['ADMIN', 'VIEWER'])] }, async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    const parsed = AuditQuery.safeParse(req.query);
+    if (!parsed.success) return reply.status(400).send({ status: 400, code: 'INVALID_AUDIT_QUERY',
+      title: 'Bộ lọc nhật ký không hợp lệ', detail: 'Trang phải từ 1 đến 10000, loại sự kiện hợp lệ và tìm kiếm tối đa 100 ký tự.' });
+    const { page, action, q } = parsed.data;
+    try {
+      const rows = await readAuditRows(action, q, PAGE_SIZE + 1, (page - 1) * PAGE_SIZE);
+      return { success: true, data: rows.slice(0, PAGE_SIZE), page, page_size: PAGE_SIZE, has_more: rows.length > PAGE_SIZE };
+    } catch {
+      req.log.error('Không thể đọc nhật ký kiểm toán');
+      return reply.status(503).send({ status: 503, code: 'AUDIT_UNAVAILABLE', title: 'Nhật ký tạm thời không khả dụng',
+        detail: 'Không thể tải nhật ký lúc này. Vui lòng thử lại sau.' });
+    }
+  });
+
+  fastify.get('/logs/export', { preHandler: [authenticate, authorize(['ADMIN', 'VIEWER'])] }, async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    const parsed = AuditQuery.omit({ page: true }).strict().safeParse(req.query);
+    if (!parsed.success) return reply.code(400).send({ code: 'INVALID_AUDIT_QUERY', detail: 'Bộ lọc xuất nhật ký không hợp lệ.' });
+    return sendSpreadsheet(reply, req.user.id, 'audit-logs', async () => {
+      const rows = await readAuditRows(parsed.data.action, parsed.data.q, MAX_EXPORT_ROWS + 1, 0);
       return {
-        success: true,
-        data: result.rows.slice(0, PAGE_SIZE).map((row) => ({
-          id: row.id, created_at: row.created_at, action: row.action,
-          user_id: row.user_id, username: row.username, node_id: row.node_id,
-          node_name: row.node_name, ip_address: row.ip_address, target: row.target,
-          details: safeDetails(row.details, row.action),
-        })),
-        page, page_size: PAGE_SIZE, has_more: result.rows.length > PAGE_SIZE,
+        name: 'Nhật ký',
+        headers: ['ID', 'Thời điểm (UTC+7)', 'Sự kiện', 'ID người dùng', 'Người thực hiện',
+          'ID máy chủ', 'Máy chủ', 'IP truy cập', 'Đối tượng', 'Chi tiết'],
+        rows: rows.map(row => [row.id, exportTimestamp(row.created_at), row.action, row.user_id, row.username,
+          row.node_id, row.node_name, row.ip_address, row.target, JSON.stringify(row.details)]),
       };
-    } catch (err) {
-      req.log.error({ err }, 'Không thể đọc nhật ký kiểm toán');
-      return reply.status(503).send({
-        status: 503, code: 'AUDIT_UNAVAILABLE', title: 'Nhật ký tạm thời không khả dụng',
-        detail: 'Không thể tải nhật ký lúc này. Vui lòng thử lại sau.',
-      });
-    }
-  });
-
-  const PurgeSchema = z.object({
-    retention: z.enum(['1d', '7d', '30d']).default('7d'),
-  });
-
-  const RETENTION_INTERVAL_MAP: Record<'1d' | '7d' | '30d', string> = {
-    '1d': '1 day',
-    '7d': '7 days',
-    '30d': '30 days',
-  };
-
-  const RETENTION_LABEL_MAP: Record<'1d' | '7d' | '30d', string> = {
-    '1d': 'Giữ 1 ngày gần nhất',
-    '7d': 'Giữ 7 ngày gần nhất',
-    '30d': 'Giữ 30 ngày gần nhất',
-  };
-
-  interface PurgePreviewRow {
-    cutoff_time: string | Date;
-    records_to_delete: string | number;
-    records_to_keep: string | number;
-    total_records: string | number;
-  }
-
-  // Xem trước số lượng bản ghi dự kiến dọn dẹp (chỉ đọc, chỉ ADMIN)
-  fastify.get('/logs/purge-preview', { preHandler: [authenticate, authorize(['ADMIN'])] }, async (req, reply) => {
-    reply.header('Cache-Control', 'no-store');
-    const parsed = PurgeSchema.safeParse(req.query);
-    if (!parsed.success) {
-      return reply.status(400).send({
-        status: 400,
-        code: 'INVALID_RETENTION',
-        title: 'Khoảng thời gian lưu trữ không hợp lệ',
-        detail: 'Chỉ chấp nhận các mốc thời gian: 1d (1 ngày), 7d (7 ngày) hoặc 30d (30 ngày).',
-      });
-    }
-
-    const { retention } = parsed.data;
-    const intervalStr = RETENTION_INTERVAL_MAP[retention];
-
-    try {
-      const result = await query<PurgePreviewRow>(
-        `SELECT
-           ((now() AT TIME ZONE 'UTC') - $1::interval) AS cutoff_time,
-           COUNT(*) FILTER (WHERE created_at < ((now() AT TIME ZONE 'UTC') - $1::interval))::int AS records_to_delete,
-           COUNT(*) FILTER (WHERE created_at >= ((now() AT TIME ZONE 'UTC') - $1::interval))::int AS records_to_keep,
-           COUNT(*)::int AS total_records
-         FROM public.audit_logs;`,
-        [intervalStr]
-      );
-
-      const row = result.rows[0];
-      const recordsToDelete = Number(row?.records_to_delete ?? 0);
-      const recordsToKeep = Number(row?.records_to_keep ?? 0);
-      const totalRecords = Number(row?.total_records ?? 0);
-      const cutoffTime = row?.cutoff_time instanceof Date
-        ? row.cutoff_time.toISOString()
-        : (row?.cutoff_time ? new Date(row.cutoff_time).toISOString() : new Date().toISOString());
-
-      return reply.status(200).send({
-        success: true,
-        retention,
-        retention_label: RETENTION_LABEL_MAP[retention],
-        cutoff_time: cutoffTime,
-        records_to_delete: recordsToDelete,
-        records_to_keep: recordsToKeep,
-        total_records: totalRecords,
-        can_purge: recordsToDelete > 0,
-      });
-    } catch (err) {
-      req.log.error({ err }, 'Không thể tính toán xem trước dọn nhật ký');
-      return reply.status(503).send({
-        status: 503,
-        code: 'AUDIT_PREVIEW_FAILED',
-        title: 'Xem trước dọn nhật ký tạm thời không khả dụng',
-        detail: 'Không thể tính toán dữ liệu xem trước lúc này. Vui lòng thử lại sau.',
-      });
-    }
-  });
-
-  fastify.delete('/logs', { preHandler: [authenticate, authorize(['ADMIN'])] }, async (req, reply) => {
-    reply.header('Cache-Control', 'no-store');
-    const rawPayload = {
-      ...((req.query && typeof req.query === 'object') ? req.query : {}),
-      ...((req.body && typeof req.body === 'object') ? req.body : {}),
-    };
-    const parsed = PurgeSchema.safeParse(rawPayload);
-    if (!parsed.success) {
-      return reply.status(400).send({
-        status: 400,
-        code: 'INVALID_RETENTION',
-        title: 'Khoảng thời gian lưu trữ không hợp lệ',
-        detail: 'Chỉ chấp nhận các mốc thời gian: 1d (1 ngày), 7d (7 ngày) hoặc 30d (30 ngày).',
-      });
-    }
-
-    const { retention } = parsed.data;
-    const intervalStr = RETENTION_INTERVAL_MAP[retention];
-
-    try {
-      const user = req.user as { id?: string } | undefined;
-      const result = await query<{ deleted_count: number }>(
-        `SELECT public.purge_audit_logs($1::interval, $2, $3::inet) AS deleted_count;`,
-        [intervalStr, user?.id || null, req.ip || null]
-      );
-      const deletedCount = Number(result.rows[0]?.deleted_count ?? 0);
-
-      const message = deletedCount > 0
-        ? `Đã dọn dẹp thành công ${deletedCount} bản ghi nhật ký (${RETENTION_LABEL_MAP[retention]}).`
-        : `Không có bản ghi nhật ký nào cũ hơn mốc ${RETENTION_LABEL_MAP[retention]} để dọn dẹp.`;
-
-      return reply.status(200).send({
-        success: true,
-        deleted_count: deletedCount,
-        retention,
-        retention_label: RETENTION_LABEL_MAP[retention],
-        message,
-      });
-    } catch (err) {
-      req.log.error({ err }, 'Không thể dọn dẹp nhật ký kiểm toán');
-      return reply.status(503).send({
-        status: 503,
-        code: 'AUDIT_PURGE_FAILED',
-        title: 'Dọn dẹp nhật ký tạm thời không khả dụng',
-        detail: 'Không thể xóa nhật ký lúc này. Vui lòng kiểm tra quyền hệ thống hoặc thử lại sau.',
-      });
-    }
+    });
   });
 };

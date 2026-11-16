@@ -8,8 +8,21 @@ runner Docker. Chạy tại repo; thư mục bằng chứng mới nằm ngoài r
 ```sh
 npm --prefix gateway ci
 npm --prefix dashboard ci
-python3 deploy/scripts/acceptance.py --runtime-labs --output /tmp/zt-acceptance-20261116
+python3 deploy/scripts/acceptance.py --output /tmp/zt-acceptance-20261116
 ```
+
+Kiểm Excel bằng trình đọc độc lập cần môi trường Python kiểm thử riêng:
+
+```sh
+python3 -m venv /tmp/zt-excel-tools
+/tmp/zt-excel-tools/bin/pip install -r tests/requirements.txt
+ZT_EXPORT_READER_PYTHON=/tmp/zt-excel-tools/bin/python \
+  python3 deploy/scripts/acceptance.py --runtime-labs --output /tmp/zt-acceptance-NEW
+```
+
+Openpyxl chỉ dùng để đọc/kiểm tệp trong lab/CI, không đi vào Gateway/Dashboard.
+Ca Excel kiểm bộ lọc, nhiều trang, Unicode, chuỗi công thức dạng văn bản,
+Admin/Viewer và API/hàm dọn nhật ký đã bị gỡ; không xóa dữ liệu production.
 
 Hoặc thêm `--docker` để dùng `make test` (build các builder cục bộ), không cần
 Node/Go trên host. Runner kiểm Python/native/unit/build và xuất exit code,

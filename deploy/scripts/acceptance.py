@@ -76,6 +76,7 @@ def main():
     if args.runtime_labs:
         gateway_built = any(item['check'] in ('gateway-build', 'gateway-runtime-build') and item['status'] == 'PASS' for item in results)
         labs = [('accounts-runtime', ['node', 'tests/runtime-accounts.cjs']),
+                ('exports-runtime', ['node', 'tests/runtime-exports.cjs']),
                 ('recovery-runtime', [sys.executable, 'tests/runtime-recovery.py', '--output', str(output / 'recovery-lab')]),
                 ('alerts-runtime', [sys.executable, 'tests/runtime-alerts-lab.py', '--output', str(output / 'alerts-lab')])]
         environment = {**os.environ, 'ZT_ACCOUNT_EVIDENCE_PATH': str(output / 'accounts-evidence.json')}
