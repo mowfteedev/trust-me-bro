@@ -2,7 +2,8 @@
 
 Phạm vi: các mục 1, 2, 4–10 đã được chủ dự án duyệt. Giữ Fastify,
 React, PostgreSQL, Go và bốn dịch vụ hiện tại. Không thay đường truy cập
-Cloudflare. Bàn giao bằng nhánh Git để kiểm tra, không tự triển khai EC2.
+Cloudflare. Bàn giao bằng nhánh Git để kiểm tra; triển khai EC2 sau khi chủ
+dự án cho phép riêng. Bản `beaed1b` đã được cho phép và triển khai.
 
 ## Checklist
 
@@ -51,3 +52,8 @@ Mỗi mục hoàn tất phải ghi lệnh kiểm và kết quả vào hồ sơ b
   reboot/Internet, Telegram thật và app-login sau restore chưa kiểm chứng.
   Chi tiết trong RENOVATION-RESULTS.md. P1/P10 đã chốt source, manifest sạch và push commit chức năng 3a126a3;
   CI GitHub kiểm riêng đúng commit.
+
+- [x] Triển khai EC2 sau chỉ đạo mới: backup ngoài máy, restore và đăng nhập
+  thử trước cutover, schema13, Gateway/WireGuard/Caddy mới; 23 ca API/SSH và
+  12 ca browser public PASS. Tắt tài khoản kiểm thử; giữ owner/Worker/Cloudflare.
+  Xem `deploy/ec2/DEPLOYMENT-20261116.md`.

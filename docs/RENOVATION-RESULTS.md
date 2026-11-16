@@ -2,7 +2,8 @@
 
 Phạm vi được duyệt: mục 1, 2, 4–10 trong đề xuất. Giữ kiến trúc và bốn dịch
 vụ hiện có; không thay đường Cloudflare. Bản bàn giao nằm trên nhánh
-`improve/system-renovation-20261116`, chưa triển khai lên EC2.
+`improve/system-renovation-20261116`. Bản `beaed1b` sau đó đã được chủ dự án
+cho triển khai lên EC2; xem [kết quả triển khai](../deploy/ec2/DEPLOYMENT-20261116.md).
 
 ## Thay đổi
 
@@ -32,8 +33,9 @@ vụ hiện có; không thay đường Cloudflare. Bản bàn giao nằm trên n
   lease sau crash, giới hạn retry và thứ tự mở/phục hồi. Telegram dùng fetch
   giả lập, không gửi ra ngoài.
 - Restore thật: khôi phục đủ 13 migrations cùng users/nodes/alerts/audit;
-  dữ liệu cấu hình và quyền file giữ nguyên. **Chưa kiểm đăng nhập ứng dụng
-  vào chính DB được restore**; đây là ca riêng trước cutover.
+  dữ liệu cấu hình và quyền file giữ nguyên. Trước cutover EC2, chính backup
+  thật đã được restore trong cụm riêng, nâng 11 → 13 và đăng nhập ứng dụng
+  Admin/Viewer thành công.
 - Cụm Docker đóng gói: bốn core + Worker mới, WireGuard handshake/heartbeat,
   HTTPS/API và 17 ca thực thi PASS, gồm Web SSH/PTY Unicode và thu hồi phiên.
   Lab dọn toàn bộ container/network/volume của mình, giữ Worker hiện hữu.
@@ -66,8 +68,8 @@ Telegram có thể nhận trùng khi đã tiếp nhận nhưng kết nối/tiế
 trước lúc lưu kết quả. `SENT` chỉ xác nhận API Telegram nhận tin, không xác
 nhận người dùng đã đọc. Không gửi bù các sự cố cũ thiếu lịch sử delivery.
 
-VM Windows/Linux, reboot, firewall từ Internet, Telegram thật và đăng nhập
-ứng dụng sau restore: **CHƯA KIỂM CHỨNG ở bản này**. Hướng dẫn và checklist
+VM Windows/Linux, reboot, firewall từ Internet và gửi cảnh báo Telegram thật:
+**CHƯA KIỂM CHỨNG ở bản này**. Hướng dẫn và checklist
 đã chuẩn bị; chỉ kiểm trên đúng môi trường được phép trước nghiệm thu.
 
 ## Cập nhật sau khi review
