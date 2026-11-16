@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 
 const db = vi.hoisted(() => ({ query: vi.fn(), getClient: vi.fn(), revokeUser: vi.fn(), revokeSession: vi.fn() }));
+vi.mock('../src/config/env.js', () => ({ config: { JWT_EXPIRES_IN: '1d' } }));
 vi.mock('../src/services/db.js', () => ({ query: db.query, getClient: db.getClient }));
 vi.mock('../src/services/bastion/registry.js', () => ({ revokeUserSessions: db.revokeUser, revokeAuthSessionSessions: db.revokeSession }));
 import { authRoutes } from '../src/routes/auth.js';
