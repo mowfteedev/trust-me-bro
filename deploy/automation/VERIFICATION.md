@@ -1,0 +1,37 @@
+# Kiểm chứng automation — 18/11/2026
+
+Giữ nhánh cải thiện; không thay EC2, TV box, Cloudflare hoặc tài khoản thật.
+Không gửi Telegram trong đợt này. Bằng chứng/script/log riêng tư ngoài Git.
+
+- Runner nghiệm thu: **13 nhóm PASS**. Gateway278 tests PASS, ba ca transport
+  opt-in bỏ qua trong unit; Dashboard36 PASS; Python89/native42 PASS; Agent
+  và Go peer-helper PASS. Windows amd64 và Linux arm64 cross-build PASS.
+- PostgreSQL16 thật: **11 nhóm enrollment/bootstrap PASS**; hash-only mã,
+  quyền SQL, concurrent claim/retry, hết hạn/thu hồi/xung đột, DB commit rồi
+  lỗi file và thử lại; bootstrap không ghi đè mật khẩu đã đổi hoặc nâng Viewer.
+- Gateway: chạy bộ cài thật trên Docker lab riêng, bốn core, TLS xác minh CA
+  và Gateway ID. Đã thử lại từ trạng thái cài dở và một bản cài sạch cuối cùng.
+  Host collector được bỏ qua bằng cờ lab; chưa kiểm cài mới collector/systemd
+  trên host Gateway bằng bộ cài này. Collector hiện hữu trên EC2 không đổi.
+- Worker: Debian12 KVM mới, 1vCPU/768MiB, kernel WireGuard, systemd/SSH/nft thật.
+  Cài qua console, HTTPS claim → peer → handshake → Agent → PostgreSQL → SSH
+  ghim host key PASS. Chạy lại và reboot giữ đúng ba hash khóa/token; sau boot
+  service/VPN/heartbeat/SSH tự hoạt động, không chạy lại installer.
+- Đổi mật khẩu qua HTTPS: cũ bị từ chối, JWT cũ hết hiệu lực; chạy lại Gateway
+  giữ mật khẩu mới. Không có mật khẩu Dashboard rõ trong thư mục keys của
+  bản cài. Mật khẩu dịch vụ vẫn nằm trong env riêng0600 theo thiết kế.
+- PowerShell trên Linux: **25 ca parser/hàm/HTTPS thật PASS**, gồm PE64, mã
+  ghép, CA đúng/sai, hostname, hết hạn, redirect và không gửi secret khi TLS
+  thất bại. Không suy thành Windows service/firewall runtime PASS.
+- Review đã sửa các lỗi stdin bị tiến trình con đọc, OTP rỗng, rollback báo
+  hoàn tất dù service chưa phục hồi, callback CA phụ thuộc PowerShell runspace,
+  thiếu kiểm PE64, mất host key và nhập nhầm origin Gateway. Có hồi quy phù hợp.
+
+**CHƯA KIỂM CHỨNG:** cài/reboot/firewall trên Windows thật, automation Linux
+arm64 trên phần cứng thật, cài mới host collector trên Gateway systemd và
+raw Internet tới firewall Worker. Windows CI chỉ kiểm parser/hàm, không cài
+dịch vụ. NAT/WARP không phải bằng chứng firewall host loại gói Internet.
+
+Đã dọn các container/network/volume lab và tắt VM; Worker Docker hiện hữu
+giữ nguyên. Doctor EC2 chỉ đọc kết thúc0vấn đề. Source mới chưa triển khai
+lên hệ thống đang phục vụ; enrollment mặc định tắt ngoài overlay automation.

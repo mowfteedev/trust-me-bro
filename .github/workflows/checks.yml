@@ -5,6 +5,13 @@ on:
 permissions:
   contents: read
 jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse and validate installer functions without changing the runner
+        shell: powershell
+        run: .\tests\automation-worker-functions.ps1
   python:
     runs-on: ubuntu-latest
     steps:
@@ -42,6 +49,10 @@ jobs:
           cache: false
       - run: go test ./...
         working-directory: agent
+      - run: go test ./...
+        working-directory: deploy/wireguard
+        env:
+          GO111MODULE: "off"
       - run: go build ./...
         working-directory: agent
         env:
@@ -64,5 +75,6 @@ jobs:
       - run: python3 -m pip install -r tests/requirements.txt
       - run: node tests/runtime-accounts.cjs
       - run: node tests/runtime-exports.cjs
+      - run: node tests/runtime-enrollment.cjs
       - run: python3 tests/runtime-recovery.py --output /tmp/zt-recovery-ci
       - run: python3 tests/runtime-alerts-lab.py --output /tmp/zt-alerts-ci

@@ -3,6 +3,9 @@
 Giám sát máy chủ và Web SSH qua WireGuard. Fastify/TypeScript, React,
 PostgreSQL và Agent Go cho Linux/Windows.
 
+[Bộ cài Gateway/Worker tự động](deploy/automation/README.md): preflight,
+mã ghép một lần và kiểm VPN/heartbeat/SSH; Admin mới chỉ lưu hash mật khẩu.
+
 Gateway chạy Docker Compose: PostgreSQL, Gateway, Caddy và WireGuard.
 Worker kết nối UDP 51820, không publish SSH. [Triển khai EC2](deploy/ec2/README.md).
 Tổng quan đọc tài nguyên host Gateway qua collector chỉ đọc; trang Máy chủ
@@ -45,7 +48,7 @@ live cần token và ghép nối chat. Giữ khóa, env và database ngoài Git.
 [Kiểm chứng](docs/ACCEPTANCE.md) · [Kế hoạch](docs/IMPROVEMENT-PLAN.md)
 [Kết quả cải thiện](docs/RENOVATION-RESULTS.md)
 
-Bản hiện tại cần migration **012–014** sau 011. Sao lưu trước khi cập nhật;
+Bản source hiện tại cần migration **012–015** sau 011. Sao lưu trước khi cập nhật;
 chạy migrator/provisioner đúng image rồi tạo lại Gateway cùng helper WireGuard.
 Thông báo được lưu trong PostgreSQL, tối đa ba lần thử; Telegram có thể nhận
 trùng nếu kết nối mất sau khi đã tiếp nhận tin.

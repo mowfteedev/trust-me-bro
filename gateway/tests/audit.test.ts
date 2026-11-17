@@ -54,6 +54,18 @@ describe('read-only audit log API', () => {
     expect(logQueries()).toHaveLength(1);
   });
 
+  it('shows a safe Worker enrollment event to Viewer without enrollment credentials', async () => {
+    user.role = 'VIEWER';
+    mock.query.mockImplementation(async (sql: string) => ({ rows: sql.includes('FROM users WHERE id') ? [user] : [{
+      ...row, action: 'WORKER_ENROLLED', details: { node_type: 'VM', worker_os: 'linux',
+        join_token: 'never-return-invite', node_token: 'never-return-node', private_key: 'never-return-key' },
+    }] }));
+    const response = await getLogs('?action=WORKER_ENROLLED');
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data[0].details).toEqual({ node_type: 'VM', worker_os: 'linux' });
+    expect(response.body).not.toContain('never-return');
+  });
+
   it('rejects an inactive account with 403', async () => {
     user.is_active = false;
     expect((await getLogs()).statusCode).toBe(403);

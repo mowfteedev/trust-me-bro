@@ -3,13 +3,69 @@ info:
   title: ZT-ServerOps Control Plane API
   version: 1.1.0
   description: |
-    API của mô hình đồ án. Node được đăng ký bằng CLI setup-demo, không có HTTP CRUD node.
+    API của mô hình đồ án. Node được đăng ký bằng CLI hoặc mã ghép riêng do quản trị
+    viên cấp. Enrollment HTTP chỉ bật khi cài Gateway bằng bộ automation, không có HTTP CRUD node.
     ADMIN mở SSH; VIEWER chỉ đọc giám sát. Giá trị DB HEALTHY/WARNING/OFFLINE
     được giao diện hiển thị Online/Stale/Offline; cảnh báo CPU là incident riêng.
 servers:
   - url: https://localhost
     description: Demo cục bộ, CA nội bộ Caddy
 paths:
+  /api/enrollment/info:
+    get:
+      summary: Public identity để bộ cài kiểm đúng Gateway qua HTTPS
+      description: Chỉ trả metadata công khai, không có mã ghép hoặc private key.
+      responses:
+        '200': {description: version1 và public Gateway metadata}
+        '404': {description: Enrollment chưa bật}
+        '503': {description: Metadata chưa cấu hình hợp lệ}
+  /api/enrollment/claim:
+    post:
+      summary: Đăng ký hoặc kiểm lại đúng Worker bằng mã ghép một lần
+      description: |
+        Chỉ bật khi ENROLLMENT_ENABLED=true. Mã do quản trị viên cấp ngoài HTTP,
+        giới hạn một tên/IP/loại máy/OS/tài khoản SSH, có hạn và thu hồi được.
+        Worker gửi qua HTTPS đã xác minh chứng chỉ; không dùng mật khẩu Dashboard.
+        Cùng payload đã tiêu thụ được thử lại kể cả sau hạn nếu danh tính không đổi;
+        payload khác bị từ chối. 200 chỉ xác nhận peer đã áp dụng, chưa chứng minh
+        Agent hoặc SSH thành công; client phải kiểm cả ba trường verification.
+        Không nhận private key; không cấp quyền quản trị hoặc thông tin database.
+      security: [{EnrollmentToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [invitation_id, wireguard_public_key, ssh_host_public_key, node_token]
+              properties:
+                invitation_id: {type: string, format: uuid}
+                wireguard_public_key: {type: string, minLength: 44, maxLength: 44}
+                ssh_host_public_key: {type: string, minLength: 60, maxLength: 512}
+                node_token: {type: string, minLength: 32, maxLength: 128, writeOnly: true}
+      responses:
+        '200':
+          description: Peer đã áp dụng; xem verification để biết heartbeat và SSH
+          headers:
+            Cache-Control: {schema: {type: string}, description: no-store}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EnrollmentAssignment'}
+        '202':
+          description: Danh tính đã ghi nhận, chờ helper áp dụng peer; thử lại cùng payload
+          headers:
+            Retry-After: {schema: {type: integer}, description: 3 giây}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EnrollmentAssignment'}
+        '400': {description: Payload hoặc public key không hợp lệ}
+        '401': {description: Thiếu hoặc sai mã ghép}
+        '404': {description: Enrollment chưa bật}
+        '409': {description: Mã đã dùng cho danh tính khác hoặc xung đột peer}
+        '410': {description: Mã đã thu hồi hoặc chưa dùng nhưng đã hết hạn}
+        '429': {description: Vượt 20 yêu cầu mỗi phút trên một IP}
+        '503': {description: DB hoặc kênh áp dụng peer chưa sẵn sàng; thử lại cùng payload}
   /api/auth/login:
     post:
       summary: Đăng nhập
@@ -222,7 +278,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, BASTION_TICKET_ISSUED, BASTION_SESSION_START, BASTION_SESSION_END, CPU_HIGH, NODE_OFFLINE, TELEGRAM_TEST, AUDIT_PURGED, CPU_RECOVERED, USER_CREATED, USER_UPDATED, USER_PASSWORD_RESET, PASSWORD_CHANGED]
+            enum: [LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, BASTION_TICKET_ISSUED, BASTION_SESSION_START, BASTION_SESSION_END, CPU_HIGH, NODE_OFFLINE, TELEGRAM_TEST, AUDIT_PURGED, CPU_RECOVERED, USER_CREATED, USER_UPDATED, USER_PASSWORD_RESET, PASSWORD_CHANGED, WORKER_ENROLLED]
       responses:
         '200':
           description: Trang nhật ký, has_more cho biết còn trang tiếp
@@ -441,7 +497,38 @@ components:
   securitySchemes:
     BearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
     NodeTokenAuth: {type: apiKey, in: header, name: X-Node-Token}
+    EnrollmentToken: {type: apiKey, in: header, name: X-Enrollment-Token}
   schemas:
+    EnrollmentAssignment:
+      type: object
+      required: [version, status, gateway_id, invitation_id, node_id, node_name, node_ip,
+        node_type, worker_os, ssh_username, registration_url, gateway_vpn_ip, gateway_api_url,
+        wireguard_endpoint, wireguard_public_key, bastion_public_key, peer_ready, verification]
+      properties:
+        version: {type: integer, enum: [1]}
+        status: {type: string, enum: [PENDING, READY]}
+        gateway_id: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        invitation_id: {type: string, format: uuid}
+        node_id: {type: string, format: uuid}
+        node_name: {type: string}
+        node_ip: {type: string, format: ipv4}
+        node_type: {type: string, enum: [VM, BARE_METAL]}
+        worker_os: {type: string, enum: [linux, windows]}
+        ssh_username: {type: string}
+        registration_url: {type: string, format: uri}
+        gateway_vpn_ip: {type: string, format: ipv4}
+        gateway_api_url: {type: string, format: uri}
+        wireguard_endpoint: {type: string}
+        wireguard_public_key: {type: string}
+        bastion_public_key: {type: string}
+        peer_ready: {type: boolean}
+        verification:
+          type: object
+          required: [peer_applied, heartbeat_recent, ssh_authenticated]
+          properties:
+            peer_applied: {type: boolean}
+            heartbeat_recent: {type: boolean}
+            ssh_authenticated: {type: boolean}
     ManagedUser:
       allOf:
         - {$ref: '#/components/schemas/User'}
@@ -504,6 +591,8 @@ components:
             username: {type: string, maxLength: 50}
             is_active: {type: boolean}
             scope: {type: string, enum: [current, all]}
+            node_type: {type: string, enum: [VM, BARE_METAL]}
+            worker_os: {type: string, enum: [linux, windows]}
             session_id: {type: string, maxLength: 96}
             reason: {type: string, maxLength: 160}
             target_ip: {type: string, maxLength: 64}

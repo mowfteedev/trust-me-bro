@@ -1,0 +1,42 @@
+# Opt-in overlay for the automated installer. The four existing core services remain.
+services:
+  gateway:
+    environment:
+      ENROLLMENT_ENABLED: "true"
+      ENROLLMENT_GATEWAY_ID: "${ENROLLMENT_GATEWAY_ID:?Run the Gateway installer first}"
+      ENROLLMENT_PUBLIC_URL: "${ENROLLMENT_PUBLIC_URL:?Set the verified HTTPS registration origin}"
+      ENROLLMENT_ENDPOINT: "${ENROLLMENT_ENDPOINT:?Set the public WireGuard endpoint}"
+      ENROLLMENT_GATEWAY_PUBLIC_KEY: "${ENROLLMENT_GATEWAY_PUBLIC_KEY:?Missing Gateway public identity}"
+      ENROLLMENT_BASTION_PUBLIC_KEY: "${ENROLLMENT_BASTION_PUBLIC_KEY:?Missing Bastion public key}"
+      ENROLLMENT_REQUEST_DIR: /run/zt-enrollment/requests
+      ENROLLMENT_ACK_DIR: /run/zt-enrollment/acks
+    volumes:
+      - type: bind
+        source: ${ENROLLMENT_STATE_DIR:?Run the Gateway installer first}/requests
+        target: /run/zt-enrollment/requests
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ENROLLMENT_STATE_DIR:?Run the Gateway installer first}/acks
+        target: /run/zt-enrollment/acks
+        read_only: true
+        bind:
+          create_host_path: false
+
+  wireguard_gateway:
+    environment:
+      ENROLLMENT_ENABLED: "true"
+      ENROLLMENT_REQUEST_DIR: /run/zt-enrollment/requests
+      ENROLLMENT_ACK_DIR: /run/zt-enrollment/acks
+    volumes:
+      - type: bind
+        source: ${ENROLLMENT_STATE_DIR:?Run the Gateway installer first}/requests
+        target: /run/zt-enrollment/requests
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ENROLLMENT_STATE_DIR:?Run the Gateway installer first}/acks
+        target: /run/zt-enrollment/acks
+        bind:
+          create_host_path: false

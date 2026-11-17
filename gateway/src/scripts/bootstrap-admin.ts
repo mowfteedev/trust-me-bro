@@ -1,115 +1,82 @@
 import fs from 'node:fs';
-import crypto from 'node:crypto';
-import path from 'node:path';
-import { query, closeDatabasePool } from '../services/db.js';
+import { Client } from 'pg';
 import { hashPassword } from '../utils/crypto.js';
 
-/**
- * ==============================================================================
- * KỊCH BẢN KHỞI TẠO TÀI KHOẢN QUẢN TRỊ VIÊN BAN ĐẦU (bootstrap-admin.ts)
- * Dự án: ZT-ServerOps (B1 Remediation & P1 Hardening)
- * Phụ trách: security (chủ trì), backend
- * ==============================================================================
- *
- * Cho phép thiết lập tài khoản quản trị viên an toàn trong môi trường Production
- * mà không cần phụ thuộc vào thông tin xác thực mẫu (default seed credentials).
- *
- * BẢO MẬT (P1 REMEDIATION):
- * 1. TUYỆT ĐỐI CẤM truyền mật khẩu qua CLI argv (--password) để chống rò rỉ qua /proc và `ps aux`.
- * 2. Tiếp nhận mật khẩu an toàn qua:
- *    - Biến môi trường: BOOTSTRAP_ADMIN_PASSWORD
- *    - Tệp tin bí mật: --password-file <đường_dẫn> hoặc BOOTSTRAP_ADMIN_PASSWORD_FILE
- * 3. Tuyệt đối KHÔNG in mật khẩu thô ra stdout/stderr. Nếu tự sinh ngẫu nhiên, mật khẩu
- *    được lưu an toàn vào tệp riêng biệt phân quyền chặt chẽ (chmod 600).
- */
+type Input = { username: string; password: string };
 
-async function bootstrapAdmin() {
-  const args = process.argv.slice(2);
-  let username = process.env.BOOTSTRAP_ADMIN_USER || 'admin';
-  let password = process.env.BOOTSTRAP_ADMIN_PASSWORD || '';
-  let passwordFile = process.env.BOOTSTRAP_ADMIN_PASSWORD_FILE || '';
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--username' && args[i + 1]) {
-      username = args[i + 1];
-      i++;
-    } else if (args[i] === '--password-file' && args[i + 1]) {
-      passwordFile = args[i + 1];
-      i++;
-    } else if (args[i] === '--password') {
-      console.error('❌ [SECURITY VIOLATION] CẤM truyền mật khẩu trực tiếp qua đối số dòng lệnh CLI (--password).');
-      console.error('👉 Vui lòng sử dụng cờ --password-file <đường_dẫn> hoặc biến môi trường BOOTSTRAP_ADMIN_PASSWORD.');
-      process.exit(1);
-    }
-  }
-
-  // Đọc mật khẩu từ tệp bảo mật nếu có
-  if (!password && passwordFile) {
-    if (!fs.existsSync(passwordFile)) {
-      console.error(`❌ [ERROR] Không tìm thấy tệp mật khẩu: ${passwordFile}`);
-      process.exit(1);
-    }
-    password = fs.readFileSync(passwordFile, 'utf-8').trim();
-  }
-
-  let generated = false;
-  let secretSavePath = '';
-  if (!password) {
-    password = crypto.randomBytes(16).toString('base64').replace(/[^a-zA-Z0-9]/g, 'x') + '!A1';
-    generated = true;
-
-    // Lưu mật khẩu tự sinh vào tệp phân quyền an toàn 0600 (R3-P1 Remediation)
-    const keysDir = path.resolve(process.cwd(), 'keys');
-    if (!fs.existsSync(keysDir)) {
-      fs.mkdirSync(keysDir, { mode: 0o700, recursive: true });
-    }
-    secretSavePath = process.env.BOOTSTRAP_SECRET_PATH || path.join(keysDir, 'bootstrap_admin.secret');
-
-    // Chống tấn công qua Symlink (CWE-59): Kiểm tra nếu tệp tồn tại và là symlink thì hủy bỏ liên kết
-    if (fs.existsSync(secretSavePath)) {
-      const stat = fs.lstatSync(secretSavePath);
-      if (stat.isSymbolicLink()) {
-        fs.unlinkSync(secretSavePath);
-      }
-    }
-
-    // Ghi dữ liệu vào tệp và luôn cưỡng chế chmod 0600 kể cả khi tệp đã tồn tại trước đó
-    fs.writeFileSync(secretSavePath, password + '\n', { mode: 0o600 });
-    try {
-      fs.chmodSync(secretSavePath, 0o600);
-    } catch {}
-  }
-
-  const pwdHash = hashPassword(password);
-
-  console.log(`🚀 [BOOTSTRAP ADMIN] Đang khởi tạo/cập nhật tài khoản quản trị: ${username}`);
-
-  await query(
-    `INSERT INTO users (username, password_hash, role, is_active, session_version)
-     VALUES ($1, $2, 'ADMIN', TRUE, 1)
-     ON CONFLICT (username) DO UPDATE
-     SET password_hash = EXCLUDED.password_hash,
-         role = 'ADMIN',
-         is_active = TRUE,
-         session_version = users.session_version + 1,
-         updated_at = (now() AT TIME ZONE 'UTC');`,
-    [username, pwdHash]
-  );
-
-  console.log(`✅ [BOOTSTRAP ADMIN] Khởi tạo tài khoản quản trị viên thành công!`);
-  console.log(`👤 Username: ${username}`);
-  if (generated) {
-    console.log(`🔒 Mật khẩu tự sinh đã được lưu an toàn tại: ${secretSavePath} (phân quyền chmod 600)`);
-    console.log(`⚠️ Tuyệt đối không để lộ tệp bí mật này và vui lòng đổi mật khẩu sau khi đăng nhập.`);
-  } else {
-    console.log(`🔒 Password: (Đã thiết lập thành công từ biến môi trường/tệp bí mật bảo vệ)`);
-  }
-
-  await closeDatabasePool();
+function validate(username: unknown, password: unknown): Input {
+  if (typeof username !== 'string' || !/^[A-Za-z0-9_.-]{3,64}$/.test(username)
+    || typeof password !== 'string' || password.length < 12 || password.length > 256
+    || /[\r\n\0]/.test(password)) throw new Error('INVALID_INPUT');
+  return { username, password };
 }
 
-bootstrapAdmin().catch(async (err) => {
-  console.error('❌ [BOOTSTRAP ADMIN ERROR]:', err);
-  await closeDatabasePool();
-  process.exit(1);
+function input(): Input {
+  const args = process.argv.slice(2);
+  if (args.includes('--password')) throw new Error('PASSWORD_ARGUMENT_FORBIDDEN');
+  if (args.length === 1 && args[0] === '--stdin') {
+    const buffer = Buffer.alloc(4097);
+    let size = 0;
+    while (size < buffer.length) {
+      const read = fs.readSync(0, buffer, size, buffer.length - size, null);
+      if (!read) break;
+      size += read;
+    }
+    if (size > 4096) throw new Error('INVALID_INPUT');
+    const bytes = buffer.subarray(0, size);
+    const value: unknown = JSON.parse(bytes.toString('utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('INVALID_INPUT');
+    const record = value as Record<string, unknown>;
+    if (Object.keys(record).some(key => !['username', 'password'].includes(key))) throw new Error('INVALID_INPUT');
+    return validate(record.username, record.password);
+  }
+  let username = process.env.BOOTSTRAP_ADMIN_USER || 'admin';
+  let password = process.env.BOOTSTRAP_ADMIN_PASSWORD || '';
+  let file = process.env.BOOTSTRAP_ADMIN_PASSWORD_FILE || '';
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--username' && args[i + 1]) username = args[++i];
+    else if (args[i] === '--password-file' && args[i + 1]) file = args[++i];
+    else throw new Error('INVALID_ARGUMENT');
+  }
+  if (!password && file) {
+    const descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const stat = fs.fstatSync(descriptor);
+      if (!stat.isFile() || (stat.mode & 0o077) || stat.size > 4096) throw new Error('UNSAFE_PASSWORD_FILE');
+      password = fs.readFileSync(descriptor, 'utf8').replace(/\r?\n$/, '');
+    } finally { fs.closeSync(descriptor); }
+  }
+  return validate(username, password);
+}
+
+async function main(): Promise<void> {
+  const record = input();
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_REQUIRED');
+  const client = new Client({ connectionString: url, connectionTimeoutMillis: 3000,
+    query_timeout: 5000, statement_timeout: 5000 });
+  try {
+    await client.connect();
+    await client.query('BEGIN');
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('zt-first-admin'))");
+    // A retry cannot reset a changed password, reactivate a user or promote a Viewer.
+    const existing = await client.query("SELECT id FROM users WHERE role = 'ADMIN' OR username = $1 LIMIT 1", [record.username]);
+    if (existing.rows.length) {
+      await client.query('COMMIT');
+      console.log(JSON.stringify({ created: false, existing_accounts_preserved: true }));
+      return;
+    }
+    await client.query(`INSERT INTO users (username,password_hash,role,is_active,session_version)
+      VALUES ($1,$2,'ADMIN',TRUE,1)`, [record.username, hashPassword(record.password)]);
+    await client.query('COMMIT');
+    console.log(JSON.stringify({ created: true, username: record.username }));
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch { /* Preserve the original failure. */ }
+    throw error;
+  } finally { await client.end(); }
+}
+
+main().catch(() => {
+  console.error('Admin bootstrap stopped. Use --stdin JSON or a protected password file; password must be 12–256 characters. Existing users are preserved.');
+  process.exitCode = 1;
 });

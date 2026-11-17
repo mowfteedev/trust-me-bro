@@ -40,6 +40,19 @@ def run_check(name, command, evidence, output, environment=None, skip_reason=Non
     return {'check': name, 'evidence': evidence, 'exit_code': code, 'status': 'PASS' if code == 0 else 'FAIL'}
 
 
+def peer_helper_command():
+    files = ['peer-helper.go', 'peer-helper_test.go']
+    if shutil.which('go'):
+        return ['go', '-C', 'deploy/wireguard', 'test', *files]
+    if shutil.which('docker'):
+        image = 'golang:1.27-alpine'
+        if subprocess.run(['docker', 'image', 'inspect', image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+            return ['docker', 'run', '--rm', '--network', 'none', '--mount',
+                    f'type=bind,src={ROOT / "deploy/wireguard"},dst=/src,readonly',
+                    '--tmpfs', '/tmp', '-e', 'GOCACHE=/tmp/go-cache', '-w', '/src', image, 'go', 'test', *files]
+    return None
+
+
 def overall_status(results):
     if any(item['status'] == 'FAIL' for item in results):
         return 'FAIL'
@@ -69,6 +82,7 @@ def main():
                    ('dashboard-unit', ['npm', '--prefix', 'dashboard', 'test'], 'source_and_mock'),
                    ('agent-unit', agent_command(), 'unit')]
     results = []
+    checks.append(('peer-helper-unit', peer_helper_command(), 'unit'))
     for name, command, evidence in checks:
         item = run_check(name, command, evidence, output)
         results.append(item)
@@ -77,6 +91,7 @@ def main():
         gateway_built = any(item['check'] in ('gateway-build', 'gateway-runtime-build') and item['status'] == 'PASS' for item in results)
         labs = [('accounts-runtime', ['node', 'tests/runtime-accounts.cjs']),
                 ('exports-runtime', ['node', 'tests/runtime-exports.cjs']),
+                ('enrollment-runtime', ['node', 'tests/runtime-enrollment.cjs']),
                 ('recovery-runtime', [sys.executable, 'tests/runtime-recovery.py', '--output', str(output / 'recovery-lab')]),
                 ('alerts-runtime', [sys.executable, 'tests/runtime-alerts-lab.py', '--output', str(output / 'alerts-lab')])]
         environment = {**os.environ, 'ZT_ACCOUNT_EVIDENCE_PATH': str(output / 'accounts-evidence.json')}

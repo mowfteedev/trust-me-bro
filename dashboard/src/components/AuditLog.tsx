@@ -25,6 +25,7 @@ import { formatTime } from "../utils/format.js";
 import { useExcelExport } from "../hooks/useExcelExport.js";
 
 const events = [
+  { value: 'WORKER_ENROLLED', label: 'Đăng ký Worker', icon: Shield, tone: 'auth' },
   { value: 'CPU_RECOVERED', label: 'CPU trở lại bình thường', icon: Check, tone: 'auth' },
   { value: 'USER_CREATED', label: 'Tạo tài khoản', icon: Shield, tone: 'auth' },
   { value: 'USER_UPDATED', label: 'Đổi quyền hoặc khóa tài khoản', icon: Shield, tone: 'warning' },
@@ -87,6 +88,8 @@ const events = [
   },
 ];
 const detailLabels: Record<string, string> = {
+  node_type: 'Loại máy',
+  worker_os: 'Hệ điều hành',
   username: 'Tài khoản được cập nhật',
   is_active: 'Đang hoạt động',
   scope: 'Phạm vi đăng xuất',

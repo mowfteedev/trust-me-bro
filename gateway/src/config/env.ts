@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
 import path from 'path';
+import { enrollmentPublicConfig } from '../services/enrollment-contract.js';
 
 // Nạp các biến môi trường từ tệp .env ở thư mục gốc của dự án
 dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
@@ -62,6 +63,15 @@ const envSchema = z.object({
   // Mạng ngầm WireGuard
   WG_GATEWAY_IP: z.string().ip({ version: 'v4' }).default('10.100.0.1'),
   WG_LISTEN_PORT: z.coerce.number().int().min(1).max(65535).default(51820),
+  // Opt-in enrollment; the existing Gateway remains closed to public claims.
+  ENROLLMENT_ENABLED: z.enum(['true', 'false']).default('false').transform(value => value === 'true'),
+  ENROLLMENT_GATEWAY_ID: z.string().default(''),
+  ENROLLMENT_PUBLIC_URL: z.string().default(''),
+  ENROLLMENT_ENDPOINT: z.string().default(''),
+  ENROLLMENT_GATEWAY_PUBLIC_KEY: z.string().default(''),
+  ENROLLMENT_BASTION_PUBLIC_KEY: z.string().default(''),
+  ENROLLMENT_REQUEST_DIR: z.string().default(''),
+  ENROLLMENT_ACK_DIR: z.string().default(''),
 }).refine((env) => env.NODE_STALE_THRESHOLD_SECONDS < env.NODE_OFFLINE_THRESHOLD_SECONDS, {
   message: 'NODE_STALE_THRESHOLD_SECONDS phải nhỏ hơn ngưỡng OFFLINE',
   path: ['NODE_STALE_THRESHOLD_SECONDS'],
@@ -71,6 +81,16 @@ const envSchema = z.object({
 }).refine((env) => env.CPU_RECOVERY_THRESHOLD_PERCENT < env.CPU_ALERT_THRESHOLD_PERCENT, {
   message: 'CPU_RECOVERY_THRESHOLD_PERCENT phải nhỏ hơn ngưỡng cảnh báo CPU',
   path: ['CPU_RECOVERY_THRESHOLD_PERCENT'],
+}).superRefine((env, context) => {
+  if (!env.ENROLLMENT_ENABLED) return;
+  try {
+    enrollmentPublicConfig(env);
+    if (!path.isAbsolute(env.ENROLLMENT_REQUEST_DIR) || !path.isAbsolute(env.ENROLLMENT_ACK_DIR)
+      || env.ENROLLMENT_REQUEST_DIR === env.ENROLLMENT_ACK_DIR) throw new Error('Invalid peer directories');
+  } catch {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['ENROLLMENT_ENABLED'],
+      message: 'Enrollment requires a valid HTTPS origin, public identities, endpoint and separate absolute peer directories.' });
+  }
 });
 
 const parseResult = envSchema.safeParse(process.env);

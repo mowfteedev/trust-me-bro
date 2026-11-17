@@ -9,7 +9,7 @@ export const AUDIT_ACTIONS = [
   'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT_SUCCESS', 'BASTION_TICKET_ISSUED',
   'BASTION_SESSION_START', 'BASTION_SESSION_END', 'CPU_HIGH', 'NODE_OFFLINE',
   'TELEGRAM_TEST', 'AUDIT_PURGED',
-  'CPU_RECOVERED', 'USER_CREATED', 'USER_UPDATED', 'USER_PASSWORD_RESET', 'PASSWORD_CHANGED',
+  'CPU_RECOVERED', 'USER_CREATED', 'USER_UPDATED', 'USER_PASSWORD_RESET', 'PASSWORD_CHANGED', 'WORKER_ENROLLED',
 ] as const;
 
 const PAGE_SIZE = 25;
@@ -38,6 +38,8 @@ export interface AuditLogDetails {
   username?: string;
   is_active?: boolean;
   scope?: 'current' | 'all';
+  node_type?: 'VM' | 'BARE_METAL';
+  worker_os?: 'linux' | 'windows';
 }
 
 export interface AuditLogItem {
@@ -66,6 +68,10 @@ function safeDetails(raw: unknown, action: string): AuditLogDetails {
     if (typeof value === 'string') result[key] = value.slice(0, detailLimits[key]);
   }
   const values = raw as Record<string, unknown>;
+  if (action === 'WORKER_ENROLLED') {
+    if (values.node_type === 'VM' || values.node_type === 'BARE_METAL') result.node_type = values.node_type;
+    if (values.worker_os === 'linux' || values.worker_os === 'windows') result.worker_os = values.worker_os;
+  }
   if (action === 'LOGIN_FAILED' && typeof values.attempted_username === 'string') {
     result.attempted_username = values.attempted_username.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 50);
   }
@@ -145,6 +151,7 @@ async function readAuditRows(action: typeof AUDIT_ACTIONS[number] | undefined, q
             'role', a.details->'role',
             'username', a.details->'username', 'is_active', a.details->'is_active',
             'scope', a.details->'scope',
+            'node_type', a.details->'node_type', 'worker_os', a.details->'worker_os',
             'deleted_count', a.details->'deleted_count',
             'cutoff_time', a.details->'cutoff_time',
             'retention', a.details->'retention'
