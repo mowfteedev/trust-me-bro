@@ -68,9 +68,11 @@ Telegram có thể nhận trùng khi đã tiếp nhận nhưng kết nối/tiế
 trước lúc lưu kết quả. `SENT` chỉ xác nhận API Telegram nhận tin, không xác
 nhận người dùng đã đọc. Không gửi bù các sự cố cũ thiếu lịch sử delivery.
 
-VM Windows/Linux, reboot, firewall từ Internet và gửi cảnh báo Telegram thật:
-**CHƯA KIỂM CHỨNG ở bản này**. Hướng dẫn và checklist
-đã chuẩn bị; chỉ kiểm trên đúng môi trường được phép trước nghiệm thu.
+Ngày 17/11 đã kiểm Telegram thật đủ hai cặp CPU/Offline phục hồi trên lab
+cùng image, cùng ngưỡng 85/75%; đo tài nguyên EC2 và Agent Docker/TV thật.
+Chi tiết và giới hạn: [kiểm chứng mục 2–4](../deploy/ec2/ACCEPTANCE-234-20261117.md).
+VM theo hướng dẫn, reboot và raw Internet tới firewall Worker vẫn chưa
+kiểm chứng. Không coi firewall timeout qua NAT/WARP là bằng chứng host DROP.
 
 ## Cập nhật sau khi review
 

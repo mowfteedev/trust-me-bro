@@ -57,3 +57,8 @@ Mỗi mục hoàn tất phải ghi lệnh kiểm và kết quả vào hồ sơ b
   thử trước cutover, schema13, Gateway/WireGuard/Caddy mới; 23 ca API/SSH và
   12 ca browser public PASS. Tắt tài khoản kiểm thử; giữ owner/Worker/Cloudflare.
   Xem `deploy/ec2/DEPLOYMENT-20261116.md`.
+
+- [x] Kiểm bổ sung 17/11 theo yêu cầu mục 2–4: Telegram thật từ Agent/CPU thật
+  trên lab cùng image, đo EC2/Docker/TV; kiểm listener/rule và probe WireGuard.
+  Raw Internet tới firewall Worker còn **CHƯA KIỂM CHỨNG** do NAT/WARP;
+  không đánh dấu PASS toàn mục3. Xem `deploy/ec2/ACCEPTANCE-234-20261117.md`.

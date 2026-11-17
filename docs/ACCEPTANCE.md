@@ -68,6 +68,10 @@ lệnh, thời điểm và artifact. Không lấy số PASS của lần trước
 
 ## Phân loại kết quả
 
+Kết quả đợt kiểm 17/11: [Telegram, Zero Inbound và tài nguyên](../deploy/ec2/ACCEPTANCE-234-20261117.md).
+Telegram thật đã đạt trên lab cùng image; raw Internet tới firewall Worker
+vẫn chưa kiểm chứng do NAT/WARP. Không suy PASS từ kết nối timeout.
+
 - **SOURCE/COMPILE:** kiểm cấu trúc, contract hoặc build; chưa chạy hệ thống.
 - **MOCK/GIẢ LẬP:** đầu vào/DB/Telegram giả; chỉ xác nhận logic đã mô phỏng.
 - **RUNTIME CÔ LẬP:** DB/container/node lab thật; không chứng minh VM/Internet
