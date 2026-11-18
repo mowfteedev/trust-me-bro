@@ -20,7 +20,7 @@ import sys
 import time
 import urllib.request
 
-from worker_support import (InstallError, NoRedirect, assert_no_symlinks, claim,
+from worker_support import (InstallError, NoRedirect, USER_AGENT, assert_no_symlinks, claim,
                             invite_fingerprint, read_private_json, ssh_public_key,
                             validate_invite, wireguard_key, write_private)
 
@@ -476,7 +476,8 @@ def local_checks(assignment: dict) -> dict:
     ready = False
     opener = urllib.request.build_opener(NoRedirect(), urllib.request.ProxyHandler({}))
     try:
-        with opener.open('http://10.100.0.1:3000/readyz', timeout=5) as response:
+        request = urllib.request.Request('http://10.100.0.1:3000/readyz', headers={'User-Agent': USER_AGENT})
+        with opener.open(request, timeout=5) as response:
             data = json.loads(response.read(16384))
             ready = response.status == 200 and data.get('status') == 'READY'
     except Exception:

@@ -225,6 +225,7 @@ public sealed class ZTWorkerPinnedCa {
 function Invoke-Claim($Invite,$Payload) {
     [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
     $request=[Net.HttpWebRequest]::Create($Invite.registration_url)
+    $request.UserAgent='ZT-ServerOps/1.0'
     $request.Method='POST';$request.AllowAutoRedirect=$false;$request.Proxy=$null
     $request.Timeout=15000;$request.ReadWriteTimeout=15000;$request.ContentType='application/json'
     $request.Headers.Add('X-Enrollment-Token',$Invite.join_token)
@@ -283,7 +284,7 @@ function Check-Local($Assignment) {
     }
     $ready=$false
     try{
-        $request=[Net.HttpWebRequest]::Create('http://10.100.0.1:3000/readyz');$request.AllowAutoRedirect=$false;$request.Proxy=$null;$request.Timeout=5000
+        $request=[Net.HttpWebRequest]::Create('http://10.100.0.1:3000/readyz');$request.UserAgent='ZT-ServerOps/1.0';$request.AllowAutoRedirect=$false;$request.Proxy=$null;$request.Timeout=5000
         $response=$request.GetResponse();try{$reader=New-Object IO.StreamReader($response.GetResponseStream());try{$body=$reader.ReadToEnd() | ConvertFrom-Json;$ready=([int]$response.StatusCode -eq 200 -and $body.status -eq 'READY')}finally{$reader.Dispose()}}finally{$response.Dispose()}
     }catch{}
     $listeners=@(Get-NetTCPConnection -State Listen -LocalPort 22 -ErrorAction SilentlyContinue)

@@ -190,12 +190,43 @@ class TLSHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
-        type(self).seen.append({'token': self.headers.get('X-Enrollment-Token'),
-                               'body': json.loads(self.rfile.read(int(self.headers['Content-Length'])))})
+        length = int(self.headers.get('Content-Length', 0))
+        body = json.loads(self.rfile.read(length)) if length else {}
+        type(self).seen.append({
+            'path': self.path,
+            'token': self.headers.get('X-Enrollment-Token'),
+            'cleanup_token': self.headers.get('X-Cleanup-Token'),
+            'user_agent': self.headers.get('User-Agent'),
+            'body': body,
+        })
         if self.mode == 'redirect':
             self.send_response(302);self.send_header('Location', 'https://localhost:1/stolen');self.end_headers();return
         if self.mode == 'used':
             self.send_response(409);self.end_headers();return
+        if self.path == '/api/offboarding/verify':
+            resp = {
+                'success': True,
+                'operation_id': body.get('operation_id'),
+                'gateway_id': body.get('gateway_id'),
+                'node_id': body.get('node_id'),
+                'node_name': 'test-node',
+                'node_ip': body.get('node_ip'),
+                'invitation_id': body.get('invitation_id'),
+                'wireguard_public_key': body.get('wireguard_public_key'),
+                'lifecycle_state': 'REVOKED',
+            }
+            raw = json.dumps(resp).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json');self.send_header('Content-Length', str(len(raw)));self.end_headers()
+            self.wfile.write(raw)
+            return
+        if self.path == '/api/offboarding/complete':
+            resp = {'success': True, 'operation_id': body.get('operation_id'), 'lifecycle_state': 'COMPLETED'}
+            raw = json.dumps(resp).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json');self.send_header('Content-Length', str(len(raw)));self.end_headers()
+            self.wfile.write(raw)
+            return
         response = assignment(self.invite, self.mode != 'pending')
         raw = json.dumps(response).encode()
         self.send_response(202 if self.mode == 'pending' else 200)
@@ -233,7 +264,36 @@ class RealTLSTests(unittest.TestCase):
         self.assertTrue(response['peer_ready'])
         self.assertEqual(TLSHandler.seen[0]['body'], self.payload)
         self.assertEqual(TLSHandler.seen[0]['token'], self.invite['join_token'])
+        self.assertEqual(TLSHandler.seen[0]['user_agent'], 'ZT-ServerOps/1.0')
         self.assertNotIn('join_token', TLSHandler.seen[0]['body'])
+
+    def test_real_https_offboarding_verify_and_complete_send_user_agent(self):
+        origin = f'https://localhost:{self.server.server_port}'
+        bundle = {
+            'version': 1,
+            'operation_id': 'op-123',
+            'gateway_id': self.invite['gateway_id'],
+            'node_id': 'node-456',
+            'node_name': 'test-node',
+            'node_ip': '10.100.0.5',
+            'invitation_id': self.invite['invitation_id'],
+            'wireguard_public_key': self.invite['wireguard_public_key'],
+            'cleanup_token': 'cleanup-secret-token',
+            'completion_url': f'{origin}/api/offboarding/complete',
+        }
+        verified = support.verify_offboarding(bundle, origin, self.cert)
+        self.assertTrue(verified['success'])
+        self.assertEqual(verified['lifecycle_state'], 'REVOKED')
+        self.assertEqual(TLSHandler.seen[-1]['path'], '/api/offboarding/verify')
+        self.assertEqual(TLSHandler.seen[-1]['cleanup_token'], 'cleanup-secret-token')
+        self.assertEqual(TLSHandler.seen[-1]['user_agent'], 'ZT-ServerOps/1.0')
+
+        receipt = {'operation_id': 'op-123', 'status': 'completed'}
+        completed = support.post_offboarding_complete(bundle['completion_url'], bundle['cleanup_token'], receipt, self.cert)
+        self.assertTrue(completed['success'])
+        self.assertEqual(TLSHandler.seen[-1]['path'], '/api/offboarding/complete')
+        self.assertEqual(TLSHandler.seen[-1]['cleanup_token'], 'cleanup-secret-token')
+        self.assertEqual(TLSHandler.seen[-1]['user_agent'], 'ZT-ServerOps/1.0')
 
     def test_real_https_rejects_untrusted_certificate_without_leaking_token(self):
         with self.assertRaises(support.InstallError) as error:

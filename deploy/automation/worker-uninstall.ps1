@@ -363,6 +363,7 @@ function Invoke-VerifyOffboarding($Bundle, [string]$TrustedOrigin, [string]$CaFi
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $url = "$TrustedOrigin/api/offboarding/verify"
     $request = [Net.HttpWebRequest]::Create($url)
+    $request.UserAgent = 'ZT-ServerOps/1.0'
     $request.Method = 'POST'
     $request.AllowAutoRedirect = $false
     $request.Proxy = $null
@@ -1120,6 +1121,7 @@ function Build-Receipt($Steps, $Bundle) {
 function Invoke-CompleteOffboarding([string]$CompletionUrl, [string]$CleanupToken, $Payload, [string]$CaFilePath) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $request = [Net.HttpWebRequest]::Create($CompletionUrl)
+    $request.UserAgent = 'ZT-ServerOps/1.0'
     $request.Method = 'POST'
     $request.AllowAutoRedirect = $false
     $request.Proxy = $null

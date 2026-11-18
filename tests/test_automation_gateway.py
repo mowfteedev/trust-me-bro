@@ -63,6 +63,40 @@ class GatewayAutomationTests(unittest.TestCase):
         with self.assertRaises(InstallError):
             gateway_install.NoRedirect().redirect_request(None, None, 307, 'redirect', {}, 'https://other.example.com')
 
+    def test_verify_origin_sends_user_agent_and_checks_identity(self):
+        calls = []
+
+        class FakeResponse:
+            def __init__(self, data, status=200):
+                self._data = data
+                self.status = status
+
+            def read(self, limit):
+                return self._data
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+        def fake_open(req, timeout=None):
+            calls.append(req)
+            if '/readyz' in req.full_url:
+                return FakeResponse(b'{"status":"READY"}')
+            if '/api/enrollment/info' in req.full_url:
+                return FakeResponse(b'{"gateway_id":"gw-123"}')
+            raise ValueError(f'Unexpected url {req.full_url}')
+
+        with patch('urllib.request.OpenerDirector.open', side_effect=fake_open):
+            gateway_install.verify_origin(self.args, 'https://gateway.example.com', expected_id='gw-123')
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0].get_header('User-agent'), 'ZT-ServerOps/1.0')
+        self.assertEqual(calls[1].get_header('User-agent'), 'ZT-ServerOps/1.0')
+        self.assertTrue(calls[0].full_url.endswith('/readyz'))
+        self.assertTrue(calls[1].full_url.endswith('/api/enrollment/info'))
+
     def test_private_file_symlink_and_mode_guards(self):
         path = self.root / 'keys/test.env'
         atomic_write(path, 'VALUE=secret\n')

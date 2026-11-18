@@ -17,6 +17,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
+USER_AGENT = 'ZT-ServerOps/1.0'
+
 
 class InstallError(RuntimeError):
     """Only fixed, non-secret messages are safe to show to an operator."""
@@ -185,7 +187,11 @@ def claim(invite: dict, payload: dict, ca_file: Path | None = None) -> dict:
     opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=context),
                                         urllib.request.ProxyHandler({}))
     request = urllib.request.Request(invite['registration_url'], method='POST',
-        headers={'Content-Type': 'application/json', 'X-Enrollment-Token': invite['join_token']},
+        headers={
+            'Content-Type': 'application/json',
+            'X-Enrollment-Token': invite['join_token'],
+            'User-Agent': USER_AGENT,
+        },
         data=json.dumps(payload, separators=(',', ':')).encode())
     try:
         with opener.open(request, timeout=15) as response:
@@ -322,6 +328,7 @@ def verify_offboarding(bundle: dict, trusted_origin: str, ca_file: Path | None =
         headers={
             'Content-Type': 'application/json',
             'X-Cleanup-Token': bundle['cleanup_token'],
+            'User-Agent': USER_AGENT,
         },
         data=canonical_json(payload),
     )
@@ -376,6 +383,7 @@ def post_offboarding_complete(completion_url: str, cleanup_token: str, payload: 
         headers={
             'Content-Type': 'application/json',
             'X-Cleanup-Token': cleanup_token,
+            'User-Agent': USER_AGENT,
         },
         data=canonical_json(payload),
     )

@@ -375,16 +375,20 @@ def verify_collector(args, values):
     return {'status': 'verified', 'snapshot_age_seconds': round(age, 2), 'core_healthy': len(CORE)}
 
 
+USER_AGENT = 'ZT-ServerOps/1.0'
+
+
 def verify_origin(args, origin, expected_id=None):
     context = ssl.create_default_context(cafile=str(guarded_path(args.ca_file)) if args.ca_file else None)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context), NoRedirect())
     try:
-        response = opener.open(urllib.request.Request(origin + '/readyz', headers={'User-Agent': 'ZT-ServerOps-Installer/1'}), timeout=8)
+        response = opener.open(urllib.request.Request(origin + '/readyz', headers={'User-Agent': USER_AGENT}), timeout=8)
         body = response.read(4097)
         if response.status != 200 or len(body) > 4096 or json.loads(body).get('status') != 'READY':
             raise InstallError('Registration HTTPS origin is not READY.')
         if expected_id:
-            with opener.open(origin + '/api/enrollment/info', timeout=8) as identity:
+            info_request = urllib.request.Request(origin + '/api/enrollment/info', headers={'User-Agent': USER_AGENT})
+            with opener.open(info_request, timeout=8) as identity:
                 raw = identity.read(4097)
                 if identity.status != 200 or len(raw) > 4096 or json.loads(raw).get('gateway_id') != expected_id:
                     raise InstallError('HTTPS origin belongs to another Gateway.')
