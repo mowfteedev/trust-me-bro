@@ -35,7 +35,7 @@ Không gửi Telegram trong đợt này. Bằng chứng/script/log riêng tư ng
   lịch sử audit và chặn tái sử dụng token/khóa cũ.
 - Windows uninstaller pure test: kiểm tra parser, AST và hàm gỡ bỏ tự động qua
   `tests/automation-worker-functions.ps1` (18/18 checks PASS) và
-  `tests/windows-worker-uninstall-functions.ps1` (60/60 checks PASS). Đã bao phủ
+  `tests/windows-worker-uninstall-functions.ps1` (61/61 checks PASS). Đã bao phủ
   đầy đủ các hồi quy theo review của Codex:
   + Tệp không thuộc journal sở hữu (unowned file) được giữ nguyên, không xóa.
   + Tệp thuộc journal nhưng bị sửa đổi nội dung (modified file) được giữ nguyên, báo conflict.
@@ -43,6 +43,8 @@ Không gửi Telegram trong đợt này. Bằng chứng/script/log riêng tư ng
   + Tệp đã tồn tại trước khi cài được khôi phục từ backup tin cậy.
   + Khởi tạo journal mới với các pending steps an toàn dưới StrictMode Latest, không ném lỗi thuộc tính thiếu.
   + Journal đọc lại từ `ConvertFrom-Json` (PSCustomObject) được chuẩn hóa và lưu checkpoint tiến độ an toàn, không còn lỗi indexing vào PSCustomObject.
+  + Chuẩn hóa toàn bộ schema `state.json` và hàm gán `Set-EntryValue` dùng `Add-Member` cho `PSCustomObject`, loại bỏ hoàn toàn lỗi StrictMode `Exception setting "...": The property '...' cannot be found on this object`.
+  + Kiểm thử trực tiếp qua các hàm entrypoint thật `Invoke-WorkerUninstall` và `Invoke-WorkerCleanupRetry` (mock các giao tiếp ngoài) đảm bảo chu trình cài mới, đọc lại state, gỡ bỏ, ngắt checkpoint, replay receipt và guard chặn bundle cũ hoạt động thông suốt.
   + Receipt-only retry khi status COMPLETE mất phản hồi mạng sẽ chỉ gửi lại biên bản hoàn tất mà không chạy lại các bước gỡ bỏ dịch vụ/tệp.
   + Gọi lại khi đã hoàn tất (idempotent) trả về ngay lập tức không thực hiện thay đổi hệ thống.
   + Authorization bundle cũ từ lần cài đặt trước bị chặn triệt để khi `node_id` hoặc `gateway_id` khác với bản cài mới.

@@ -60,8 +60,10 @@ function Assert-PrivateInput([string]$Path) {
     Assert-NoReparsePoint $Path
     $file=Get-Item -LiteralPath $Path
     if($file.PSIsContainer -or $file.Length -gt 65536){Stop-Worker 'Invitation must be a regular file of at most64KiB.'}
-    $current=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    $allowed=@('S-1-5-18','S-1-5-32-544',$current)
+    $current=$null
+    try{$current=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}catch{}
+    $allowed=@('S-1-5-18','S-1-5-32-544')
+    if($current){$allowed+=$current}
     $acl=Get-Acl -LiteralPath $Path
     if($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin $allowed){Stop-Worker 'Invitation owner is not trusted.'}
     foreach($entry in @($acl.Access)){
@@ -82,6 +84,48 @@ function Write-Private([string]$Path,[string]$Text) {
     Private-Acl $Path
 }
 function Save-State($State) {Write-Private $statePath ($State | ConvertTo-Json -Depth 10)}
+
+function Get-EntryValue($Entry, [string]$Key) {
+    if (-not $Entry -or -not $Key) { return $null }
+    if ($Entry -is [System.Collections.Generic.Dictionary[string,string]] -or
+        $Entry -is [System.Collections.Generic.Dictionary[string,object]] -or
+        $Entry -is [System.Collections.Hashtable]) {
+        if ($Entry.ContainsKey($Key)) { return $Entry[$Key] }
+        return $null
+    }
+    if ($Entry -is [System.Collections.IDictionary]) {
+        if ($Entry.Contains($Key)) { return $Entry[$Key] }
+        return $null
+    }
+    if ($Entry -is [System.Management.Automation.PSCustomObject]) {
+        $p = $Entry.PSObject.Properties[$Key]
+        if ($null -ne $p) { return $p.Value }
+        return $null
+    }
+    return $null
+}
+
+function Set-EntryValue($Target, [string]$Key, $Value) {
+    if ($null -eq $Target -or -not $Key) { return }
+    if ($Target -is [System.Collections.IDictionary]) {
+        $Target[$Key] = $Value
+        return
+    }
+    if ($Target -is [System.Management.Automation.PSCustomObject]) {
+        $p = $Target.PSObject.Properties[$Key]
+        if ($null -ne $p) {
+            $p.Value = $Value
+        } else {
+            $Target | Add-Member -NotePropertyName $Key -NotePropertyValue $Value -Force
+        }
+        return
+    }
+    try {
+        $Target.$Key = $Value
+    } catch {
+        $Target | Add-Member -NotePropertyName $Key -NotePropertyValue $Value -Force
+    }
+}
 function Read-State {
     if(-not(Test-Path -LiteralPath $statePath)){return $null}
     Assert-TrustedManagedPath $managedRoot
@@ -337,35 +381,57 @@ try{
     [IO.File]::WriteAllBytes($stagedBinary,$binary);Private-Acl $stagedBinary
     if((Get-FileHash -LiteralPath $stagedBinary -Algorithm SHA256).Hash -ine $AgentSHA256){Stop-Worker 'Agent changed while staging.'}
     if(-not$state){
-        $state=[pscustomobject]@{version=1;kind='zt-worker-automation';phase='preparing';invite_fingerprint=$fingerprint;agent_sha256=$AgentSHA256.ToLowerInvariant();identity_fingerprint='';assignment=$null;configured_hash='';checks=$null;verification=$null}
+        $state=[pscustomobject][ordered]@{
+            version=1
+            kind='zt-worker-automation'
+            phase='preparing'
+            invite_fingerprint=$fingerprint
+            agent_sha256=$AgentSHA256.ToLowerInvariant()
+            identity_fingerprint=''
+            assignment=$null
+            configured_hash=''
+            checks=$null
+            verification=$null
+            worker_wireguard_public_key=''
+            registration_url=''
+            trusted_origin=''
+            managed=[ordered]@{}
+            owned_services=[ordered]@{}
+            owned_rules=@()
+            uninstalled_status=$null
+            cleanup_receipt=$null
+        }
         Save-State $state
     }
-    if($state.phase -eq 'rollback_needs_review'){Stop-Worker 'Previous rollback requires console review.'}
+    if((Get-EntryValue $state 'phase') -eq 'rollback_needs_review'){Stop-Worker 'Previous rollback requires console review.'}
     $privatePath=Join-Path $managedRoot 'wireguard.private';$tokenPath=Join-Path $managedRoot 'node.token'
-    if($state.identity_fingerprint -and (-not(Test-Path -LiteralPath $privatePath) -or -not(Test-Path -LiteralPath $tokenPath))){Stop-Worker 'Saved identity is missing; restore it instead of generating replacements.'}
+    $savedId = Get-EntryValue $state 'identity_fingerprint'
+    if($savedId -and (-not(Test-Path -LiteralPath $privatePath) -or -not(Test-Path -LiteralPath $tokenPath))){Stop-Worker 'Saved identity is missing; restore it instead of generating replacements.'}
     if(-not(Test-Path -LiteralPath $privatePath)){$private=(& $wg genkey 2>$null | Out-String).Trim();if($LASTEXITCODE -ne 0){Stop-Worker 'WireGuard key generation failed.'};Write-Private $privatePath ($private+"`n")}
     $private=(Get-Content -LiteralPath $privatePath -Raw).Trim()
     $public=($private | & $wg pubkey 2>$null | Out-String).Trim();if($LASTEXITCODE -ne 0){Stop-Worker 'WireGuard public key derivation failed.'}
-    $state.worker_wireguard_public_key=$public
-    $state.registration_url=$invite.registration_url
+    Set-EntryValue $state 'worker_wireguard_public_key' $public
+    Set-EntryValue $state 'registration_url' $invite.registration_url
     $regUri=[Uri]$invite.registration_url
-    $state.trusted_origin="$($regUri.Scheme)://$($regUri.Authority)"
+    Set-EntryValue $state 'trusted_origin' "$($regUri.Scheme)://$($regUri.Authority)"
     if(-not(Test-Path -LiteralPath $tokenPath)){$rng=[Security.Cryptography.RandomNumberGenerator]::Create();try{$random=New-Object byte[] 48;$rng.GetBytes($random);$token=[Convert]::ToBase64String($random).TrimEnd('=').Replace('+','-').Replace('/','_')}finally{$rng.Dispose()};Write-Private $tokenPath ($token+"`n")}
     $nodeToken=(Get-Content -LiteralPath $tokenPath -Raw).Trim()
-    if($state.identity_fingerprint -and -not(Test-Path -LiteralPath $hostKey)){Stop-Worker 'Saved SSH host identity is missing; restore it instead of generating replacements.'}
+    if($savedId -and -not(Test-Path -LiteralPath $hostKey)){Stop-Worker 'Saved SSH host identity is missing; restore it instead of generating replacements.'}
     if(-not(Test-Path -LiteralPath $hostKey)){& $keygen -A *> $null;if($LASTEXITCODE -ne 0){Stop-Worker 'Host key generation failed.'}}
     Assert-TrustedManagedPath $hostKey
     $hostPublic=Ssh-Public ((& $keygen -y -f $hostKey 2>$null | Out-String).Trim());if($LASTEXITCODE -ne 0){Stop-Worker 'Existing SSH host key could not be read.'}
     $payload=[ordered]@{invitation_id=$invite.invitation_id;wireguard_public_key=$public;ssh_host_public_key=$hostPublic;node_token=$nodeToken}
     $identity=Hash-Text ($payload | ConvertTo-Json -Compress)
-    if($state.identity_fingerprint -and $state.identity_fingerprint -cne $identity){Stop-Worker 'Saved Worker identity changed; refusing registration.'}
-    $state.identity_fingerprint=$identity;Save-State $state
+    if($savedId -and $savedId -cne $identity){Stop-Worker 'Saved Worker identity changed; refusing registration.'}
+    Set-EntryValue $state 'identity_fingerprint' $identity;Save-State $state
     $assignment=Wait-Claim $invite $payload $false
-    if($state.phase -eq 'complete'){
+    if((Get-EntryValue $state 'phase') -eq 'complete'){
         $local=Check-Local $assignment
         if((Local-Ok $local) -and $assignment.verification.peer_applied -and $assignment.verification.heartbeat_recent -and $assignment.verification.ssh_authenticated){[ordered]@{ok=$true;already_installed=$true;node_name=$invite.node_name;node_ip=$assignment.node_ip;checks=$local;gateway_verification=$assignment.verification} | ConvertTo-Json -Depth 7;exit 0}
     }
-    $state.assignment=$assignment;$state.phase='enrolled';Save-State $state
+    Set-EntryValue $state 'assignment' $assignment
+    Set-EntryValue $state 'phase' 'enrolled'
+    Save-State $state
     $networkStarted=$false
     try{
         $user=Get-LocalUser -Name $invite.ssh_username -ErrorAction SilentlyContinue
@@ -378,11 +444,12 @@ try{
         Write-Private $tunnelPath ("[Interface]`nPrivateKey = $private`nAddress = $($assignment.node_ip)/32`n`n[Peer]`nPublicKey = $($invite.wireguard_public_key)`nEndpoint = $($invite.wireguard_endpoint)`nAllowedIPs = $($invite.gateway_vpn_ip)/32`nPersistentKeepalive = 25`n")
         $bastionPath=Join-Path $managedRoot 'bastion_id_ed25519.pub';Write-Private $bastionPath ((Ssh-Public $invite.bastion_public_key)+"`n")
         if(Test-Path -LiteralPath $workerStatePath){
-            if($state.configured_hash -and (Get-FileHash -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config') -Algorithm SHA256).Hash -ine $state.configured_hash){Stop-Worker 'SSH configuration changed outside the installer; preserve it for review.'}
+            $cfgHash = Get-EntryValue $state 'configured_hash'
+            if($cfgHash -and (Get-FileHash -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config') -Algorithm SHA256).Hash -ine $cfgHash){Stop-Worker 'SSH configuration changed outside the installer; preserve it for review.'}
             [void](Invoke-TrustedScript (Join-Path $repo 'deploy\windows\restore-worker.ps1') @())
         }
         # Persist ownership before setup so a partially installed tunnel can be restored.
-        $state.managed = [ordered]@{
+        $managedOwnership = [ordered]@{
             (Join-Path $env:ProgramData 'ssh\sshd_config') = [ordered]@{
                 backup = Join-Path $env:ProgramData 'ZT-ServerOps\worker\sshd_config.before-zt'
                 before_hash = if (Test-Path -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config')) { (Get-FileHash -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config') -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
@@ -405,10 +472,11 @@ try{
                 before_hash = $null
             }
         }
+        Set-EntryValue $state 'managed' $managedOwnership
         $agentExePath = Join-Path $env:ProgramData 'ZT-ServerOps\agent\zt-agent.exe'
         $agentCfgPath = Join-Path $env:ProgramData 'ZT-ServerOps\agent\config.json'
         $expectedAgentCmd = '"' + $agentExePath + '" --service --config "' + $agentCfgPath + '"'
-        $state.owned_services = [ordered]@{
+        Set-EntryValue $state 'owned_services' [ordered]@{
             agent = [ordered]@{
                 name = 'ZTServerOpsAgent'
                 command = $expectedAgentCmd
@@ -418,12 +486,15 @@ try{
                 config = Join-Path $env:ProgramData 'ZT-ServerOps\worker\zt-worker.conf'
             }
         }
-        $state.owned_rules = @('ZT-ServerOps-SSH-VPN', 'ZT-ServerOps-SSH-Transport-Block')
-        $state.phase='network_in_progress';Save-State $state;$networkStarted=$true
+        Set-EntryValue $state 'owned_rules' @('ZT-ServerOps-SSH-VPN', 'ZT-ServerOps-SSH-Transport-Block')
+        Set-EntryValue $state 'phase' 'network_in_progress'
+        Save-State $state
+        $networkStarted=$true
         # Invoke in the same scope so a real adapter array reaches the existing script.
         & (Join-Path $repo 'deploy\windows\setup-worker.ps1') -TunnelConfigPath $tunnelPath -GatewaySshPublicKeyPath $bastionPath -TransportInterfaceAlias $TransportInterfaceAlias -VpnAddress $assignment.node_ip -GatewayVpnAddress $invite.gateway_vpn_ip -SshUser $invite.ssh_username -DedicatedVm *> $null
-        $state.configured_hash=(Get-FileHash -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config') -Algorithm SHA256).Hash.ToLowerInvariant()
-        $state.managed[(Join-Path $env:ProgramData 'ssh\sshd_config')].after_hash = $state.configured_hash
+        $configuredHash = (Get-FileHash -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config') -Algorithm SHA256).Hash.ToLowerInvariant()
+        Set-EntryValue $state 'configured_hash' $configuredHash
+        $state.managed[(Join-Path $env:ProgramData 'ssh\sshd_config')].after_hash = $configuredHash
         $workerConfPath = Join-Path $env:ProgramData 'ZT-ServerOps\worker\zt-worker.conf'
         if (Test-Path -LiteralPath $workerConfPath) {
             $state.managed[$workerConfPath].after_hash = (Get-FileHash -LiteralPath $workerConfPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -436,25 +507,31 @@ try{
         if (Test-Path -LiteralPath $hostPubPath) {
             $state.managed[$hostPubPath].after_hash = (Get-FileHash -LiteralPath $hostPubPath -Algorithm SHA256).Hash.ToLowerInvariant()
         }
-        $state.phase='network_active';Save-State $state
+        Set-EntryValue $state 'phase' 'network_active'
+        Save-State $state
         $configPath=Join-Path $managedRoot 'agent-config.json'
         $config=[ordered]@{GATEWAY_URL='http://10.100.0.1:3000';NODE_ID=$invite.node_name;NODE_TOKEN=$nodeToken;NETWORK_INTERFACE='zt-worker';DISK_MOUNT_POINT='C:\';BEACON_INTERVAL_SECONDS='3.0';MAX_BACKOFF_SECONDS='30.0';HTTP_TIMEOUT_SECONDS='3.0';JITTER_RATIO='0.0'}
         Write-Private $configPath ($config | ConvertTo-Json)
         [void](Invoke-TrustedScript (Join-Path $repo 'agent\install-windows.ps1') @('-BinaryPath',$stagedBinary,'-ConfigPath',$configPath,'-ValidateOnly'))
         [void](Invoke-TrustedScript (Join-Path $repo 'agent\install-windows.ps1') @('-BinaryPath',$stagedBinary,'-ConfigPath',$configPath))
         $state.managed[$agentCfgPath].after_hash = (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        $state.phase='agent_active';Save-State $state
+        Set-EntryValue $state 'phase' 'agent_active'
+        Save-State $state
         $localReport=Invoke-TrustedScript (Join-Path $repo 'deploy\windows\check-worker.ps1') @()
         $verified=Wait-Claim $invite $payload $true
         $local=Check-Local $verified
         if(-not(Local-Ok $local)){Stop-Worker 'VPN/Agent/SSH local checks did not complete.'}
-        $state.phase='complete';$state.assignment=$verified;$state.checks=$local;$state.verification=$verified.verification;Save-State $state
+        Set-EntryValue $state 'phase' 'complete'
+        Set-EntryValue $state 'assignment' $verified
+        Set-EntryValue $state 'checks' $local
+        Set-EntryValue $state 'verification' $verified.verification
+        Save-State $state
         [ordered]@{ok=$true;node_name=$invite.node_name;node_ip=$verified.node_ip;checks=$local;gateway_verification=$verified.verification;still_required=@('Independent Internet firewall probe','Reboot verification')} | ConvertTo-Json -Depth 8
     }catch{
         if($networkStarted){
             Stop-Service -Name $agentServiceName -ErrorAction SilentlyContinue
-            try{if(Test-Path -LiteralPath $workerStatePath){[void](Invoke-TrustedScript (Join-Path $repo 'deploy\windows\restore-worker.ps1') @())};$state.phase='rolled_back'}
-            catch{$state.phase='rollback_needs_review'}
+            try{if(Test-Path -LiteralPath $workerStatePath){[void](Invoke-TrustedScript (Join-Path $repo 'deploy\windows\restore-worker.ps1') @())};Set-EntryValue $state 'phase' 'rolled_back'}
+            catch{Set-EntryValue $state 'phase' 'rollback_needs_review'}
             Save-State $state
         }
         throw

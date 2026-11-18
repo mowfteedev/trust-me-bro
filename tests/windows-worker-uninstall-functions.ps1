@@ -849,79 +849,190 @@ if ($incompleteJournal.status -eq 'COMPLETE' -and $incompleteJournal.receipt) {
 }
 Passed 'Receipt-only retry detects COMPLETE status with evidence digest'
 
-# --- Test 19a: Fresh cleanup journal dispatch under StrictMode Latest ---
-$freshDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-fresh-' + [Guid]::NewGuid().ToString())
-[IO.Directory]::CreateDirectory($freshDir) | Out-Null
-try {
-    $freshCleanupPath = Join-Path $freshDir 'cleanup.json'
-    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    $stepsInit = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([System.StringComparer]::OrdinalIgnoreCase)
-    $cleanupJournal = [ordered]@{
-        version = 1
-        kind = 'zt-worker-cleanup'
-        created_at = $now
-        updated_at = $now
-        operation_id = $validBundle.operation_id
-        node_id = $validBundle.node_id
-        node_name = $validBundle.node_name
-        node_ip = $validBundle.node_ip
-        gateway_id = $validBundle.gateway_id
-        invitation_id = $validBundle.invitation_id
-        wireguard_public_key = $validBundle.wireguard_public_key
-        completion_url = $validBundle.completion_url
-        registration_url = $assignment.registration_url
-        trusted_origin = 'https://gateway.example'
-        status = 'IN_PROGRESS'
-        steps = $stepsInit
-        receipt = $null
-        gateway_acknowledged = $false
-    }
-    Write-Private $freshCleanupPath (ConvertTo-CanonicalJson $cleanupJournal)
+# ==============================================================================
+# SECTION 19: Full Entrypoint Integration Tests (Calling actual Invoke-WorkerUninstall and Invoke-WorkerCleanupRetry)
+# ==============================================================================
 
-    $stepInvocations = New-Object Collections.Generic.List[string]
-    $stepList = @(
-        @{ name = 'agent';    fn = { param($p) $stepInvocations.Add('agent'); return 'DONE' } },
-        @{ name = 'tunnel';   fn = { param($p) $stepInvocations.Add('tunnel'); return 'DONE' } },
-        @{ name = 'firewall'; fn = { param($p) $stepInvocations.Add('firewall'); return 'DONE' } },
-        @{ name = 'ssh';      fn = { param($p) $stepInvocations.Add('ssh'); return 'DONE' } },
-        @{ name = 'secrets';  fn = { param($p) $stepInvocations.Add('secrets'); return 'DONE' } }
-    )
+# Setup script-level state and mocks for entrypoint testing
+$script:mockCleanupCalls = New-Object Collections.Generic.List[string]
+$script:mockCompletePosts = 0
+$script:mockVerifyCalls = 0
 
-    foreach ($entry in $stepList) {
-        $sName = $entry.name
-        if ((Get-StepOutcome $cleanupJournal.steps $sName) -ne 'DONE') {
-            $outcome = & $entry.fn $null
-            Checkpoint-Step $freshCleanupPath $cleanupJournal $sName $outcome
-        }
-    }
+function script:Assert-LocalConsole { }
+function script:Assert-TrustedManagedPath([string]$Path) { }
 
-    $allDone = $true
-    foreach ($entry in $stepList) {
-        if ((Get-StepOutcome $cleanupJournal.steps $entry.name) -ne 'DONE') {
-            $allDone = $false
-            break
-        }
+function script:Invoke-VerifyOffboarding($Bundle, $Origin, $Ca) {
+    $script:mockVerifyCalls++
+    return [pscustomobject][ordered]@{
+        success = $true
+        operation_id = $Bundle.operation_id
+        node_id = $Bundle.node_id
+        node_name = $Bundle.node_name
+        node_ip = $Bundle.node_ip
+        invitation_id = $Bundle.invitation_id
+        gateway_id = $Bundle.gateway_id
+        wireguard_public_key = $Bundle.wireguard_public_key
+        lifecycle_state = 'REVOKED'
     }
-    if (-not $allDone -or $stepInvocations.Count -ne 5) {
-        throw 'Fresh journal did not execute all 5 steps.'
-    }
-    $receipt = Build-Receipt $cleanupJournal.steps $validBundle
-    if (-not $receipt -or -not $receipt.evidence_digest) {
-        throw 'Receipt was not built properly from fresh journal steps.'
-    }
-    Passed 'Fresh cleanup journal runs step dispatch loop without StrictMode property error'
-} finally {
-    if ([IO.Directory]::Exists($freshDir)) { [IO.Directory]::Delete($freshDir, $true) }
 }
 
-# --- Test 19b: Crash interrupt, reload JSON (PSCustomObject), and resume ---
-$resumeDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-resume-' + [Guid]::NewGuid().ToString())
-[IO.Directory]::CreateDirectory($resumeDir) | Out-Null
+function script:Invoke-CompleteOffboarding($Url, $Token, $Payload, $Ca) {
+    $script:mockCompletePosts++
+    return [pscustomobject][ordered]@{ success = $true }
+}
+
+function script:Cleanup-AgentStep($p) { $script:mockCleanupCalls.Add('agent'); return 'DONE' }
+function script:Cleanup-TunnelStep($p) { $script:mockCleanupCalls.Add('tunnel'); return 'DONE' }
+function script:Cleanup-FirewallStep($p) { $script:mockCleanupCalls.Add('firewall'); return 'DONE' }
+function script:Cleanup-SshStep($p) { $script:mockCleanupCalls.Add('ssh'); return 'DONE' }
+function script:Cleanup-SecretsStep($p) { $script:mockCleanupCalls.Add('secrets'); return 'DONE' }
+
+# --- Test 19a: New Worker state schema and setters without missing property error ---
+$testStateDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-schema-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($testStateDir) | Out-Null
 try {
-    $resumeCleanupPath = Join-Path $resumeDir 'cleanup.json'
+    $tmpStateFile = Join-Path $testStateDir 'state.json'
+    $freshState = [pscustomobject][ordered]@{
+        version = 1
+        kind = 'zt-worker-automation'
+        phase = 'preparing'
+        invite_fingerprint = 'abc123'
+        agent_sha256 = 'def456'
+        identity_fingerprint = ''
+        assignment = $null
+        configured_hash = ''
+        checks = $null
+        verification = $null
+        worker_wireguard_public_key = ''
+        registration_url = ''
+        trusted_origin = ''
+        managed = [ordered]@{}
+        owned_services = [ordered]@{}
+        owned_rules = @()
+        uninstalled_status = $null
+        cleanup_receipt = $null
+    }
+    # Verify setter works on new properties and existing properties
+    Set-EntryValue $freshState 'worker_wireguard_public_key' 'wg-pub-test'
+    Set-EntryValue $freshState 'custom_dynamic_prop' 'dynamic-value'
+    if ((Get-EntryValue $freshState 'worker_wireguard_public_key') -ne 'wg-pub-test' -or
+        (Get-EntryValue $freshState 'custom_dynamic_prop') -ne 'dynamic-value') {
+        throw 'Set-EntryValue failed on PSCustomObject.'
+    }
+    # Save to disk and read back (ConvertFrom-Json)
+    [IO.File]::WriteAllText($tmpStateFile, ($freshState | ConvertTo-Json -Depth 10))
+    $readBack = Get-Content -LiteralPath $tmpStateFile -Raw | ConvertFrom-Json
+    Set-EntryValue $readBack 'uninstalled_status' 'COMPLETE'
+    Set-EntryValue $readBack 'cleanup_receipt' ([ordered]@{ evidence_digest = 'sha256:abc' })
+    if ((Get-EntryValue $readBack 'uninstalled_status') -ne 'COMPLETE' -or
+        (Get-EntryValue (Get-EntryValue $readBack 'cleanup_receipt') 'evidence_digest') -ne 'sha256:abc') {
+        throw 'Set-EntryValue failed on JSON-deserialized PSCustomObject.'
+    }
+    Passed 'Worker state schema initializes all fields and Set-EntryValue dynamically extends PSCustomObject safely'
+} finally {
+    if ([IO.Directory]::Exists($testStateDir)) { [IO.Directory]::Delete($testStateDir, $true) }
+}
+
+# --- Test 19b: Actual Invoke-WorkerUninstall executes all steps, saves uninstalled state, and wipes capability ---
+$epDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-ep-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($epDir) | Out-Null
+$oldProgramData = $env:ProgramData
+$oldManagedRoot = $managedRoot
+$oldStatePath = $statePath
+try {
+    $env:ProgramData = $epDir
+    $managedRoot = Join-Path $env:ProgramData 'ZT-ServerOps\enrollment'
+    $statePath = Join-Path $managedRoot 'state.json'
+    [IO.Directory]::CreateDirectory($managedRoot) | Out-Null
+
+    # Installer-like state.json (WITHOUT uninstalled_status and WITHOUT cleanup_receipt)
+    $installedState = [ordered]@{
+        version = 1
+        kind = 'zt-worker-automation'
+        phase = 'complete'
+        invite_fingerprint = 'test-fingerprint'
+        agent_sha256 = 'test-sha'
+        identity_fingerprint = 'test-id-fp'
+        assignment = $assignment
+        worker_wireguard_public_key = $workerWgPub
+        registration_url = $assignment.registration_url
+        trusted_origin = 'https://gateway.example'
+        configured_hash = 'test-cfg-hash'
+        managed = [ordered]@{}
+        owned_services = [ordered]@{}
+        owned_rules = @('ZT-ServerOps-SSH-VPN')
+    }
+    [IO.File]::WriteAllText($statePath, ($installedState | ConvertTo-Json -Depth 10))
+
+    $authFile = Join-Path $epDir 'auth.json'
+    [IO.File]::WriteAllText($authFile, (ConvertTo-CanonicalJson $validBundle))
+
+    $script:mockCleanupCalls.Clear()
+    $script:mockCompletePosts = 0
+
+    # Call actual entrypoint Invoke-WorkerUninstall
+    $uninstRes = Invoke-WorkerUninstall -AuthorizationPath $authFile -CaFile 'mock-ca.crt'
+
+    if (-not $uninstRes.ok -or $uninstRes.status -ne 'COMPLETE') {
+        throw 'Invoke-WorkerUninstall did not return ok=true with status=COMPLETE.'
+    }
+    if ($script:mockCleanupCalls.Count -ne 5) {
+        throw ("Expected 5 cleanup steps called; got " + $script:mockCleanupCalls.Count)
+    }
+    if ($script:mockCompletePosts -ne 1) {
+        throw ("Expected 1 completion post; got " + $script:mockCompletePosts)
+    }
+
+    # Verify state.json on disk was written without property exception
+    $savedState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    if ((Get-EntryValue $savedState 'phase') -ne 'uninstalled') {
+        throw 'Saved state phase is not uninstalled!'
+    }
+    if ((Get-EntryValue $savedState 'uninstalled_status') -ne 'COMPLETE') {
+        throw 'Saved state uninstalled_status is not COMPLETE!'
+    }
+    $savedReceipt = Get-EntryValue $savedState 'cleanup_receipt'
+    if (-not $savedReceipt -or -not (Get-EntryValue $savedReceipt 'evidence_digest')) {
+        throw 'Saved state cleanup_receipt is missing evidence_digest!'
+    }
+
+    # Capability file must be removed after successful uninstall
+    $capFile = Join-Path $managedRoot 'cleanup.capability'
+    if (Test-Path -LiteralPath $capFile) {
+        throw 'cleanup.capability was not deleted after successful uninstall!'
+    }
+    Passed 'Actual Invoke-WorkerUninstall completes full cycle, saves state uninstalled and wipes capability'
+} finally {
+    $env:ProgramData = $oldProgramData
+    $managedRoot = $oldManagedRoot
+    $statePath = $oldStatePath
+    if ([IO.Directory]::Exists($epDir)) { [IO.Directory]::Delete($epDir, $true) }
+}
+
+# --- Test 19c: Actual Invoke-WorkerCleanupRetry resumes interrupted steps and completes ---
+$retryDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-retry-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($retryDir) | Out-Null
+$oldProgramData = $env:ProgramData
+$oldManagedRoot = $managedRoot
+$oldStatePath = $statePath
+try {
+    $env:ProgramData = $retryDir
+    $managedRoot = Join-Path $env:ProgramData 'ZT-ServerOps\enrollment'
+    $statePath = Join-Path $managedRoot 'state.json'
+    $cleanupPath = Join-Path $managedRoot 'cleanup.json'
+    $capPath = Join-Path $managedRoot 'cleanup.capability'
+    [IO.Directory]::CreateDirectory($managedRoot) | Out-Null
+
+    # Active state
+    $installedState = [ordered]@{
+        version = 1; kind = 'zt-worker-automation'; phase = 'complete'; assignment = $assignment
+        worker_wireguard_public_key = $workerWgPub; registration_url = $assignment.registration_url
+    }
+    [IO.File]::WriteAllText($statePath, ($installedState | ConvertTo-Json -Depth 10))
+
+    # Interrupted journal: step 'agent' is DONE, other 4 steps pending
     $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    # Step 1 was executed and check-pointed
-    $initialJournal = [ordered]@{
+    $interruptedJournal = [ordered]@{
         version = 1
         kind = 'zt-worker-cleanup'
         created_at = $now
@@ -933,7 +1044,7 @@ try {
         gateway_id = $validBundle.gateway_id
         invitation_id = $validBundle.invitation_id
         wireguard_public_key = $validBundle.wireguard_public_key
-        completion_url = $validBundle.completion_url
+        completion_url = 'https://gateway.example/api/offboarding/complete'
         registration_url = $assignment.registration_url
         trusted_origin = 'https://gateway.example'
         status = 'IN_PROGRESS'
@@ -941,66 +1052,65 @@ try {
         receipt = $null
         gateway_acknowledged = $false
     }
-    Write-Private $resumeCleanupPath (ConvertTo-CanonicalJson $initialJournal)
+    Write-Private $cleanupPath (ConvertTo-CanonicalJson $interruptedJournal)
+    Write-Private $capPath ($validBundle.cleanup_token + [char]10)
 
-    # Reload from JSON file (reproducing PSCustomObject)
-    $reloadedJournal = Get-Content -LiteralPath $resumeCleanupPath -Raw | ConvertFrom-Json
-    if ($reloadedJournal.steps -isnot [System.Management.Automation.PSCustomObject]) {
-        throw 'Test prerequisite failed: reloaded steps is not PSCustomObject.'
+    $authFile = Join-Path $retryDir 'auth.json'
+    [IO.File]::WriteAllText($authFile, (ConvertTo-CanonicalJson $validBundle))
+
+    $script:mockCleanupCalls.Clear()
+    $script:mockCompletePosts = 0
+
+    # Call actual entrypoint Invoke-WorkerCleanupRetry
+    $retryRes = Invoke-WorkerCleanupRetry -AuthorizationPath $authFile -CaFile 'mock-ca.crt'
+
+    if (-not $retryRes.ok -or $retryRes.status -ne 'COMPLETE') {
+        throw 'Invoke-WorkerCleanupRetry did not return ok=true with status=COMPLETE.'
+    }
+    if ($script:mockCleanupCalls.Contains('agent')) {
+        throw 'Interrupted step agent was unexpectedly re-run!'
+    }
+    if ($script:mockCleanupCalls.Count -ne 4) {
+        throw ("Expected remaining 4 steps executed; got " + $script:mockCleanupCalls.Count)
     }
 
-    # Normalize steps after reload
-    $reloadedJournal.steps = Normalize-StepsDict (Get-EntryValue $reloadedJournal 'steps')
-
-    $resumedInvocations = New-Object Collections.Generic.List[string]
-    $stepList = @(
-        @{ name = 'agent';    fn = { param($p) $resumedInvocations.Add('agent'); return 'DONE' } },
-        @{ name = 'tunnel';   fn = { param($p) $resumedInvocations.Add('tunnel'); return 'DONE' } },
-        @{ name = 'firewall'; fn = { param($p) $resumedInvocations.Add('firewall'); return 'DONE' } },
-        @{ name = 'ssh';      fn = { param($p) $resumedInvocations.Add('ssh'); return 'DONE' } },
-        @{ name = 'secrets';  fn = { param($p) $resumedInvocations.Add('secrets'); return 'DONE' } }
-    )
-
-    foreach ($entry in $stepList) {
-        $sName = $entry.name
-        if ((Get-StepOutcome $reloadedJournal.steps $sName) -ne 'DONE') {
-            $outcome = & $entry.fn $null
-            # Checkpoint-Step must accept reloaded journal without 'Unable to index into PSObject' error
-            Checkpoint-Step $resumeCleanupPath $reloadedJournal $sName $outcome
-        }
+    $savedState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    if ((Get-EntryValue $savedState 'phase') -ne 'uninstalled' -or
+        (Get-EntryValue $savedState 'uninstalled_status') -ne 'COMPLETE') {
+        throw 'State was not updated to uninstalled COMPLETE after retry!'
     }
-
-    if ($resumedInvocations.Contains('agent')) {
-        throw 'Step agent was already DONE and should not have been re-executed!'
+    if (Test-Path -LiteralPath $capPath) {
+        throw 'cleanup.capability was not deleted after successful retry!'
     }
-    if ($resumedInvocations.Count -ne 4) {
-        throw 'Remaining 4 steps were not executed on resume.'
-    }
-
-    # Verify persisted JSON on disk has all 5 steps
-    $diskJournal = Get-Content -LiteralPath $resumeCleanupPath -Raw | ConvertFrom-Json
-    $diskSteps = Normalize-StepsDict (Get-EntryValue $diskJournal 'steps')
-    foreach ($k in @('agent', 'tunnel', 'firewall', 'ssh', 'secrets')) {
-        if ((Get-StepOutcome $diskSteps $k) -ne 'DONE') {
-            throw ("Persisted step $k was not DONE on disk.")
-        }
-    }
-    Passed 'JSON reload resume executes only pending steps and saves checkpoints without indexer error'
+    Passed 'Actual Invoke-WorkerCleanupRetry resumes interrupted steps and finalizes uninstalled state'
 } finally {
-    if ([IO.Directory]::Exists($resumeDir)) { [IO.Directory]::Delete($resumeDir, $true) }
+    $env:ProgramData = $oldProgramData
+    $managedRoot = $oldManagedRoot
+    $statePath = $oldStatePath
+    if ([IO.Directory]::Exists($retryDir)) { [IO.Directory]::Delete($retryDir, $true) }
 }
 
-# --- Test 19c: COMPLETE receipt lost response triggers receipt-only replay without re-cleanup ---
-$receiptDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-receipt-' + [Guid]::NewGuid().ToString())
-[IO.Directory]::CreateDirectory($receiptDir) | Out-Null
+# --- Test 19d: Actual Invoke-WorkerCleanupRetry performs receipt-only replay without re-cleanup ---
+$roDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-ro-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($roDir) | Out-Null
+$oldProgramData = $env:ProgramData
+$oldManagedRoot = $managedRoot
+$oldStatePath = $statePath
 try {
-    $rCleanupPath = Join-Path $receiptDir 'cleanup.json'
-    $rStatePath = Join-Path $receiptDir 'state.json'
-    $rCapPath = Join-Path $receiptDir 'cleanup.capability'
+    $env:ProgramData = $roDir
+    $managedRoot = Join-Path $env:ProgramData 'ZT-ServerOps\enrollment'
+    $statePath = Join-Path $managedRoot 'state.json'
+    $cleanupPath = Join-Path $managedRoot 'cleanup.json'
+    $capPath = Join-Path $managedRoot 'cleanup.capability'
+    [IO.Directory]::CreateDirectory($managedRoot) | Out-Null
 
-    $fullSteps = [ordered]@{
-        agent = 'DONE'; tunnel = 'DONE'; firewall = 'DONE'; ssh = 'DONE'; secrets = 'DONE'
+    $installedState = [ordered]@{
+        version = 1; kind = 'zt-worker-automation'; phase = 'complete'; assignment = $assignment
+        worker_wireguard_public_key = $workerWgPub; registration_url = $assignment.registration_url
     }
+    [IO.File]::WriteAllText($statePath, ($installedState | ConvertTo-Json -Depth 10))
+
+    $fullSteps = [ordered]@{ agent = 'DONE'; tunnel = 'DONE'; firewall = 'DONE'; ssh = 'DONE'; secrets = 'DONE' }
     $completeReceipt = Build-Receipt $fullSteps $validBundle
 
     $completeJournal = [ordered]@{
@@ -1023,55 +1133,70 @@ try {
         receipt = $completeReceipt
         gateway_acknowledged = $false
     }
-    Write-Private $rCleanupPath (ConvertTo-CanonicalJson $completeJournal)
-    Write-Private $rCapPath ($validBundle.cleanup_token + [char]10)
+    Write-Private $cleanupPath (ConvertTo-CanonicalJson $completeJournal)
+    Write-Private $capPath ($validBundle.cleanup_token + [char]10)
 
-    # Read back from JSON
-    $loadedJournal = Get-Content -LiteralPath $rCleanupPath -Raw | ConvertFrom-Json
-    $durableReceipt = Get-EntryValue $loadedJournal 'receipt'
-    $durableDigest = if ($durableReceipt) { Get-EntryValue $durableReceipt 'evidence_digest' } else { $null }
-    $isReceiptOnly = (
-        (Get-EntryValue $loadedJournal 'status') -eq 'COMPLETE' -and
-        $null -ne $durableReceipt -and
-        $null -ne $durableDigest -and
-        [string]$durableDigest -ne ''
-    )
-    if (-not $isReceiptOnly) {
-        throw 'Receipt-only detection failed for reloaded COMPLETE journal.'
+    $authFile = Join-Path $roDir 'auth.json'
+    [IO.File]::WriteAllText($authFile, (ConvertTo-CanonicalJson $validBundle))
+
+    $script:mockCleanupCalls.Clear()
+    $script:mockCompletePosts = 0
+
+    $roRes = Invoke-WorkerCleanupRetry -AuthorizationPath $authFile -CaFile 'mock-ca.crt'
+
+    if (-not $roRes.ok -or $roRes.status -ne 'COMPLETE') {
+        throw 'Receipt-only retry did not return ok=true with status=COMPLETE.'
+    }
+    if ($script:mockCleanupCalls.Count -ne 0) {
+        throw 'Receipt-only retry executed cleanup steps when it must only replay receipt!'
+    }
+    if ($script:mockCompletePosts -ne 1) {
+        throw 'Receipt-only retry did not send completion POST!'
     }
 
-    # Verify that in receipt-only retry, cleanup step functions are NEVER called
-    $mutated = $false
-    $mockSteps = @(
-        @{ name = 'agent'; fn = { $mutated = $true } }
-    )
-    if ($isReceiptOnly) {
-        # Receipt-only replay path executes complete POST and updates journal ack without step execution
-        $loadedJournal.gateway_acknowledged = $true
-        $loadedJournal.updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        Write-Private $rCleanupPath (ConvertTo-CanonicalJson $loadedJournal)
-        Remove-Item -LiteralPath $rCapPath -Force -ErrorAction SilentlyContinue
+    $savedJournal = Get-Content -LiteralPath $cleanupPath -Raw | ConvertFrom-Json
+    if (-not (Get-EntryValue $savedJournal 'gateway_acknowledged')) {
+        throw 'gateway_acknowledged was not set to true after receipt-only replay!'
     }
-    if ($mutated) {
-        throw 'Receipt-only retry improperly invoked cleanup step mutation!'
+    $savedState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    if ((Get-EntryValue $savedState 'phase') -ne 'uninstalled' -or
+        (Get-EntryValue $savedState 'uninstalled_status') -ne 'COMPLETE') {
+        throw 'State was not updated to uninstalled COMPLETE after receipt-only replay!'
     }
-    if (Test-Path -LiteralPath $rCapPath) {
-        throw 'Capability token was not cleaned up after completion ack.'
+    if (Test-Path -LiteralPath $capPath) {
+        throw 'cleanup.capability was not deleted after receipt-only completion!'
     }
-    Passed 'Receipt-only retry detects COMPLETE status and avoids re-executing cleanup mutations'
+    Passed 'Actual Invoke-WorkerCleanupRetry detects COMPLETE status and replays receipt without step mutation'
 } finally {
-    if ([IO.Directory]::Exists($receiptDir)) { [IO.Directory]::Delete($receiptDir, $true) }
+    $env:ProgramData = $oldProgramData
+    $managedRoot = $oldManagedRoot
+    $statePath = $oldStatePath
+    if ([IO.Directory]::Exists($roDir)) { [IO.Directory]::Delete($roDir, $true) }
 }
 
-# --- Test 19d: Completed idempotent retry returns immediately ---
+# --- Test 19e: Completed retry is strictly idempotent for both uninstall and retry entrypoints ---
 $idemDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-idem-' + [Guid]::NewGuid().ToString())
 [IO.Directory]::CreateDirectory($idemDir) | Out-Null
+$oldProgramData = $env:ProgramData
+$oldManagedRoot = $managedRoot
+$oldStatePath = $statePath
 try {
-    $idemCleanupPath = Join-Path $idemDir 'cleanup.json'
+    $env:ProgramData = $idemDir
+    $managedRoot = Join-Path $env:ProgramData 'ZT-ServerOps\enrollment'
+    $statePath = Join-Path $managedRoot 'state.json'
+    $cleanupPath = Join-Path $managedRoot 'cleanup.json'
+    [IO.Directory]::CreateDirectory($managedRoot) | Out-Null
+
+    $installedState = [ordered]@{
+        version = 1; kind = 'zt-worker-automation'; phase = 'uninstalled'; assignment = $assignment
+        worker_wireguard_public_key = $workerWgPub; uninstalled_status = 'COMPLETE'
+    }
+    [IO.File]::WriteAllText($statePath, ($installedState | ConvertTo-Json -Depth 10))
+
     $fullSteps = [ordered]@{ agent = 'DONE'; tunnel = 'DONE'; firewall = 'DONE'; ssh = 'DONE'; secrets = 'DONE' }
     $completeReceipt = Build-Receipt $fullSteps $validBundle
 
-    $acknowledgedJournal = [ordered]@{
+    $ackedJournal = [ordered]@{
         version = 1
         kind = 'zt-worker-cleanup'
         created_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
@@ -1091,77 +1216,101 @@ try {
         receipt = $completeReceipt
         gateway_acknowledged = $true
     }
-    Write-Private $idemCleanupPath (ConvertTo-CanonicalJson $acknowledgedJournal)
+    Write-Private $cleanupPath (ConvertTo-CanonicalJson $ackedJournal)
 
-    $loaded = Get-Content -LiteralPath $idemCleanupPath -Raw | ConvertFrom-Json
-    $isAcked = [bool](Get-EntryValue $loaded 'gateway_acknowledged')
-    $status = [string](Get-EntryValue $loaded 'status')
+    $authFile = Join-Path $idemDir 'auth.json'
+    [IO.File]::WriteAllText($authFile, (ConvertTo-CanonicalJson $validBundle))
 
-    if (-not ($isAcked -and $status -eq 'COMPLETE')) {
-        throw 'Idempotent completion check failed.'
+    $script:mockCleanupCalls.Clear()
+    $script:mockCompletePosts = 0
+
+    # 1. Invoke-WorkerUninstall when already completed
+    $uRes = Invoke-WorkerUninstall -AuthorizationPath $authFile -CaFile 'mock-ca.crt'
+    if (-not $uRes.already_completed -or $uRes.status -ne 'COMPLETE') {
+        throw 'Invoke-WorkerUninstall already_completed check failed.'
     }
-    $idemOut = [ordered]@{
-        ok = $true
-        status = 'COMPLETE'
-        operation_id = (Get-EntryValue $loaded 'operation_id')
-        node_id = (Get-EntryValue $loaded 'node_id')
-        node_name = (Get-EntryValue $loaded 'node_name')
-        receipt = (Get-EntryValue $loaded 'receipt')
-        gateway_acknowledged = $true
-        already_completed = $true
+
+    # 2. Invoke-WorkerCleanupRetry when already completed
+    $rRes = Invoke-WorkerCleanupRetry -AuthorizationPath $authFile -CaFile 'mock-ca.crt'
+    if (-not $rRes.already_completed -or $rRes.status -ne 'COMPLETE') {
+        throw 'Invoke-WorkerCleanupRetry already_completed check failed.'
     }
-    if (-not $idemOut.already_completed -or $idemOut.status -ne 'COMPLETE') {
-        throw 'Idempotent response object mismatch.'
+
+    if ($script:mockCleanupCalls.Count -ne 0 -or $script:mockCompletePosts -ne 0) {
+        throw 'Idempotent calls executed mutations or network posts!'
     }
-    Passed 'Idempotent invocation recognizes previous completion and returns cleanly'
+    Passed 'Idempotent entrypoints recognize completed state and return immediately without mutation'
 } finally {
+    $env:ProgramData = $oldProgramData
+    $managedRoot = $oldManagedRoot
+    $statePath = $oldStatePath
     if ([IO.Directory]::Exists($idemDir)) { [IO.Directory]::Delete($idemDir, $true) }
 }
 
-# --- Test 19e: Old authorization rejected when node_id or gateway_id differs ---
+# --- Test 19f: Old authorization bundle is rejected by Invoke-WorkerUninstall without altering new install ---
 $oldAuthDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-oldauth-' + [Guid]::NewGuid().ToString())
 [IO.Directory]::CreateDirectory($oldAuthDir) | Out-Null
+$oldProgramData = $env:ProgramData
+$oldManagedRoot = $managedRoot
+$oldStatePath = $statePath
 try {
-    # Current active Worker assignment (new installation)
+    $env:ProgramData = $oldAuthDir
+    $managedRoot = Join-Path $env:ProgramData 'ZT-ServerOps\enrollment'
+    $statePath = Join-Path $managedRoot 'state.json'
+    $cleanupPath = Join-Path $managedRoot 'cleanup.json'
+    [IO.Directory]::CreateDirectory($managedRoot) | Out-Null
+
+    # Active new Worker installation
     $newAssignment = Fake-Assignment-Data (Fake-Invite-Data)
     $newAssignment.node_id = '11111111-2222-3333-4444-555555555555'
     $newAssignment.gateway_id = 'sha256:newgateway'
+    $newInstalledState = [ordered]@{
+        version = 1; kind = 'zt-worker-automation'; phase = 'complete'; assignment = $newAssignment
+        worker_wireguard_public_key = $workerWgPub; registration_url = $newAssignment.registration_url
+    }
+    [IO.File]::WriteAllText($statePath, ($newInstalledState | ConvertTo-Json -Depth 10))
 
-    # Previous cleanup journal on disk belonging to an older installation
+    # Old cleanup journal on disk from previous installation
     $oldCleanup = [ordered]@{
         version = 1
+        kind = 'zt-worker-cleanup'
         operation_id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
         node_id = '99999999-8888-7777-6666-555555555555'
         gateway_id = 'sha256:oldgateway'
         gateway_acknowledged = $true
         status = 'COMPLETE'
     }
+    Write-Private $cleanupPath (ConvertTo-CanonicalJson $oldCleanup)
 
-    $cNodeId = Get-EntryValue $newAssignment 'node_id'
-    $cGwId = Get-EntryValue $newAssignment 'gateway_id'
-    $pNodeId = Get-EntryValue $oldCleanup 'node_id'
-    $pGwId = Get-EntryValue $oldCleanup 'gateway_id'
+    # Old authorization bundle matching the old operation_id
+    $oldBundle = Fake-Bundle-Data $newAssignment $workerWgPub
+    $oldBundle.operation_id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    $oldAuthFile = Join-Path $oldAuthDir 'old-auth.json'
+    [IO.File]::WriteAllText($oldAuthFile, (ConvertTo-CanonicalJson $oldBundle))
 
-    $isMismatch = ($cNodeId -ne $pNodeId -or $cGwId -ne $pGwId)
-    if (-not $isMismatch) {
-        throw 'Expected node_id / gateway_id mismatch between old cleanup and new install.'
-    }
-
-    $guardTriggered = $false
+    $blocked = $false
     try {
-        if ($cNodeId -ne $pNodeId -or $cGwId -ne $pGwId) {
-            throw 'Saved cleanup belongs to a previous installation; refusing to mutate current Worker.'
-        }
+        Invoke-WorkerUninstall -AuthorizationPath $oldAuthFile -CaFile 'mock-ca.crt' | Out-Null
     } catch {
         if ($_.Exception.Message -like "*Saved cleanup belongs to a previous installation*") {
-            $guardTriggered = $true
+            $blocked = $true
         }
     }
-    if (-not $guardTriggered) {
-        throw 'Guard did not block old cleanup from mutating current new Worker!'
+    if (-not $blocked) {
+        throw 'Invoke-WorkerUninstall did not block old cleanup operation from mutating new Worker!'
     }
-    Passed 'Old authorization bundle is safely prevented from mutating new Worker installation'
+
+    # Verify state of new Worker is 100% intact
+    $postState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    if ((Get-EntryValue $postState 'phase') -ne 'complete' -or
+        (Get-EntryValue (Get-EntryValue $postState 'assignment') 'node_id') -ne '11111111-2222-3333-4444-555555555555') {
+        throw 'New Worker state was altered by old authorization!'
+    }
+    Passed 'Old authorization bundle is safely prevented from mutating new Worker installation via actual entrypoint'
 } finally {
+    $env:ProgramData = $oldProgramData
+    $managedRoot = $oldManagedRoot
+    $statePath = $oldStatePath
     if ([IO.Directory]::Exists($oldAuthDir)) { [IO.Directory]::Delete($oldAuthDir, $true) }
 }
 

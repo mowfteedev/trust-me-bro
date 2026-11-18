@@ -287,8 +287,14 @@ function Read-PrivateAuthBundle([string]$Path) {
     if ($file.Length -gt 65536) {
         Stop-Worker 'Authorization bundle exceeds 64KiB.'
     }
-    $current = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    $allowed = @('S-1-5-18', 'S-1-5-32-544', $current)
+    $current = $null
+    try {
+        $current = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    } catch {
+        # Non-Windows test harness or restricted environment
+    }
+    $allowed = @('S-1-5-18', 'S-1-5-32-544')
+    if ($current) { $allowed += $current }
     $acl = Get-Acl -LiteralPath $Path
     if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin $allowed) {
         Stop-Worker 'Authorization bundle owner is not trusted.'
@@ -484,6 +490,28 @@ function Get-EntryValue($Entry, [string]$Key) {
         return $null
     }
     return $null
+}
+
+function Set-EntryValue($Target, [string]$Key, $Value) {
+    if ($null -eq $Target -or -not $Key) { return }
+    if ($Target -is [System.Collections.IDictionary]) {
+        $Target[$Key] = $Value
+        return
+    }
+    if ($Target -is [System.Management.Automation.PSCustomObject]) {
+        $p = $Target.PSObject.Properties[$Key]
+        if ($null -ne $p) {
+            $p.Value = $Value
+        } else {
+            $Target | Add-Member -NotePropertyName $Key -NotePropertyValue $Value -Force
+        }
+        return
+    }
+    try {
+        $Target.$Key = $Value
+    } catch {
+        $Target | Add-Member -NotePropertyName $Key -NotePropertyValue $Value -Force
+    }
 }
 
 function Test-ManagedKey($ManagedDict, [string]$PathStr) {
@@ -1054,22 +1082,8 @@ function Checkpoint-Step([string]$CleanupFilePath, $CleanupJournal, [string]$Ste
 
     $stepsDict[$StepName] = $Outcome
 
-    if ($CleanupJournal -is [System.Management.Automation.PSCustomObject]) {
-        if ($CleanupJournal.PSObject.Properties['steps']) {
-            $CleanupJournal.PSObject.Properties['steps'].Value = $stepsDict
-        } else {
-            $CleanupJournal | Add-Member -NotePropertyName 'steps' -NotePropertyValue $stepsDict -Force
-        }
-        $nowSec = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        if ($CleanupJournal.PSObject.Properties['updated_at']) {
-            $CleanupJournal.PSObject.Properties['updated_at'].Value = $nowSec
-        } else {
-            $CleanupJournal | Add-Member -NotePropertyName 'updated_at' -NotePropertyValue $nowSec -Force
-        }
-    } else {
-        $CleanupJournal['steps'] = $stepsDict
-        $CleanupJournal['updated_at'] = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    }
+    Set-EntryValue $CleanupJournal 'steps' $stepsDict
+    Set-EntryValue $CleanupJournal 'updated_at' ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
 
     Write-Private $CleanupFilePath (ConvertTo-CanonicalJson $CleanupJournal)
 }
@@ -1203,9 +1217,9 @@ function Invoke-WorkerUninstall([string]$AuthorizationPath, [string]$CaFile) {
             if ($prevAck -and $prevStatus -eq 'COMPLETE') {
                 $prevReceipt = Get-EntryValue $prevCleanup 'receipt'
                 if ($curState -and (Get-EntryValue $curState 'phase') -ne 'uninstalled') {
-                    $curState.phase = 'uninstalled'
-                    $curState.uninstalled_status = 'COMPLETE'
-                    $curState.cleanup_receipt = $prevReceipt
+                    Set-EntryValue $curState 'phase' 'uninstalled'
+                    Set-EntryValue $curState 'uninstalled_status' 'COMPLETE'
+                    Set-EntryValue $curState 'cleanup_receipt' $prevReceipt
                     Write-Private $statePath ($curState | ConvertTo-Json -Depth 10)
                 }
                 if (Test-Path -LiteralPath $capabilityPath) {
@@ -1306,9 +1320,9 @@ function Invoke-WorkerUninstall([string]$AuthorizationPath, [string]$CaFile) {
         $status = if ($allDone) { 'COMPLETE' } else { 'NEEDS_REVIEW' }
         $receipt = Build-Receipt $cleanupJournal.steps $bundle
 
-        $cleanupJournal.status = $status
-        $cleanupJournal.receipt = $receipt
-        $cleanupJournal.updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        Set-EntryValue $cleanupJournal 'status' $status
+        Set-EntryValue $cleanupJournal 'receipt' $receipt
+        Set-EntryValue $cleanupJournal 'updated_at' ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
         Write-Private $cleanupPath (ConvertTo-CanonicalJson $cleanupJournal)
 
         $completionPayload = [ordered]@{
@@ -1326,14 +1340,17 @@ function Invoke-WorkerUninstall([string]$AuthorizationPath, [string]$CaFile) {
         $completeReply = Invoke-CompleteOffboarding $bundle.completion_url $bundle.cleanup_token $completionPayload $CaFile
 
         # Persist final nonsecret ack and state phase FIRST before wiping capability
-        $cleanupJournal.gateway_acknowledged = $true
-        $cleanupJournal.updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        Set-EntryValue $cleanupJournal 'gateway_acknowledged' $true
+        Set-EntryValue $cleanupJournal 'updated_at' ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
         Write-Private $cleanupPath (ConvertTo-CanonicalJson $cleanupJournal)
 
-        $state.phase = if ($status -eq 'COMPLETE') { 'uninstalled' } else { 'cleanup_needs_review' }
-        $state.uninstalled_status = $status
-        $state.cleanup_receipt = $receipt
-        Write-Private $statePath ($state | ConvertTo-Json -Depth 10)
+        if ($state) {
+            $newPhase = if ($status -eq 'COMPLETE') { 'uninstalled' } else { 'cleanup_needs_review' }
+            Set-EntryValue $state 'phase' $newPhase
+            Set-EntryValue $state 'uninstalled_status' $status
+            Set-EntryValue $state 'cleanup_receipt' $receipt
+            Write-Private $statePath ($state | ConvertTo-Json -Depth 10)
+        }
 
         if ($status -eq 'COMPLETE') {
             if (Test-Path -LiteralPath $capabilityPath) {
@@ -1402,9 +1419,9 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
             }
         }
         if ($state -and (Get-EntryValue $state 'phase') -ne 'uninstalled') {
-            $state.phase = 'uninstalled'
-            $state.uninstalled_status = 'COMPLETE'
-            $state.cleanup_receipt = $journalReceipt
+            Set-EntryValue $state 'phase' 'uninstalled'
+            Set-EntryValue $state 'uninstalled_status' 'COMPLETE'
+            Set-EntryValue $state 'cleanup_receipt' $journalReceipt
             Write-Private $statePath ($state | ConvertTo-Json -Depth 10)
         }
         if (Test-Path -LiteralPath $capabilityPath) {
@@ -1501,14 +1518,14 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
 
         [void](Invoke-CompleteOffboarding $expectedCompletion $token $completionPayload $CaFile)
 
-        $cleanupJournal.gateway_acknowledged = $true
-        $cleanupJournal.updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        Set-EntryValue $cleanupJournal 'gateway_acknowledged' $true
+        Set-EntryValue $cleanupJournal 'updated_at' ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
         Write-Private $cleanupPath (ConvertTo-CanonicalJson $cleanupJournal)
 
         if ($state) {
-            $state.phase = 'uninstalled'
-            $state.uninstalled_status = 'COMPLETE'
-            $state.cleanup_receipt = $durableReceipt
+            Set-EntryValue $state 'phase' 'uninstalled'
+            Set-EntryValue $state 'uninstalled_status' 'COMPLETE'
+            Set-EntryValue $state 'cleanup_receipt' $durableReceipt
             Write-Private $statePath ($state | ConvertTo-Json -Depth 10)
         }
 
@@ -1580,11 +1597,11 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
         $receipt = Get-EntryValue $cleanupJournal 'receipt'
         if (-not $receipt -or $journalStatus -ne $status) {
             $receipt = Build-Receipt $cleanupJournal.steps $cleanupJournal
-            $cleanupJournal.receipt = $receipt
+            Set-EntryValue $cleanupJournal 'receipt' $receipt
         }
 
-        $cleanupJournal.status = $status
-        $cleanupJournal.updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        Set-EntryValue $cleanupJournal 'status' $status
+        Set-EntryValue $cleanupJournal 'updated_at' ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
         Write-Private $cleanupPath (ConvertTo-CanonicalJson $cleanupJournal)
 
         $completionPayload = [ordered]@{
@@ -1601,14 +1618,15 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
 
         $completeReply = Invoke-CompleteOffboarding (Get-EntryValue $cleanupJournal 'completion_url') $token $completionPayload $CaFile
 
-        $cleanupJournal.gateway_acknowledged = $true
-        $cleanupJournal.updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        Set-EntryValue $cleanupJournal 'gateway_acknowledged' $true
+        Set-EntryValue $cleanupJournal 'updated_at' ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
         Write-Private $cleanupPath (ConvertTo-CanonicalJson $cleanupJournal)
 
         if ($state) {
-            $state.phase = if ($status -eq 'COMPLETE') { 'uninstalled' } else { 'cleanup_needs_review' }
-            $state.uninstalled_status = $status
-            $state.cleanup_receipt = $receipt
+            $newPhase = if ($status -eq 'COMPLETE') { 'uninstalled' } else { 'cleanup_needs_review' }
+            Set-EntryValue $state 'phase' $newPhase
+            Set-EntryValue $state 'uninstalled_status' $status
+            Set-EntryValue $state 'cleanup_receipt' $receipt
             Write-Private $statePath ($state | ConvertTo-Json -Depth 10)
         }
 
