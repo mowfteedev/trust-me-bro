@@ -99,6 +99,7 @@ $state = @{
     ConfigPath = $configPath; BackupPath = $backupPath; HadConfig = $hadConfig
     SshdStartMode = $service.StartMode; SshdWasRunning = ($service.State -eq 'Running')
     SshdDependencies = @((Get-Service -Name sshd).ServicesDependedOn | Select-Object -ExpandProperty Name)
+    SshdInstalledStartMode = 'Auto'; SshdInstalledRunning = $true
     RuleNames = $ruleNames; TunnelName = $tunnelName; TunnelInstalled = $false
     TransportInterfaces = $TransportInterfaceAlias; VpnAddress = $VpnAddress
     GatewayVpnAddress = $GatewayVpnAddress; SshUser = $SshUser

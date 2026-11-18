@@ -388,12 +388,22 @@ try{
                 before_hash = if (Test-Path -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config')) { (Get-FileHash -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config') -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
             }
             (Join-Path $env:ProgramData 'ZT-ServerOps\agent\zt-agent.exe') = [ordered]@{
+                before_hash = $null
                 expected_hash = $AgentSHA256.ToLowerInvariant()
+                after_hash = $AgentSHA256.ToLowerInvariant()
             }
-            (Join-Path $env:ProgramData 'ZT-ServerOps\agent\config.json') = [ordered]@{}
-            (Join-Path $env:ProgramData 'ZT-ServerOps\worker\zt-worker.conf') = [ordered]@{}
-            (Join-Path $env:ProgramData 'ZT-ServerOps\worker\authorized_keys') = [ordered]@{}
-            (Join-Path $env:ProgramData 'ZT-ServerOps\worker\ssh_host_ed25519_key.pub') = [ordered]@{}
+            (Join-Path $env:ProgramData 'ZT-ServerOps\agent\config.json') = [ordered]@{
+                before_hash = $null
+            }
+            (Join-Path $env:ProgramData 'ZT-ServerOps\worker\zt-worker.conf') = [ordered]@{
+                before_hash = $null
+            }
+            (Join-Path $env:ProgramData 'ZT-ServerOps\worker\authorized_keys') = [ordered]@{
+                before_hash = $null
+            }
+            (Join-Path $env:ProgramData 'ZT-ServerOps\worker\ssh_host_ed25519_key.pub') = [ordered]@{
+                before_hash = $null
+            }
         }
         $agentExePath = Join-Path $env:ProgramData 'ZT-ServerOps\agent\zt-agent.exe'
         $agentCfgPath = Join-Path $env:ProgramData 'ZT-ServerOps\agent\config.json'
@@ -412,8 +422,20 @@ try{
         $state.phase='network_in_progress';Save-State $state;$networkStarted=$true
         # Invoke in the same scope so a real adapter array reaches the existing script.
         & (Join-Path $repo 'deploy\windows\setup-worker.ps1') -TunnelConfigPath $tunnelPath -GatewaySshPublicKeyPath $bastionPath -TransportInterfaceAlias $TransportInterfaceAlias -VpnAddress $assignment.node_ip -GatewayVpnAddress $invite.gateway_vpn_ip -SshUser $invite.ssh_username -DedicatedVm *> $null
-        $state.configured_hash=(Get-FileHash -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config') -Algorithm SHA256).Hash
+        $state.configured_hash=(Get-FileHash -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config') -Algorithm SHA256).Hash.ToLowerInvariant()
         $state.managed[(Join-Path $env:ProgramData 'ssh\sshd_config')].after_hash = $state.configured_hash
+        $workerConfPath = Join-Path $env:ProgramData 'ZT-ServerOps\worker\zt-worker.conf'
+        if (Test-Path -LiteralPath $workerConfPath) {
+            $state.managed[$workerConfPath].after_hash = (Get-FileHash -LiteralPath $workerConfPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+        $authKeysPath = Join-Path $env:ProgramData 'ZT-ServerOps\worker\authorized_keys'
+        if (Test-Path -LiteralPath $authKeysPath) {
+            $state.managed[$authKeysPath].after_hash = (Get-FileHash -LiteralPath $authKeysPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+        $hostPubPath = Join-Path $env:ProgramData 'ZT-ServerOps\worker\ssh_host_ed25519_key.pub'
+        if (Test-Path -LiteralPath $hostPubPath) {
+            $state.managed[$hostPubPath].after_hash = (Get-FileHash -LiteralPath $hostPubPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
         $state.phase='network_active';Save-State $state
         $configPath=Join-Path $managedRoot 'agent-config.json'
         $config=[ordered]@{GATEWAY_URL='http://10.100.0.1:3000';NODE_ID=$invite.node_name;NODE_TOKEN=$nodeToken;NETWORK_INTERFACE='zt-worker';DISK_MOUNT_POINT='C:\';BEACON_INTERVAL_SECONDS='3.0';MAX_BACKOFF_SECONDS='30.0';HTTP_TIMEOUT_SECONDS='3.0';JITTER_RATIO='0.0'}

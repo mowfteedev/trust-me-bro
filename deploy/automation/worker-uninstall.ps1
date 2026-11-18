@@ -434,18 +434,123 @@ function Invoke-VerifyOffboarding($Bundle, [string]$TrustedOrigin, [string]$CaFi
     }
 }
 
+function Normalize-ManagedState($RawManaged) {
+    $dict = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([System.StringComparer]::OrdinalIgnoreCase)
+    if (-not $RawManaged) { return $dict }
+
+    if ($RawManaged -is [System.Collections.IDictionary]) {
+        foreach ($key in $RawManaged.Keys) {
+            $dict[[string]$key] = Normalize-ManagedEntry $RawManaged[$key]
+        }
+    } elseif ($RawManaged -is [System.Management.Automation.PSCustomObject]) {
+        foreach ($prop in $RawManaged.PSObject.Properties) {
+            $dict[[string]$prop.Name] = Normalize-ManagedEntry $prop.Value
+        }
+    }
+    return $dict
+}
+
+function Normalize-ManagedEntry($Entry) {
+    $d = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([System.StringComparer]::OrdinalIgnoreCase)
+    if (-not $Entry) { return $d }
+
+    if ($Entry -is [System.Collections.IDictionary]) {
+        foreach ($k in $Entry.Keys) {
+            $d[[string]$k] = $Entry[$k]
+        }
+    } elseif ($Entry -is [System.Management.Automation.PSCustomObject]) {
+        foreach ($p in $Entry.PSObject.Properties) {
+            $d[[string]$p.Name] = $p.Value
+        }
+    }
+    return $d
+}
+
+function Get-EntryValue($Entry, [string]$Key) {
+    if (-not $Entry) { return $null }
+    if ($Entry -is [System.Collections.IDictionary]) {
+        if ($Entry -is [System.Collections.Generic.Dictionary[string,object]] -or $Entry -is [System.Collections.Hashtable]) {
+            if ($Entry.ContainsKey($Key)) { return $Entry[$Key] }
+            return $null
+        }
+        if ($Entry.Contains($Key)) { return $Entry[$Key] }
+        return $null
+    }
+    if ($Entry -is [System.Management.Automation.PSCustomObject]) {
+        $p = $Entry.PSObject.Properties[$Key]
+        if ($p) { return $p.Value }
+        return $null
+    }
+    return $null
+}
+
+function Test-ManagedKey($ManagedDict, [string]$PathStr) {
+    if (-not $ManagedDict) { return $false }
+    if ($ManagedDict -is [System.Collections.IDictionary]) {
+        if ($ManagedDict -is [System.Collections.Generic.Dictionary[string,object]] -or $ManagedDict -is [System.Collections.Hashtable]) {
+            return $ManagedDict.ContainsKey($PathStr)
+        }
+        return $ManagedDict.Contains($PathStr)
+    }
+    if ($ManagedDict -is [System.Management.Automation.PSCustomObject]) {
+        return ($null -ne $ManagedDict.PSObject.Properties[$PathStr])
+    }
+    return $false
+}
+
+function Get-ManagedEntry($ManagedDict, [string]$PathStr) {
+    if (-not $ManagedDict) { return $null }
+    if ($ManagedDict -is [System.Collections.IDictionary]) {
+        if ($ManagedDict -is [System.Collections.Generic.Dictionary[string,object]] -or $ManagedDict -is [System.Collections.Hashtable]) {
+            if ($ManagedDict.ContainsKey($PathStr)) { return $ManagedDict[$PathStr] }
+            return $null
+        }
+        if ($ManagedDict.Contains($PathStr)) { return $ManagedDict[$PathStr] }
+        return $null
+    }
+    if ($ManagedDict -is [System.Management.Automation.PSCustomObject]) {
+        $p = $ManagedDict.PSObject.Properties[$PathStr]
+        if ($p) { return $p.Value }
+        return $null
+    }
+    return $null
+}
+
+function Get-ManagedKeys($ManagedDict) {
+    $keys = New-Object Collections.Generic.List[string]
+    if (-not $ManagedDict) { return @() }
+    if ($ManagedDict -is [System.Collections.IDictionary]) {
+        foreach ($k in $ManagedDict.Keys) { $keys.Add([string]$k) }
+    } elseif ($ManagedDict -is [System.Management.Automation.PSCustomObject]) {
+        foreach ($p in $ManagedDict.PSObject.Properties) { $keys.Add([string]$p.Name) }
+    }
+    return $keys.ToArray()
+}
+
 function Check-AgentServiceOwnership($Preflight) {
     if (-not (Get-Command Get-Service -ErrorAction SilentlyContinue)) { return $true }
-    $svc = Get-Service -Name $agentServiceName -ErrorAction SilentlyContinue
+    $state = if ($Preflight -and (Get-EntryValue $Preflight 'state')) { Get-EntryValue $Preflight 'state' } else { $Preflight }
+    if (-not $state) { return $false }
+
+    $ownedServices = Get-EntryValue $state 'owned_services'
+    $ownedAgent = if ($ownedServices) { Get-EntryValue $ownedServices 'agent' } else { $null }
+
+    $expectedCmd = if ($ownedAgent) { Get-EntryValue $ownedAgent 'command' } else { $null }
+    $targetSvcName = if ($ownedAgent) { Get-EntryValue $ownedAgent 'name' } else { $agentServiceName }
+    if (-not $targetSvcName) { $targetSvcName = $agentServiceName }
+
+    $svc = Get-Service -Name $targetSvcName -ErrorAction SilentlyContinue
     if (-not $svc) { return $true }
     if (-not (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) { return $true }
-    $svcCim = Get-CimInstance Win32_Service -Filter "Name='$agentServiceName'" -ErrorAction SilentlyContinue
+    $svcCim = Get-CimInstance Win32_Service -Filter "Name='$targetSvcName'" -ErrorAction SilentlyContinue
     if (-not $svcCim) { return $true }
 
-    $base = if ($env:ProgramData) { $env:ProgramData } else { 'C:\ProgramData' }
-    $agentBin = Join-Path $base 'ZT-ServerOps\agent\zt-agent.exe'
-    $agentConfig = Join-Path $base 'ZT-ServerOps\agent\config.json'
-    $expectedCmd = '"' + $agentBin + '" --service --config "' + $agentConfig + '"'
+    if (-not $expectedCmd) {
+        $base = if ($env:ProgramData) { $env:ProgramData } else { 'C:\ProgramData' }
+        $agentBin = Join-Path $base 'ZT-ServerOps\agent\zt-agent.exe'
+        $agentConfig = Join-Path $base 'ZT-ServerOps\agent\config.json'
+        $expectedCmd = '"' + $agentBin + '" --service --config "' + $agentConfig + '"'
+    }
 
     $actualCmd = $svcCim.PathName
     if (-not $actualCmd) { return $false }
@@ -459,7 +564,7 @@ function Preflight-Uninstall($StateData) {
     if (-not $StateData -or $StateData.version -ne 1 -or $StateData.kind -ne 'zt-worker-automation') {
         Stop-Worker 'Legacy or missing Worker state; no valid automation installation found for uninstall.'
     }
-    $assignment = $StateData.assignment
+    $assignment = Get-EntryValue $StateData 'assignment'
     if (-not $assignment) {
         Stop-Worker 'Worker state lacks assignment record; manual review required.'
     }
@@ -467,61 +572,111 @@ function Preflight-Uninstall($StateData) {
     $allowed = Get-AllowedManagedPaths
     $conflicts = New-Object 'System.Collections.Generic.Dictionary[string,string]'
 
-    $managed = $StateData.managed
-    if (-not $managed) {
-        $managed = [ordered]@{}
-    }
+    $managed = Normalize-ManagedState (Get-EntryValue $StateData 'managed')
+    $agentSha256 = Get-EntryValue $StateData 'agent_sha256'
+    $configuredHash = Get-EntryValue $StateData 'configured_hash'
 
-    # Preflight SSH config & backup
-    if (Test-Path -LiteralPath $sshConfigPath) {
-        $currHash = (Get-FileHash -LiteralPath $sshConfigPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($StateData.configured_hash -and $currHash -ine $StateData.configured_hash) {
-            $conflicts[$sshConfigPath] = 'File was modified since installation; preserving user edits.'
+    # Preflight all managed files recorded in journal
+    foreach ($path in (Get-ManagedKeys $managed)) {
+        if (-not (Test-Path -LiteralPath $path)) {
+            continue
         }
-    }
-    if (Test-Path -LiteralPath $workerStatePath) {
-        $setupState = Get-Content -LiteralPath $workerStatePath -Raw | ConvertFrom-Json
-        if (Get-Command 'Assert-WorkerState' -ErrorAction SilentlyContinue) {
-            Assert-WorkerState $setupState $workerRoot
-        }
-        if ($setupState.HadConfig) {
-            if (-not (Test-Path -LiteralPath $setupState.BackupPath -PathType Leaf)) {
-                $conflicts[$sshConfigPath] = 'Backup file is missing; cannot safely restore.'
+        $info = Get-ManagedEntry $managed $path
+        $currHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        $beforeHash = Get-EntryValue $info 'before_hash'
+        $afterHash = Get-EntryValue $info 'after_hash'
+        $expectedHash = Get-EntryValue $info 'expected_hash'
+        $backupPath = Get-EntryValue $info 'backup'
+
+        if ($null -eq $beforeHash) {
+            # File newly created by installer: must have trusted fingerprint
+            $fingerprint = if ($afterHash) { $afterHash.ToLowerInvariant() } elseif ($expectedHash) { $expectedHash.ToLowerInvariant() } else { $null }
+            if (-not $fingerprint -and $path -like '*zt-agent.exe*' -and $agentSha256) {
+                $fingerprint = $agentSha256.ToLowerInvariant()
+            }
+            if (-not $fingerprint) {
+                $conflicts[$path] = 'Missing trusted fingerprint in journal; cannot verify ownership/integrity to delete.'
+            } elseif ($currHash -ine $fingerprint) {
+                $conflicts[$path] = 'File was modified since installation; preserving user edits.'
+            }
+        } else {
+            # File pre-existed before installer
+            $expectedAfter = if ($afterHash) { $afterHash.ToLowerInvariant() } elseif ($configuredHash -and $path -like '*sshd_config*') { $configuredHash.ToLowerInvariant() } else { $null }
+            if ($expectedAfter -and $currHash -ine $expectedAfter) {
+                $conflicts[$path] = 'File was modified since installation; preserving user edits.'
+            }
+            if (-not $backupPath -or -not (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+                $conflicts[$path] = 'Backup file is missing; cannot safely restore.'
             } else {
                 try {
-                    [void](Validate-BackupFile $sshConfigPath (Get-FileHash -LiteralPath $setupState.BackupPath -Algorithm SHA256).Hash.ToLowerInvariant() $setupState.BackupPath)
+                    [void](Validate-BackupFile $path $beforeHash $backupPath)
                 } catch {
-                    $conflicts[$sshConfigPath] = $_.Exception.Message
+                    $conflicts[$path] = $_.Exception.Message
                 }
             }
         }
-        # Check SSH service status negative and positive
+    }
+
+    # Preflight SSH config & backup
+    $baseData = if ($env:ProgramData) { $env:ProgramData } else { 'C:\ProgramData' }
+    $resolvedSshConfig = if ($sshConfigPath) { $sshConfigPath } else { Join-Path $baseData 'ssh\sshd_config' }
+    $resolvedWorkerState = if ($workerStatePath) { $workerStatePath } else { Join-Path $baseData 'ZT-ServerOps\worker\setup-state.json' }
+    $resolvedWorkerRoot = if ($workerRoot) { $workerRoot } else { Join-Path $baseData 'ZT-ServerOps\worker' }
+    $resolvedAgentRoot = if ($agentRoot) { $agentRoot } else { Join-Path $baseData 'ZT-ServerOps\agent' }
+
+    if ($resolvedSshConfig -and (Test-Path -LiteralPath $resolvedSshConfig)) {
+        $currHash = (Get-FileHash -LiteralPath $resolvedSshConfig -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($configuredHash -and $currHash -ine $configuredHash) {
+            $conflicts[$resolvedSshConfig] = 'File was modified since installation; preserving user edits.'
+        }
+    }
+    if ($resolvedWorkerState -and (Test-Path -LiteralPath $resolvedWorkerState)) {
+        $setupState = Get-Content -LiteralPath $resolvedWorkerState -Raw | ConvertFrom-Json
+        if (Get-Command 'Assert-WorkerState' -ErrorAction SilentlyContinue) {
+            Assert-WorkerState $setupState $resolvedWorkerRoot
+        }
+        $hadConfig = Get-EntryValue $setupState 'HadConfig'
+        $backupPath = Get-EntryValue $setupState 'BackupPath'
+        if ($hadConfig) {
+            if (-not $backupPath -or -not (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+                $conflicts[$resolvedSshConfig] = 'Backup file is missing; cannot safely restore.'
+            } else {
+                try {
+                    [void](Validate-BackupFile $resolvedSshConfig (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant() $backupPath)
+                } catch {
+                    $conflicts[$resolvedSshConfig] = $_.Exception.Message
+                }
+            }
+        }
+        # Check SSH service status negative and positive:
+        # Distinguish before-state (to restore to) from installer after-state (to identify external modifications)
         $sshdSvc = Get-Service -Name sshd -ErrorAction SilentlyContinue
         if ($sshdSvc) {
             $sshdCim = Get-CimInstance Win32_Service -Filter "Name='sshd'" -ErrorAction SilentlyContinue
-            if ($setupState.SshdWasRunning -and $sshdSvc.Status -ne 'Running') {
-                $conflicts['sshd'] = 'sshd service was running during setup but is currently stopped.'
-            } elseif (-not $setupState.SshdWasRunning -and $sshdSvc.Status -eq 'Running') {
-                $conflicts['sshd'] = 'sshd service was not running during setup but is currently running.'
+
+            $expectedInstalledRunning = if ($null -ne (Get-EntryValue $setupState 'SshdInstalledRunning')) { [bool](Get-EntryValue $setupState 'SshdInstalledRunning') } else { $true }
+            $expectedInstalledStartMode = if (Get-EntryValue $setupState 'SshdInstalledStartMode') { [string](Get-EntryValue $setupState 'SshdInstalledStartMode') } else { 'Auto' }
+
+            if ($expectedInstalledRunning -and $sshdSvc.Status -ne 'Running') {
+                $conflicts['sshd'] = 'sshd service was expected to be running after installation but is currently stopped.'
+            } elseif (-not $expectedInstalledRunning -and $sshdSvc.Status -eq 'Running') {
+                $conflicts['sshd'] = 'sshd service was expected to be stopped after installation but is currently running.'
             }
-            if ($sshdCim -and $setupState.SshdStartMode) {
-                if ($setupState.SshdStartMode -eq 'Disabled' -and $sshdCim.StartMode -ne 'Disabled') {
-                    $conflicts['sshd_startmode'] = 'sshd startmode changed from Disabled.'
-                } elseif ($setupState.SshdStartMode -eq 'Auto' -and $sshdCim.StartMode -ne 'Auto') {
-                    $conflicts['sshd_startmode'] = 'sshd startmode changed from Auto.'
-                } elseif ($setupState.SshdStartMode -eq 'Manual' -and $sshdCim.StartMode -ne 'Manual') {
-                    $conflicts['sshd_startmode'] = 'sshd startmode changed from Manual.'
+
+            if ($sshdCim -and $expectedInstalledStartMode) {
+                if ($sshdCim.StartMode -ne $expectedInstalledStartMode) {
+                    $conflicts['sshd_startmode'] = "sshd startmode changed from $expectedInstalledStartMode to $($sshdCim.StartMode)."
                 }
             }
         }
     }
 
     # Preflight Agent binary & service identity
-    $agentBin = Join-Path $agentRoot 'zt-agent.exe'
+    $agentBin = Join-Path $resolvedAgentRoot 'zt-agent.exe'
     if (Test-Path -LiteralPath $agentBin) {
-        if ($StateData.agent_sha256) {
+        if ($agentSha256) {
             $currBinHash = (Get-FileHash -LiteralPath $agentBin -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($currBinHash -ine $StateData.agent_sha256) {
+            if ($currBinHash -ine $agentSha256) {
                 $conflicts[$agentBin] = 'Agent binary was modified since installation; preserving user edits.'
             }
         }
@@ -545,28 +700,59 @@ function Restore-OrRemoveManagedFile([string]$PathStr, $Preflight) {
         return $false
     }
     $managed = $Preflight.managed
-    if (-not $managed -or -not $managed.Contains($PathStr)) {
+    if (-not $managed -or -not (Test-ManagedKey $managed $PathStr)) {
+        # Unowned file: NOT in managed journal. MUST NOT DELETE!
         if (Test-Path -LiteralPath $PathStr) {
-            if (Get-Command 'Assert-NoReparsePoint' -ErrorAction SilentlyContinue) {
-                Assert-NoReparsePoint $PathStr
-            }
-            Remove-Item -LiteralPath $PathStr -Force -ErrorAction SilentlyContinue
+            $conflicts[$PathStr] = 'File is not recorded in managed state journal; preserving unowned file.'
+            return $false
         }
-        return (-not (Test-Path -LiteralPath $PathStr))
+        return $true
     }
-    $info = $managed[$PathStr]
-    $beforeHash = $info.before_hash
+
+    if (-not (Test-Path -LiteralPath $PathStr)) {
+        return $true
+    }
+
+    $info = Get-ManagedEntry $managed $PathStr
+    $currHash = (Get-FileHash -LiteralPath $PathStr -Algorithm SHA256).Hash.ToLowerInvariant()
+    $beforeHash = Get-EntryValue $info 'before_hash'
+    $afterHash = Get-EntryValue $info 'after_hash'
+    $expectedHash = Get-EntryValue $info 'expected_hash'
+    $backupPath = Get-EntryValue $info 'backup'
+
     if ($null -eq $beforeHash) {
-        if (Test-Path -LiteralPath $PathStr) {
-            if (Get-Command 'Assert-NoReparsePoint' -ErrorAction SilentlyContinue) {
-                Assert-NoReparsePoint $PathStr
-            }
-            Remove-Item -LiteralPath $PathStr -Force -ErrorAction SilentlyContinue
+        # Newly created file by installer: verify fingerprint before removing
+        $fingerprint = if ($afterHash) { $afterHash.ToLowerInvariant() } elseif ($expectedHash) { $expectedHash.ToLowerInvariant() } else { $null }
+        $stateObj = Get-EntryValue $Preflight 'state'
+        $agentSha = if ($stateObj) { Get-EntryValue $stateObj 'agent_sha256' } else { $null }
+        if (-not $fingerprint -and $agentSha -and $PathStr -like '*zt-agent.exe*') {
+            $fingerprint = $agentSha.ToLowerInvariant()
         }
+        if (-not $fingerprint) {
+            $conflicts[$PathStr] = 'Missing trusted fingerprint in journal; cannot verify ownership/integrity to delete.'
+            return $false
+        }
+        if ($currHash -ine $fingerprint) {
+            $conflicts[$PathStr] = 'File was modified since installation; preserving user edits.'
+            return $false
+        }
+        if (Get-Command 'Assert-NoReparsePoint' -ErrorAction SilentlyContinue) {
+            Assert-NoReparsePoint $PathStr
+        }
+        Remove-Item -LiteralPath $PathStr -Force -ErrorAction SilentlyContinue
         return (-not (Test-Path -LiteralPath $PathStr))
     } else {
+        # Pre-existing file: verify and restore from backup
+        if ($afterHash -and $currHash -ine $afterHash.ToLowerInvariant()) {
+            $conflicts[$PathStr] = 'File was modified since installation; preserving user edits.'
+            return $false
+        }
+        if (-not $backupPath -or -not (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+            $conflicts[$PathStr] = 'Backup file is missing; cannot safely restore.'
+            return $false
+        }
         try {
-            $backupFile = Validate-BackupFile $PathStr $beforeHash $info.backup
+            $backupFile = Validate-BackupFile $PathStr $beforeHash $backupPath
             if (Get-Command 'Assert-NoReparsePoint' -ErrorAction SilentlyContinue) {
                 Assert-NoReparsePoint $PathStr
             }
@@ -585,17 +771,23 @@ function Cleanup-AgentStep($Preflight) {
     $agentConfig = Join-Path $agentRoot 'config.json'
     $hasConflict = $conflicts.ContainsKey($agentBin) -or $conflicts.ContainsKey($agentServiceName)
     try {
+        $state = if ($Preflight -and $Preflight.state) { $Preflight.state } else { $Preflight }
+        $ownedServices = Get-EntryValue $state 'owned_services'
+        $ownedAgent = if ($ownedServices) { Get-EntryValue $ownedServices 'agent' } else { $null }
+        $targetServiceName = if ($ownedAgent) { Get-EntryValue $ownedAgent 'name' } else { $agentServiceName }
+        if (-not $targetServiceName) { $targetServiceName = $agentServiceName }
+
         if (-not (Check-AgentServiceOwnership $Preflight)) {
             $hasConflict = $true
         } else {
-            $svc = Get-Service -Name $agentServiceName -ErrorAction SilentlyContinue
+            $svc = Get-Service -Name $targetServiceName -ErrorAction SilentlyContinue
             if ($svc) {
                 if ($svc.Status -ne 'Stopped') {
-                    Stop-Service -Name $agentServiceName -Force -ErrorAction SilentlyContinue
+                    Stop-Service -Name $targetServiceName -Force -ErrorAction SilentlyContinue
                     $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(15))
                 }
-                if (-not $conflicts.ContainsKey($agentServiceName)) {
-                    & "$env:WINDIR\System32\sc.exe" delete $agentServiceName *> $null
+                if (-not $conflicts.ContainsKey($targetServiceName)) {
+                    & "$env:WINDIR\System32\sc.exe" delete $targetServiceName *> $null
                 }
             }
         }
@@ -621,8 +813,8 @@ function Cleanup-AgentStep($Preflight) {
             }
         }
 
-        $remainingSvc = Get-Service -Name $agentServiceName -ErrorAction SilentlyContinue
-        if ($remainingSvc -and -not $conflicts.ContainsKey($agentServiceName)) { return 'REVIEW' }
+        $remainingSvc = Get-Service -Name $targetServiceName -ErrorAction SilentlyContinue
+        if ($remainingSvc -and -not $conflicts.ContainsKey($targetServiceName)) { return 'REVIEW' }
         if (Test-Path -LiteralPath $agentBin) { return 'REVIEW' }
         if (-not $okBin -or -not $okConfig) { return 'REVIEW' }
     } catch {
@@ -636,13 +828,22 @@ function Cleanup-TunnelStep($Preflight) {
     $workerConf = Join-Path $workerRoot 'zt-worker.conf'
     $stagedConf = Join-Path $managedRoot 'zt-worker.conf'
     try {
-        $tunnelSvc = Get-Service -Name 'WireGuardTunnel$zt-worker' -ErrorAction SilentlyContinue
+        $state = if ($Preflight -and $Preflight.state) { $Preflight.state } else { $Preflight }
+        $ownedServices = Get-EntryValue $state 'owned_services'
+        $ownedTunnel = if ($ownedServices) { Get-EntryValue $ownedServices 'tunnel' } else { $null }
+        if (-not $ownedTunnel) {
+            return 'REVIEW'
+        }
+        $tunnelServiceName = Get-EntryValue $ownedTunnel 'name'
+        if (-not $tunnelServiceName) { $tunnelServiceName = 'WireGuardTunnel$zt-worker' }
+
+        $tunnelSvc = Get-Service -Name $tunnelServiceName -ErrorAction SilentlyContinue
         if ($tunnelSvc) {
             if (Test-Path -LiteralPath $wireguard) {
                 $process = Start-Process -FilePath $wireguard -ArgumentList @('/uninstalltunnelservice', 'zt-worker') -Wait -PassThru
             } else {
-                Stop-Service -Name 'WireGuardTunnel$zt-worker' -Force -ErrorAction SilentlyContinue
-                & "$env:WINDIR\System32\sc.exe" delete 'WireGuardTunnel$zt-worker' *> $null
+                Stop-Service -Name $tunnelServiceName -Force -ErrorAction SilentlyContinue
+                & "$env:WINDIR\System32\sc.exe" delete $tunnelServiceName *> $null
             }
         }
 
@@ -651,7 +852,7 @@ function Cleanup-TunnelStep($Preflight) {
             Remove-Item -LiteralPath $stagedConf -Force -ErrorAction SilentlyContinue
         }
 
-        $remainingSvc = Get-Service -Name 'WireGuardTunnel$zt-worker' -ErrorAction SilentlyContinue
+        $remainingSvc = Get-Service -Name $tunnelServiceName -ErrorAction SilentlyContinue
         if ($remainingSvc) { return 'REVIEW' }
         if (Test-Path -LiteralPath $workerConf) { return 'REVIEW' }
         if (-not $okConf) { return 'REVIEW' }
@@ -662,8 +863,13 @@ function Cleanup-TunnelStep($Preflight) {
 }
 
 function Cleanup-FirewallStep($Preflight) {
-    $rules = @('ZT-ServerOps-SSH-VPN', 'ZT-ServerOps-SSH-Transport-Block')
     try {
+        $state = if ($Preflight -and $Preflight.state) { $Preflight.state } else { $Preflight }
+        $ownedRules = Get-EntryValue $state 'owned_rules'
+        if (-not $ownedRules) {
+            return 'REVIEW'
+        }
+        $rules = @($ownedRules)
         foreach ($name in $rules) {
             Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
         }

@@ -33,24 +33,33 @@ Không gửi Telegram trong đợt này. Bằng chứng/script/log riêng tư ng
   xác minh capability bundle, xử lý biên bản Worker (COMPLETED/NEEDS_REVIEW), tạo
   tệp yêu cầu gỡ peer `.remove`, giải phóng IP/name sau root WireGuard ACK, bảo lưu
   lịch sử audit và chặn tái sử dụng token/khóa cũ.
-- Windows uninstaller pure test: kiểm tra parser và hàm gỡ bỏ tự động qua
-  `tests/automation-worker-functions.ps1` (gọi `windows-worker-uninstall-functions.ps1`).
-  Không suy diễn thành kiểm chứng runtime trên Windows thật.
-- Kiểm thử tích hợp tùy chọn (chạy thủ công trong lab riêng):
+- Windows uninstaller pure test: kiểm tra parser, AST và hàm gỡ bỏ tự động qua
+  `tests/automation-worker-functions.ps1` (18/18 checks PASS) và
+  `tests/windows-worker-uninstall-functions.ps1` (55/55 checks PASS). Đã bao phủ
+  đầy đủ các hồi quy theo review của Codex:
+  + Tệp không thuộc journal sở hữu (unowned file) được giữ nguyên, không xóa.
+  + Tệp thuộc journal nhưng bị sửa đổi nội dung (modified file) được giữ nguyên, báo conflict.
+  + Tệp tạo mới chưa bị sửa đổi được chứng minh fingerprint và xóa an toàn.
+  + Tệp đã tồn tại trước khi cài được khôi phục từ backup tin cậy.
+  + Journal đọc từ `ConvertFrom-Json` (PSCustomObject) được chuẩn hóa và truy cập
+    thuộc tính an toàn, không còn lỗi gọi `.Contains()` trên PSCustomObject.
+  + Phân biệt rõ before-state và after-state của SSH do bộ cài thiết lập (không coi
+    thay đổi hợp lệ của bộ cài là thay đổi ngoài luồng; người dùng can thiệp sau cài mới báo conflict).
+- Kiểm thử tích hợp thực tế đã có bằng chứng (lab riêng tư):
   + Linux Worker uninstaller trên VM thật (`tests/runtime-offboarding-linux.py`):
-    Yêu cầu VM Debian 12 riêng, quyền root, Docker Compose v2 và các image Gateway.
-    Lệnh: `python3 tests/runtime-offboarding-linux.py --lab-dir /path/to/private/lab-dir`
+    Đã kiểm nghiệm trên Debian 12 KVM VM riêng (`acceptance-result.json` đạt 5/5 checks PASS:
+    `setup`, `install`, `offboard`, `verify`, `cleanup`).
   + Dashboard UI trên trình duyệt (`tests/runtime-offboarding-ui.py`):
-    Yêu cầu trình duyệt Firefox, geckodriver và `dashboard/dist` đã build. Sử dụng
-    ThreadingHTTPServer với fake API fixture trên `127.0.0.1`, không chạm Gateway thật.
-    Lệnh: `python3 tests/runtime-offboarding-ui.py --output-dir /path/to/private/ui-out --headless`
+    Đã kiểm nghiệm trên Firefox headless + geckodriver với fake API fixture
+    (`result.json` đạt 30/30 checks PASS 100%).
 
-**CHƯA KIỂM CHỨNG:** cài/reboot/gỡ bỏ dịch vụ/firewall trên Windows thật (chưa
-có môi trường Windows native), kiểm thử VM Linux và UI browser hiện chưa chạy
-nghiệm thu xong (IN_PROGRESS, không ghi nhận PASS trước khi có log thật),
-automation Linux arm64 trên phần cứng thật, cài mới host collector trên Gateway
-systemd và raw Internet tới firewall Worker. Windows CI chỉ kiểm parser/hàm, không
-cài dịch vụ. NAT/WARP không phải bằng chứng firewall host loại gói Internet.
+**CHƯA KIỂM CHỨNG:**
+- Windows native runtime: **CHƯA KIỂM CHỨNG** (chưa có máy chủ Windows vật lý / VM
+  Windows native để kiểm tra cài/reboot/gỡ bỏ dịch vụ và firewall runtime thật;
+  Windows CI và local test chỉ kiểm parser/hàm trong container PowerShell, không đột biến Windows thật).
+- Automation Linux arm64 trên phần cứng thật.
+- Cài mới host collector trên Gateway systemd và raw Internet tới firewall Worker.
+- NAT/WARP không phải bằng chứng firewall host loại gói Internet.
 
 Đã dọn các container/network/volume lab và tắt VM; Worker Docker hiện hữu
 giữ nguyên. Doctor EC2 chỉ đọc kết thúc0vấn đề. Source mới chưa triển khai

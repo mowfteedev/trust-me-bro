@@ -517,12 +517,288 @@ $conflictPreflight = [ordered]@{
         }
     }
 }
+$conflictPreflight.managed = Normalize-ManagedState $conflictPreflight.managed
 $conflictPreflight.conflicts['C:\ssh\sshd_config'] = 'File was modified since installation; preserving user edits.'
 $resultPreflight = Restore-OrRemoveManagedFile 'C:\ssh\sshd_config' $conflictPreflight
 if ($resultPreflight -ne $false) {
     throw 'Restore-OrRemoveManagedFile must fail on conflict and preserve user file.'
 }
 Passed 'Conflict detection protects modified user configuration'
+
+# --- Test 15b: Unowned file preservation ---
+$unownedDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-unowned-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($unownedDir) | Out-Null
+try {
+    $unownedFile = Join-Path $unownedDir 'unowned_file.txt'
+    [IO.File]::WriteAllText($unownedFile, 'important-user-data')
+    $testPreflight = [ordered]@{
+        conflicts = (New-Object 'System.Collections.Generic.Dictionary[string,string]')
+        managed = (New-Object 'System.Collections.Generic.Dictionary[string,object]')
+        state = [ordered]@{
+            version = 1; kind = 'zt-worker-automation'; assignment = $assignment
+        }
+    }
+    $ret = Restore-OrRemoveManagedFile $unownedFile $testPreflight
+    if ($ret -ne $false) {
+        throw 'Restore-OrRemoveManagedFile must return false for unowned file.'
+    }
+    if (-not (Test-Path -LiteralPath $unownedFile)) {
+        throw 'Unowned file was improperly deleted!'
+    }
+    if (-not $testPreflight.conflicts.ContainsKey($unownedFile)) {
+        throw 'Conflict not recorded for unowned file.'
+    }
+    Passed 'Unowned file without journal ownership is preserved and not deleted'
+} finally {
+    if ([IO.Directory]::Exists($unownedDir)) { [IO.Directory]::Delete($unownedDir, $true) }
+}
+
+# --- Test 15c: Modified managed file preservation ---
+$modDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-mod-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($modDir) | Out-Null
+try {
+    $modFile = Join-Path $modDir 'modified_file.txt'
+    [IO.File]::WriteAllText($modFile, 'modified-by-user')
+    $testPreflight = [ordered]@{
+        conflicts = (New-Object 'System.Collections.Generic.Dictionary[string,string]')
+        managed = [ordered]@{
+            $modFile = [ordered]@{
+                before_hash = $null
+                after_hash = '0000111122223333444455556666777788889999aaaabbbbccccddddeeeeffff'
+            }
+        }
+        state = [ordered]@{
+            version = 1; kind = 'zt-worker-automation'; assignment = $assignment
+        }
+    }
+    $testPreflight.managed = Normalize-ManagedState $testPreflight.managed
+    $ret = Restore-OrRemoveManagedFile $modFile $testPreflight
+    if ($ret -ne $false) {
+        throw 'Restore-OrRemoveManagedFile must return false for modified file.'
+    }
+    if (-not (Test-Path -LiteralPath $modFile)) {
+        throw 'Modified file was improperly deleted!'
+    }
+    if (-not $testPreflight.conflicts.ContainsKey($modFile)) {
+        throw 'Conflict not recorded for modified file.'
+    }
+    Passed 'Modified managed file is preserved and not deleted'
+} finally {
+    if ([IO.Directory]::Exists($modDir)) { [IO.Directory]::Delete($modDir, $true) }
+}
+
+# --- Test 15d: Untouched installer-created file deletion ---
+$untouchedDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-untouched-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($untouchedDir) | Out-Null
+try {
+    $untouchedFile = Join-Path $untouchedDir 'untouched_file.txt'
+    [IO.File]::WriteAllText($untouchedFile, 'installed-content-never-changed')
+    $fileHash = (Get-FileHash -LiteralPath $untouchedFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    $testPreflight = [ordered]@{
+        conflicts = (New-Object 'System.Collections.Generic.Dictionary[string,string]')
+        managed = [ordered]@{
+            $untouchedFile = [ordered]@{
+                before_hash = $null
+                after_hash = $fileHash
+            }
+        }
+        state = [ordered]@{
+            version = 1; kind = 'zt-worker-automation'; assignment = $assignment
+        }
+    }
+    $testPreflight.managed = Normalize-ManagedState $testPreflight.managed
+    $ret = Restore-OrRemoveManagedFile $untouchedFile $testPreflight
+    if ($ret -ne $true) {
+        throw 'Restore-OrRemoveManagedFile must return true for untouched file.'
+    }
+    if (Test-Path -LiteralPath $untouchedFile) {
+        throw 'Untouched installer file was not deleted!'
+    }
+    Passed 'Untouched installer-created file matching after_hash is safely deleted'
+} finally {
+    if ([IO.Directory]::Exists($untouchedDir)) { [IO.Directory]::Delete($untouchedDir, $true) }
+}
+
+# --- Test 15e: Pre-existing file restored from backup ---
+$preDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-pre-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($preDir) | Out-Null
+try {
+    $targetFile = Join-Path $preDir 'config.txt'
+    $backupFile = Join-Path $preDir 'config.txt.before-zt'
+    [IO.File]::WriteAllText($targetFile, 'content-installed-by-zt')
+    [IO.File]::WriteAllText($backupFile, 'original-user-content-before-install')
+    $targetHash = (Get-FileHash -LiteralPath $targetFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    $beforeHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    $testPreflight = [ordered]@{
+        conflicts = (New-Object 'System.Collections.Generic.Dictionary[string,string]')
+        managed = [ordered]@{
+            $targetFile = [ordered]@{
+                backup = $backupFile
+                before_hash = $beforeHash
+                after_hash = $targetHash
+            }
+        }
+        state = [ordered]@{
+            version = 1; kind = 'zt-worker-automation'; assignment = $assignment
+        }
+    }
+    $testPreflight.managed = Normalize-ManagedState $testPreflight.managed
+    $ret = Restore-OrRemoveManagedFile $targetFile $testPreflight
+    if ($ret -ne $true) {
+        throw 'Restore-OrRemoveManagedFile must return true when pre-existing file is restored from backup.'
+    }
+    $restoredContent = [IO.File]::ReadAllText($targetFile)
+    if ($restoredContent -ne 'original-user-content-before-install') {
+        throw 'File content was not restored to before-install state!'
+    }
+    Passed 'Pre-existing file is verified and successfully restored from backup'
+} finally {
+    if ([IO.Directory]::Exists($preDir)) { [IO.Directory]::Delete($preDir, $true) }
+}
+
+# --- Test 15f: JSON serialized/deserialized journal compatibility (PSCustomObject) ---
+$jsonStateData = [ordered]@{
+    version = 1
+    kind = 'zt-worker-automation'
+    assignment = $assignment
+    managed = [ordered]@{
+        'C:\ssh\sshd_config' = [ordered]@{
+            backup = 'C:\backup\sshd_config.before-zt'
+            before_hash = 'aaaabbbbcccc'
+            after_hash = '111122223333'
+        }
+        'C:\agent\zt-agent.exe' = [ordered]@{
+            before_hash = $null
+            expected_hash = '444455556666'
+        }
+    }
+    owned_services = [ordered]@{
+        agent = [ordered]@{ name = 'ZTServerOpsAgent'; command = '"C:\agent\zt-agent.exe" --service' }
+        tunnel = [ordered]@{ name = 'WireGuardTunnel$zt-worker' }
+    }
+    owned_rules = @('ZT-ServerOps-SSH-VPN', 'ZT-ServerOps-SSH-Transport-Block')
+}
+# Convert to JSON string and parse back with ConvertFrom-Json (producing PSCustomObject)
+$jsonString = $jsonStateData | ConvertTo-Json -Depth 10
+$loadedFromJson = $jsonString | ConvertFrom-Json
+if ($loadedFromJson.managed -isnot [System.Management.Automation.PSCustomObject]) {
+    throw 'Test prerequisite failed: ConvertFrom-Json did not produce PSCustomObject.'
+}
+# Preflight-Uninstall must accept PSCustomObject without calling PSCustomObject.Contains()
+$preflightFromPsCustomObject = Preflight-Uninstall $loadedFromJson
+if (-not $preflightFromPsCustomObject -or -not $preflightFromPsCustomObject.managed) {
+    throw 'Preflight-Uninstall failed on JSON-loaded PSCustomObject.'
+}
+if (-not ($preflightFromPsCustomObject.managed -is [System.Collections.IDictionary])) {
+    throw 'Preflight-Uninstall did not normalize managed to IDictionary.'
+}
+# Check that dictionary access and ContainsKey work seamlessly on normalized managed
+if (-not $preflightFromPsCustomObject.managed.ContainsKey('C:\ssh\sshd_config')) {
+    throw 'Normalized managed does not contain expected path key.'
+}
+$entry = $preflightFromPsCustomObject.managed['C:\ssh\sshd_config']
+if ((Get-EntryValue $entry 'before_hash') -ne 'aaaabbbbcccc') {
+    throw 'Normalized managed entry did not preserve field values.'
+}
+Passed 'JSON deserialized PSCustomObject state normalized and handled safely without Contains error'
+
+# --- Test 15g: SSH before-state vs installer after-state ---
+$origGetSvc = Get-Command Get-Service -ErrorAction SilentlyContinue
+$origGetCim = Get-Command Get-CimInstance -ErrorAction SilentlyContinue
+$oldWorkerRoot = $workerRoot
+$oldWorkerStatePath = $workerStatePath
+$sshTestDir = $null
+try {
+    # Case A: SSH was stopped & Manual before install; installer set to Auto and started it.
+    # Currently running and Auto -> NOT a conflict!
+    function script:Get-Service {
+        param([string]$Name, $ErrorAction)
+        if ($Name -eq 'sshd') {
+            return [pscustomobject]@{ Name = 'sshd'; Status = 'Running' }
+        }
+        return $null
+    }
+    function script:Get-CimInstance {
+        param([string]$ClassName, [string]$Filter, $ErrorAction)
+        if ($Filter -like "*sshd*") {
+            return [pscustomobject]@{ Name = 'sshd'; StartMode = 'Auto'; PathName = 'C:\Windows\System32\OpenSSH\sshd.exe' }
+        }
+        return $null
+    }
+
+    $sshTestDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-ssh-' + [Guid]::NewGuid().ToString())
+    [IO.Directory]::CreateDirectory($sshTestDir) | Out-Null
+    $mockWorkerRoot = Join-Path $sshTestDir 'worker'
+    [IO.Directory]::CreateDirectory($mockWorkerRoot) | Out-Null
+    $mockSetupStatePath = Join-Path $mockWorkerRoot 'setup-state.json'
+    $mockSetupState = [ordered]@{
+        ConfigPath = (Join-Path $env:ProgramData 'ssh\sshd_config')
+        BackupPath = (Join-Path $mockWorkerRoot 'sshd_config.before-zt')
+        SshdWasRunning = $false
+        SshdStartMode = 'Manual'
+        SshdInstalledRunning = $true
+        SshdInstalledStartMode = 'Auto'
+        HadConfig = $false
+        SshdDependencies = @()
+        RuleNames = @('ZT-ServerOps-SSH-VPN', 'ZT-ServerOps-SSH-Transport-Block')
+        TunnelName = 'zt-worker'
+        TunnelInstalled = $true
+        TransportInterfaces = @()
+        VpnAddress = '10.100.0.3'
+        GatewayVpnAddress = '10.100.0.1'
+        SshUser = 'ztuser'
+    }
+    [IO.File]::WriteAllText($mockSetupStatePath, (ConvertTo-CanonicalJson $mockSetupState))
+
+    $workerRoot = $mockWorkerRoot
+    $workerStatePath = $mockSetupStatePath
+
+    $sshStateData = [ordered]@{
+        version = 1
+        kind = 'zt-worker-automation'
+        assignment = $assignment
+        managed = [ordered]@{}
+        owned_services = [ordered]@{
+            agent = [ordered]@{ name = 'ZTServerOpsAgent'; command = '"C:\agent\zt-agent.exe" --service' }
+        }
+        owned_rules = @('ZT-ServerOps-SSH-VPN')
+    }
+
+    $pre = Preflight-Uninstall $sshStateData
+    if ($pre.conflicts.ContainsKey('sshd') -or $pre.conflicts.ContainsKey('sshd_startmode')) {
+        throw 'SSH service started and configured as Auto by installer was falsely marked as conflict!'
+    }
+    Passed 'Installer-initiated SSH start and Auto startmode is recognized as valid after-state'
+
+    # Case B: User changed SSH after install (e.g. stopped service or changed startmode to Disabled)
+    function script:Get-Service {
+        param([string]$Name, $ErrorAction)
+        if ($Name -eq 'sshd') {
+            return [pscustomobject]@{ Name = 'sshd'; Status = 'Stopped' }
+        }
+        return $null
+    }
+    function script:Get-CimInstance {
+        param([string]$ClassName, [string]$Filter, $ErrorAction)
+        if ($Filter -like "*sshd*") {
+            return [pscustomobject]@{ Name = 'sshd'; StartMode = 'Disabled'; PathName = 'C:\Windows\System32\OpenSSH\sshd.exe' }
+        }
+        return $null
+    }
+
+    $preMod = Preflight-Uninstall $sshStateData
+    if (-not $preMod.conflicts.ContainsKey('sshd') -or -not $preMod.conflicts.ContainsKey('sshd_startmode')) {
+        throw 'User modifications to SSH service after install were not flagged as conflicts!'
+    }
+    Passed 'External user modifications to SSH after install are correctly flagged as conflicts for REVIEW'
+} finally {
+    $workerRoot = $oldWorkerRoot
+    $workerStatePath = $oldWorkerStatePath
+    if ($sshTestDir -and [IO.Directory]::Exists($sshTestDir)) { [IO.Directory]::Delete($sshTestDir, $true) }
+    function script:Get-Service { param([string]$Name, $ErrorAction) return $null }
+    function script:Get-CimInstance { param([string]$ClassName, [string]$Filter, $ErrorAction) return $null }
+}
 
 # --- Test 16: Verify response validation checks all tuple + gateway_id ---
 $mockVerifyReply = [pscustomobject][ordered]@{
