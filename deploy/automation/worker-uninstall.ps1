@@ -467,29 +467,33 @@ function Normalize-ManagedEntry($Entry) {
 }
 
 function Get-EntryValue($Entry, [string]$Key) {
-    if (-not $Entry) { return $null }
+    if (-not $Entry -or -not $Key) { return $null }
+    if ($Entry -is [System.Collections.Generic.Dictionary[string,string]] -or
+        $Entry -is [System.Collections.Generic.Dictionary[string,object]] -or
+        $Entry -is [System.Collections.Hashtable]) {
+        if ($Entry.ContainsKey($Key)) { return $Entry[$Key] }
+        return $null
+    }
     if ($Entry -is [System.Collections.IDictionary]) {
-        if ($Entry -is [System.Collections.Generic.Dictionary[string,object]] -or $Entry -is [System.Collections.Hashtable]) {
-            if ($Entry.ContainsKey($Key)) { return $Entry[$Key] }
-            return $null
-        }
         if ($Entry.Contains($Key)) { return $Entry[$Key] }
         return $null
     }
     if ($Entry -is [System.Management.Automation.PSCustomObject]) {
         $p = $Entry.PSObject.Properties[$Key]
-        if ($p) { return $p.Value }
+        if ($null -ne $p) { return $p.Value }
         return $null
     }
     return $null
 }
 
 function Test-ManagedKey($ManagedDict, [string]$PathStr) {
-    if (-not $ManagedDict) { return $false }
+    if (-not $ManagedDict -or -not $PathStr) { return $false }
+    if ($ManagedDict -is [System.Collections.Generic.Dictionary[string,string]] -or
+        $ManagedDict -is [System.Collections.Generic.Dictionary[string,object]] -or
+        $ManagedDict -is [System.Collections.Hashtable]) {
+        return $ManagedDict.ContainsKey($PathStr)
+    }
     if ($ManagedDict -is [System.Collections.IDictionary]) {
-        if ($ManagedDict -is [System.Collections.Generic.Dictionary[string,object]] -or $ManagedDict -is [System.Collections.Hashtable]) {
-            return $ManagedDict.ContainsKey($PathStr)
-        }
         return $ManagedDict.Contains($PathStr)
     }
     if ($ManagedDict -is [System.Management.Automation.PSCustomObject]) {
@@ -499,20 +503,81 @@ function Test-ManagedKey($ManagedDict, [string]$PathStr) {
 }
 
 function Get-ManagedEntry($ManagedDict, [string]$PathStr) {
-    if (-not $ManagedDict) { return $null }
+    if (-not $ManagedDict -or -not $PathStr) { return $null }
+    if ($ManagedDict -is [System.Collections.Generic.Dictionary[string,string]] -or
+        $ManagedDict -is [System.Collections.Generic.Dictionary[string,object]] -or
+        $ManagedDict -is [System.Collections.Hashtable]) {
+        if ($ManagedDict.ContainsKey($PathStr)) { return $ManagedDict[$PathStr] }
+        return $null
+    }
     if ($ManagedDict -is [System.Collections.IDictionary]) {
-        if ($ManagedDict -is [System.Collections.Generic.Dictionary[string,object]] -or $ManagedDict -is [System.Collections.Hashtable]) {
-            if ($ManagedDict.ContainsKey($PathStr)) { return $ManagedDict[$PathStr] }
-            return $null
-        }
         if ($ManagedDict.Contains($PathStr)) { return $ManagedDict[$PathStr] }
         return $null
     }
     if ($ManagedDict -is [System.Management.Automation.PSCustomObject]) {
         $p = $ManagedDict.PSObject.Properties[$PathStr]
-        if ($p) { return $p.Value }
+        if ($null -ne $p) { return $p.Value }
         return $null
     }
+    return $null
+}
+
+function Normalize-StepsDict($Steps) {
+    $dict = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    if (-not $Steps) { return $dict }
+
+    if ($Steps -is [System.Collections.Generic.Dictionary[string,string]]) {
+        foreach ($k in $Steps.Keys) {
+            $dict[$k] = [string]$Steps[$k]
+        }
+        return $dict
+    }
+
+    if ($Steps -is [System.Collections.IDictionary]) {
+        foreach ($k in $Steps.Keys) {
+            if ($null -ne $k) {
+                $dict[[string]$k] = [string]$Steps[$k]
+            }
+        }
+        return $dict
+    }
+
+    if ($Steps -is [System.Management.Automation.PSCustomObject]) {
+        foreach ($prop in $Steps.PSObject.Properties) {
+            if ($null -ne $prop -and $prop.Name) {
+                $dict[[string]$prop.Name] = [string]$prop.Value
+            }
+        }
+        return $dict
+    }
+
+    return $dict
+}
+
+function Get-StepOutcome($Steps, [string]$StepName) {
+    if (-not $Steps -or -not $StepName) { return $null }
+
+    if ($Steps -is [System.Collections.Generic.Dictionary[string,string]]) {
+        if ($Steps.ContainsKey($StepName)) { return [string]$Steps[$StepName] }
+        return $null
+    }
+
+    if ($Steps -is [System.Collections.Generic.Dictionary[string,object]]) {
+        if ($Steps.ContainsKey($StepName)) { return [string]$Steps[$StepName] }
+        return $null
+    }
+
+    if ($Steps -is [System.Collections.IDictionary]) {
+        if ($Steps.Contains($StepName)) { return [string]$Steps[$StepName] }
+        return $null
+    }
+
+    if ($Steps -is [System.Management.Automation.PSCustomObject]) {
+        $prop = $Steps.PSObject.Properties[$StepName]
+        if ($null -ne $prop) { return [string]$prop.Value }
+        return $null
+    }
+
     return $null
 }
 
@@ -977,26 +1042,50 @@ function Cleanup-SecretsStep($Preflight) {
 }
 
 function Checkpoint-Step([string]$CleanupFilePath, $CleanupJournal, [string]$StepName, [string]$Outcome) {
-    if (-not $CleanupJournal.steps) {
-        $CleanupJournal.steps = [ordered]@{}
+    $rawSteps = Get-EntryValue $CleanupJournal 'steps'
+    $stepsDict = $null
+    if (-not $rawSteps) {
+        $stepsDict = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    } elseif ($rawSteps -is [System.Collections.Generic.Dictionary[string,string]]) {
+        $stepsDict = $rawSteps
+    } else {
+        $stepsDict = Normalize-StepsDict $rawSteps
     }
-    $CleanupJournal.steps[$StepName] = $Outcome
-    $CleanupJournal.updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+    $stepsDict[$StepName] = $Outcome
+
+    if ($CleanupJournal -is [System.Management.Automation.PSCustomObject]) {
+        if ($CleanupJournal.PSObject.Properties['steps']) {
+            $CleanupJournal.PSObject.Properties['steps'].Value = $stepsDict
+        } else {
+            $CleanupJournal | Add-Member -NotePropertyName 'steps' -NotePropertyValue $stepsDict -Force
+        }
+        $nowSec = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        if ($CleanupJournal.PSObject.Properties['updated_at']) {
+            $CleanupJournal.PSObject.Properties['updated_at'].Value = $nowSec
+        } else {
+            $CleanupJournal | Add-Member -NotePropertyName 'updated_at' -NotePropertyValue $nowSec -Force
+        }
+    } else {
+        $CleanupJournal['steps'] = $stepsDict
+        $CleanupJournal['updated_at'] = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    }
+
     Write-Private $CleanupFilePath (ConvertTo-CanonicalJson $CleanupJournal)
 }
 
 function Build-Receipt($Steps, $Bundle) {
     $evidencePayload = [ordered]@{
-        gateway_id = $Bundle.gateway_id
-        node_id = $Bundle.node_id
-        operation_id = $Bundle.operation_id
+        gateway_id = (Get-EntryValue $Bundle 'gateway_id')
+        node_id = (Get-EntryValue $Bundle 'node_id')
+        operation_id = (Get-EntryValue $Bundle 'operation_id')
         platform = 'windows'
         steps = [ordered]@{
-            agent = $Steps.agent
-            firewall = $Steps.firewall
-            secrets = $Steps.secrets
-            ssh = $Steps.ssh
-            tunnel = $Steps.tunnel
+            agent = (Get-StepOutcome $Steps 'agent')
+            firewall = (Get-StepOutcome $Steps 'firewall')
+            secrets = (Get-StepOutcome $Steps 'secrets')
+            ssh = (Get-StepOutcome $Steps 'ssh')
+            tunnel = (Get-StepOutcome $Steps 'tunnel')
         }
     }
     $canonJson = ConvertTo-CanonicalJson $evidencePayload
@@ -1004,11 +1093,11 @@ function Build-Receipt($Steps, $Bundle) {
     return [ordered]@{
         platform = 'windows'
         steps = [ordered]@{
-            agent = $Steps.agent
-            tunnel = $Steps.tunnel
-            firewall = $Steps.firewall
-            ssh = $Steps.ssh
-            secrets = $Steps.secrets
+            agent = (Get-StepOutcome $Steps 'agent')
+            tunnel = (Get-StepOutcome $Steps 'tunnel')
+            firewall = (Get-StepOutcome $Steps 'firewall')
+            ssh = (Get-StepOutcome $Steps 'ssh')
+            secrets = (Get-StepOutcome $Steps 'secrets')
         }
         evidence_digest = $evidenceDigest
     }
@@ -1092,22 +1181,31 @@ function Invoke-WorkerUninstall([string]$AuthorizationPath, [string]$CaFile) {
         } catch {
             $prevCleanup = $null
         }
-        if ($prevCleanup -and $prevCleanup.operation_id -eq $rawBundle.operation_id) {
+        $prevOpId = if ($prevCleanup) { Get-EntryValue $prevCleanup 'operation_id' } else { $null }
+        $rawOpId = if ($rawBundle) { Get-EntryValue $rawBundle 'operation_id' } else { $null }
+        if ($prevCleanup -and $prevOpId -and $prevOpId -eq $rawOpId) {
             $curState = $null
             if (Test-Path -LiteralPath $statePath) {
                 $curState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
             }
-            if ($curState -and $curState.assignment) {
-                $currAsgn = $curState.assignment
-                if ($currAsgn.node_id -ne $prevCleanup.node_id -or $currAsgn.gateway_id -ne $prevCleanup.gateway_id) {
+            if ($curState -and (Get-EntryValue $curState 'assignment')) {
+                $currAsgn = Get-EntryValue $curState 'assignment'
+                $curNodeId = Get-EntryValue $currAsgn 'node_id'
+                $curGwId = Get-EntryValue $currAsgn 'gateway_id'
+                $prevNodeId = Get-EntryValue $prevCleanup 'node_id'
+                $prevGwId = Get-EntryValue $prevCleanup 'gateway_id'
+                if ($curNodeId -ne $prevNodeId -or $curGwId -ne $prevGwId) {
                     Stop-Worker 'Saved cleanup belongs to a previous installation; refusing to mutate current Worker.'
                 }
             }
-            if ($prevCleanup.gateway_acknowledged -and $prevCleanup.status -eq 'COMPLETE') {
-                if ($curState -and $curState.phase -ne 'uninstalled') {
+            $prevAck = [bool](Get-EntryValue $prevCleanup 'gateway_acknowledged')
+            $prevStatus = [string](Get-EntryValue $prevCleanup 'status')
+            if ($prevAck -and $prevStatus -eq 'COMPLETE') {
+                $prevReceipt = Get-EntryValue $prevCleanup 'receipt'
+                if ($curState -and (Get-EntryValue $curState 'phase') -ne 'uninstalled') {
                     $curState.phase = 'uninstalled'
                     $curState.uninstalled_status = 'COMPLETE'
-                    $curState.cleanup_receipt = $prevCleanup.receipt
+                    $curState.cleanup_receipt = $prevReceipt
                     Write-Private $statePath ($curState | ConvertTo-Json -Depth 10)
                 }
                 if (Test-Path -LiteralPath $capabilityPath) {
@@ -1116,10 +1214,10 @@ function Invoke-WorkerUninstall([string]$AuthorizationPath, [string]$CaFile) {
                 $out = [ordered]@{
                     ok = $true
                     status = 'COMPLETE'
-                    operation_id = $prevCleanup.operation_id
-                    node_id = $prevCleanup.node_id
-                    node_name = $prevCleanup.node_name
-                    receipt = $prevCleanup.receipt
+                    operation_id = $prevOpId
+                    node_id = (Get-EntryValue $prevCleanup 'node_id')
+                    node_name = (Get-EntryValue $prevCleanup 'node_name')
+                    receipt = $prevReceipt
                     gateway_acknowledged = $true
                     already_completed = $true
                     state_file = $statePath
@@ -1159,6 +1257,7 @@ function Invoke-WorkerUninstall([string]$AuthorizationPath, [string]$CaFile) {
         Write-Private $capabilityPath ($bundle.cleanup_token + [char]10)
 
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $stepsInit = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([System.StringComparer]::OrdinalIgnoreCase)
         $cleanupJournal = [ordered]@{
             version = 1
             kind = 'zt-worker-cleanup'
@@ -1175,7 +1274,7 @@ function Invoke-WorkerUninstall([string]$AuthorizationPath, [string]$CaFile) {
             registration_url = $state.assignment.registration_url
             trusted_origin = $trustedOrigin
             status = 'IN_PROGRESS'
-            steps = [ordered]@{}
+            steps = $stepsInit
             receipt = $null
             gateway_acknowledged = $false
         }
@@ -1191,17 +1290,19 @@ function Invoke-WorkerUninstall([string]$AuthorizationPath, [string]$CaFile) {
 
         foreach ($entry in $stepList) {
             $sName = $entry.name
-            if ($cleanupJournal.steps.$sName -ne 'DONE') {
+            if ((Get-StepOutcome $cleanupJournal.steps $sName) -ne 'DONE') {
                 $outcome = & $entry.fn $preflight
                 Checkpoint-Step $cleanupPath $cleanupJournal $sName $outcome
             }
         }
 
-        $allDone = ($cleanupJournal.steps.agent -eq 'DONE' -and
-                    $cleanupJournal.steps.tunnel -eq 'DONE' -and
-                    $cleanupJournal.steps.firewall -eq 'DONE' -and
-                    $cleanupJournal.steps.ssh -eq 'DONE' -and
-                    $cleanupJournal.steps.secrets -eq 'DONE')
+        $allDone = $true
+        foreach ($entry in $stepList) {
+            if ((Get-StepOutcome $cleanupJournal.steps $entry.name) -ne 'DONE') {
+                $allDone = $false
+                break
+            }
+        }
         $status = if ($allDone) { 'COMPLETE' } else { 'NEEDS_REVIEW' }
         $receipt = Build-Receipt $cleanupJournal.steps $bundle
 
@@ -1273,24 +1374,37 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
     }
 
     $cleanupJournal = Get-Content -LiteralPath $cleanupPath -Raw | ConvertFrom-Json
+    if ($cleanupJournal) {
+        $cleanupJournal.steps = Normalize-StepsDict (Get-EntryValue $cleanupJournal 'steps')
+    }
     $state = $null
     if (Test-Path -LiteralPath $statePath) {
         Assert-PrivateInput $statePath
         $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     }
 
+    $journalAck = [bool](Get-EntryValue $cleanupJournal 'gateway_acknowledged')
+    $journalStatus = [string](Get-EntryValue $cleanupJournal 'status')
+    $journalReceipt = Get-EntryValue $cleanupJournal 'receipt'
+    $journalOpId = Get-EntryValue $cleanupJournal 'operation_id'
+    $journalNodeId = Get-EntryValue $cleanupJournal 'node_id'
+    $journalNodeName = Get-EntryValue $cleanupJournal 'node_name'
+    $journalGwId = Get-EntryValue $cleanupJournal 'gateway_id'
+
     # If already completed, ensure terminalization is finished and return
-    if ($cleanupJournal.gateway_acknowledged -and $cleanupJournal.status -eq 'COMPLETE') {
-        if ($state -and $state.assignment) {
-            $currAsgn = $state.assignment
-            if ($currAsgn.node_id -ne $cleanupJournal.node_id -or $currAsgn.gateway_id -ne $cleanupJournal.gateway_id) {
+    if ($journalAck -and $journalStatus -eq 'COMPLETE') {
+        if ($state -and (Get-EntryValue $state 'assignment')) {
+            $currAsgn = Get-EntryValue $state 'assignment'
+            $cNodeId = Get-EntryValue $currAsgn 'node_id'
+            $cGwId = Get-EntryValue $currAsgn 'gateway_id'
+            if ($cNodeId -ne $journalNodeId -or $cGwId -ne $journalGwId) {
                 Stop-Worker 'Saved cleanup belongs to a previous installation; refusing to mutate current Worker.'
             }
         }
-        if ($state -and $state.phase -ne 'uninstalled') {
+        if ($state -and (Get-EntryValue $state 'phase') -ne 'uninstalled') {
             $state.phase = 'uninstalled'
             $state.uninstalled_status = 'COMPLETE'
-            $state.cleanup_receipt = $cleanupJournal.receipt
+            $state.cleanup_receipt = $journalReceipt
             Write-Private $statePath ($state | ConvertTo-Json -Depth 10)
         }
         if (Test-Path -LiteralPath $capabilityPath) {
@@ -1299,10 +1413,10 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
         $out = [ordered]@{
             ok = $true
             status = 'COMPLETE'
-            operation_id = $cleanupJournal.operation_id
-            node_id = $cleanupJournal.node_id
-            node_name = $cleanupJournal.node_name
-            receipt = $cleanupJournal.receipt
+            operation_id = $journalOpId
+            node_id = $journalNodeId
+            node_name = $journalNodeName
+            receipt = $journalReceipt
             gateway_acknowledged = $true
             already_completed = $true
             state_file = $statePath
@@ -1312,30 +1426,34 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
         return $out
     }
 
-    if (-not $state -or -not $state.assignment) {
+    if (-not $state -or -not (Get-EntryValue $state 'assignment')) {
         Stop-Worker 'Worker state lacks assignment record; manual review required.'
     }
-    $assignment = $state.assignment
+    $assignment = Get-EntryValue $state 'assignment'
     foreach ($k in @('node_id', 'invitation_id', 'gateway_id', 'node_ip')) {
-        if ($cleanupJournal.$k -cne $assignment.$k) {
+        $jVal = Get-EntryValue $cleanupJournal $k
+        $aVal = Get-EntryValue $assignment $k
+        if ($jVal -cne $aVal) {
             Stop-Worker "Saved cleanup operation $k does not match current Worker assignment."
         }
     }
 
     $workerWgPub = Get-LocalWorkerWgPublicKey $state $managedRoot
-    if ($cleanupJournal.wireguard_public_key -cne $workerWgPub) {
+    $jWgPub = Get-EntryValue $cleanupJournal 'wireguard_public_key'
+    if ($jWgPub -cne $workerWgPub) {
         Stop-Worker 'Saved cleanup operation wireguard_public_key does not match local Worker identity.'
     }
 
+    $asgnRegUrl = Get-EntryValue $assignment 'registration_url'
     $regUri = $null
-    if (-not [Uri]::TryCreate($assignment.registration_url, [UriKind]::Absolute, [ref]$regUri) -or
+    if (-not $asgnRegUrl -or -not [Uri]::TryCreate($asgnRegUrl, [UriKind]::Absolute, [ref]$regUri) -or
         $regUri.Scheme -ne 'https' -or $regUri.UserInfo -or $regUri.Query -or $regUri.Fragment) {
         Stop-Worker 'Worker registration URL is not a valid HTTPS URL.'
     }
     $trustedOrigin = "$($regUri.Scheme)://$($regUri.Authority)"
     $expectedCompletion = "$trustedOrigin/api/offboarding/complete"
 
-    $journalCompletion = $cleanupJournal.completion_url
+    $journalCompletion = Get-EntryValue $cleanupJournal 'completion_url'
     if (-not $journalCompletion -or $journalCompletion -cne $expectedCompletion) {
         Stop-Worker 'completion_url in journal does not match trusted Gateway HTTPS offboarding endpoint.'
     }
@@ -1344,10 +1462,11 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
     if ($AuthorizationPath) {
         $rawBundle = Read-PrivateAuthBundle $AuthorizationPath
         $checked = Check-OffboardingBundle $rawBundle $assignment $workerWgPub
-        if ($rawBundle.operation_id -ne $cleanupJournal.operation_id) {
+        $rawOpId = Get-EntryValue $rawBundle 'operation_id'
+        if ($rawOpId -ne $journalOpId) {
             Stop-Worker 'Provided authorization bundle does not match the saved cleanup operation.'
         }
-        $token = $rawBundle.cleanup_token
+        $token = Get-EntryValue $rawBundle 'cleanup_token'
         Write-Private $capabilityPath ($token + [char]10)
     } elseif (Test-Path -LiteralPath $capabilityPath) {
         $token = (Get-Content -LiteralPath $capabilityPath -Raw).Trim()
@@ -1358,22 +1477,24 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
     }
 
     # Check if this is a RECEIPT-ONLY retry
-    $durableReceipt = $cleanupJournal.receipt
+    $durableReceipt = Get-EntryValue $cleanupJournal 'receipt'
+    $durableDigest = if ($durableReceipt) { Get-EntryValue $durableReceipt 'evidence_digest' } else { $null }
     $isReceiptOnly = (
-        $cleanupJournal.status -eq 'COMPLETE' -and
-        $durableReceipt -and
-        $durableReceipt.evidence_digest
+        $journalStatus -eq 'COMPLETE' -and
+        $null -ne $durableReceipt -and
+        $null -ne $durableDigest -and
+        [string]$durableDigest -ne ''
     )
 
     if ($isReceiptOnly) {
         $completionPayload = [ordered]@{
             version = 1
-            operation_id = $cleanupJournal.operation_id
-            node_id = $cleanupJournal.node_id
-            gateway_id = $cleanupJournal.gateway_id
-            invitation_id = $cleanupJournal.invitation_id
-            wireguard_public_key = $cleanupJournal.wireguard_public_key
-            node_ip = $cleanupJournal.node_ip
+            operation_id = $journalOpId
+            node_id = $journalNodeId
+            gateway_id = $journalGwId
+            invitation_id = (Get-EntryValue $cleanupJournal 'invitation_id')
+            wireguard_public_key = (Get-EntryValue $cleanupJournal 'wireguard_public_key')
+            node_ip = (Get-EntryValue $cleanupJournal 'node_ip')
             status = 'COMPLETE'
             receipt = $durableReceipt
         }
@@ -1398,9 +1519,9 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
         $out = [ordered]@{
             ok = $true
             status = 'COMPLETE'
-            operation_id = $cleanupJournal.operation_id
-            node_id = $cleanupJournal.node_id
-            node_name = $cleanupJournal.node_name
+            operation_id = $journalOpId
+            node_id = $journalNodeId
+            node_name = $journalNodeName
             receipt = $durableReceipt
             gateway_acknowledged = $true
             state_file = $statePath
@@ -1410,15 +1531,16 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
         return $out
     }
 
+    $asgnNodeName = Get-EntryValue $assignment 'node_name'
     $verifyBundle = [pscustomobject][ordered]@{
         version = 1
-        operation_id = $cleanupJournal.operation_id
-        gateway_id = $cleanupJournal.gateway_id
-        node_id = $cleanupJournal.node_id
-        node_name = if ($cleanupJournal.node_name) { $cleanupJournal.node_name } else { $assignment.node_name }
-        invitation_id = $cleanupJournal.invitation_id
-        wireguard_public_key = $cleanupJournal.wireguard_public_key
-        node_ip = $cleanupJournal.node_ip
+        operation_id = $journalOpId
+        gateway_id = $journalGwId
+        node_id = $journalNodeId
+        node_name = if ($journalNodeName) { $journalNodeName } else { $asgnNodeName }
+        invitation_id = (Get-EntryValue $cleanupJournal 'invitation_id')
+        wireguard_public_key = (Get-EntryValue $cleanupJournal 'wireguard_public_key')
+        node_ip = (Get-EntryValue $cleanupJournal 'node_ip')
         cleanup_token = $token
     }
     [void](Invoke-VerifyOffboarding $verifyBundle $trustedOrigin $CaFile)
@@ -1440,21 +1562,23 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
 
         foreach ($entry in $stepList) {
             $sName = $entry.name
-            if ($cleanupJournal.steps.$sName -ne 'DONE') {
+            if ((Get-StepOutcome $cleanupJournal.steps $sName) -ne 'DONE') {
                 $outcome = & $entry.fn $preflight
                 Checkpoint-Step $cleanupPath $cleanupJournal $sName $outcome
             }
         }
 
-        $allDone = ($cleanupJournal.steps.agent -eq 'DONE' -and
-                    $cleanupJournal.steps.tunnel -eq 'DONE' -and
-                    $cleanupJournal.steps.firewall -eq 'DONE' -and
-                    $cleanupJournal.steps.ssh -eq 'DONE' -and
-                    $cleanupJournal.steps.secrets -eq 'DONE')
+        $allDone = $true
+        foreach ($entry in $stepList) {
+            if ((Get-StepOutcome $cleanupJournal.steps $entry.name) -ne 'DONE') {
+                $allDone = $false
+                break
+            }
+        }
         $status = if ($allDone) { 'COMPLETE' } else { 'NEEDS_REVIEW' }
 
-        $receipt = $cleanupJournal.receipt
-        if (-not $receipt -or $cleanupJournal.status -ne $status) {
+        $receipt = Get-EntryValue $cleanupJournal 'receipt'
+        if (-not $receipt -or $journalStatus -ne $status) {
             $receipt = Build-Receipt $cleanupJournal.steps $cleanupJournal
             $cleanupJournal.receipt = $receipt
         }
@@ -1465,17 +1589,17 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
 
         $completionPayload = [ordered]@{
             version = 1
-            operation_id = $cleanupJournal.operation_id
-            node_id = $cleanupJournal.node_id
-            gateway_id = $cleanupJournal.gateway_id
-            invitation_id = $cleanupJournal.invitation_id
-            wireguard_public_key = $cleanupJournal.wireguard_public_key
-            node_ip = $cleanupJournal.node_ip
+            operation_id = $journalOpId
+            node_id = $journalNodeId
+            gateway_id = $journalGwId
+            invitation_id = (Get-EntryValue $cleanupJournal 'invitation_id')
+            wireguard_public_key = (Get-EntryValue $cleanupJournal 'wireguard_public_key')
+            node_ip = (Get-EntryValue $cleanupJournal 'node_ip')
             status = $status
             receipt = $receipt
         }
 
-        $completeReply = Invoke-CompleteOffboarding $cleanupJournal.completion_url $token $completionPayload $CaFile
+        $completeReply = Invoke-CompleteOffboarding (Get-EntryValue $cleanupJournal 'completion_url') $token $completionPayload $CaFile
 
         $cleanupJournal.gateway_acknowledged = $true
         $cleanupJournal.updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
@@ -1497,9 +1621,9 @@ function Invoke-WorkerCleanupRetry([string]$AuthorizationPath, [string]$CaFile) 
         $out = [ordered]@{
             ok = ($status -eq 'COMPLETE')
             status = $status
-            operation_id = $cleanupJournal.operation_id
-            node_id = $cleanupJournal.node_id
-            node_name = $cleanupJournal.node_name
+            operation_id = $journalOpId
+            node_id = $journalNodeId
+            node_name = $journalNodeName
             receipt = $receipt
             gateway_acknowledged = $true
             state_file = $statePath

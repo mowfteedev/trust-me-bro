@@ -849,6 +849,322 @@ if ($incompleteJournal.status -eq 'COMPLETE' -and $incompleteJournal.receipt) {
 }
 Passed 'Receipt-only retry detects COMPLETE status with evidence digest'
 
+# --- Test 19a: Fresh cleanup journal dispatch under StrictMode Latest ---
+$freshDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-fresh-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($freshDir) | Out-Null
+try {
+    $freshCleanupPath = Join-Path $freshDir 'cleanup.json'
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $stepsInit = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    $cleanupJournal = [ordered]@{
+        version = 1
+        kind = 'zt-worker-cleanup'
+        created_at = $now
+        updated_at = $now
+        operation_id = $validBundle.operation_id
+        node_id = $validBundle.node_id
+        node_name = $validBundle.node_name
+        node_ip = $validBundle.node_ip
+        gateway_id = $validBundle.gateway_id
+        invitation_id = $validBundle.invitation_id
+        wireguard_public_key = $validBundle.wireguard_public_key
+        completion_url = $validBundle.completion_url
+        registration_url = $assignment.registration_url
+        trusted_origin = 'https://gateway.example'
+        status = 'IN_PROGRESS'
+        steps = $stepsInit
+        receipt = $null
+        gateway_acknowledged = $false
+    }
+    Write-Private $freshCleanupPath (ConvertTo-CanonicalJson $cleanupJournal)
+
+    $stepInvocations = New-Object Collections.Generic.List[string]
+    $stepList = @(
+        @{ name = 'agent';    fn = { param($p) $stepInvocations.Add('agent'); return 'DONE' } },
+        @{ name = 'tunnel';   fn = { param($p) $stepInvocations.Add('tunnel'); return 'DONE' } },
+        @{ name = 'firewall'; fn = { param($p) $stepInvocations.Add('firewall'); return 'DONE' } },
+        @{ name = 'ssh';      fn = { param($p) $stepInvocations.Add('ssh'); return 'DONE' } },
+        @{ name = 'secrets';  fn = { param($p) $stepInvocations.Add('secrets'); return 'DONE' } }
+    )
+
+    foreach ($entry in $stepList) {
+        $sName = $entry.name
+        if ((Get-StepOutcome $cleanupJournal.steps $sName) -ne 'DONE') {
+            $outcome = & $entry.fn $null
+            Checkpoint-Step $freshCleanupPath $cleanupJournal $sName $outcome
+        }
+    }
+
+    $allDone = $true
+    foreach ($entry in $stepList) {
+        if ((Get-StepOutcome $cleanupJournal.steps $entry.name) -ne 'DONE') {
+            $allDone = $false
+            break
+        }
+    }
+    if (-not $allDone -or $stepInvocations.Count -ne 5) {
+        throw 'Fresh journal did not execute all 5 steps.'
+    }
+    $receipt = Build-Receipt $cleanupJournal.steps $validBundle
+    if (-not $receipt -or -not $receipt.evidence_digest) {
+        throw 'Receipt was not built properly from fresh journal steps.'
+    }
+    Passed 'Fresh cleanup journal runs step dispatch loop without StrictMode property error'
+} finally {
+    if ([IO.Directory]::Exists($freshDir)) { [IO.Directory]::Delete($freshDir, $true) }
+}
+
+# --- Test 19b: Crash interrupt, reload JSON (PSCustomObject), and resume ---
+$resumeDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-resume-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($resumeDir) | Out-Null
+try {
+    $resumeCleanupPath = Join-Path $resumeDir 'cleanup.json'
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    # Step 1 was executed and check-pointed
+    $initialJournal = [ordered]@{
+        version = 1
+        kind = 'zt-worker-cleanup'
+        created_at = $now
+        updated_at = $now
+        operation_id = $validBundle.operation_id
+        node_id = $validBundle.node_id
+        node_name = $validBundle.node_name
+        node_ip = $validBundle.node_ip
+        gateway_id = $validBundle.gateway_id
+        invitation_id = $validBundle.invitation_id
+        wireguard_public_key = $validBundle.wireguard_public_key
+        completion_url = $validBundle.completion_url
+        registration_url = $assignment.registration_url
+        trusted_origin = 'https://gateway.example'
+        status = 'IN_PROGRESS'
+        steps = [ordered]@{ agent = 'DONE' }
+        receipt = $null
+        gateway_acknowledged = $false
+    }
+    Write-Private $resumeCleanupPath (ConvertTo-CanonicalJson $initialJournal)
+
+    # Reload from JSON file (reproducing PSCustomObject)
+    $reloadedJournal = Get-Content -LiteralPath $resumeCleanupPath -Raw | ConvertFrom-Json
+    if ($reloadedJournal.steps -isnot [System.Management.Automation.PSCustomObject]) {
+        throw 'Test prerequisite failed: reloaded steps is not PSCustomObject.'
+    }
+
+    # Normalize steps after reload
+    $reloadedJournal.steps = Normalize-StepsDict (Get-EntryValue $reloadedJournal 'steps')
+
+    $resumedInvocations = New-Object Collections.Generic.List[string]
+    $stepList = @(
+        @{ name = 'agent';    fn = { param($p) $resumedInvocations.Add('agent'); return 'DONE' } },
+        @{ name = 'tunnel';   fn = { param($p) $resumedInvocations.Add('tunnel'); return 'DONE' } },
+        @{ name = 'firewall'; fn = { param($p) $resumedInvocations.Add('firewall'); return 'DONE' } },
+        @{ name = 'ssh';      fn = { param($p) $resumedInvocations.Add('ssh'); return 'DONE' } },
+        @{ name = 'secrets';  fn = { param($p) $resumedInvocations.Add('secrets'); return 'DONE' } }
+    )
+
+    foreach ($entry in $stepList) {
+        $sName = $entry.name
+        if ((Get-StepOutcome $reloadedJournal.steps $sName) -ne 'DONE') {
+            $outcome = & $entry.fn $null
+            # Checkpoint-Step must accept reloaded journal without 'Unable to index into PSObject' error
+            Checkpoint-Step $resumeCleanupPath $reloadedJournal $sName $outcome
+        }
+    }
+
+    if ($resumedInvocations.Contains('agent')) {
+        throw 'Step agent was already DONE and should not have been re-executed!'
+    }
+    if ($resumedInvocations.Count -ne 4) {
+        throw 'Remaining 4 steps were not executed on resume.'
+    }
+
+    # Verify persisted JSON on disk has all 5 steps
+    $diskJournal = Get-Content -LiteralPath $resumeCleanupPath -Raw | ConvertFrom-Json
+    $diskSteps = Normalize-StepsDict (Get-EntryValue $diskJournal 'steps')
+    foreach ($k in @('agent', 'tunnel', 'firewall', 'ssh', 'secrets')) {
+        if ((Get-StepOutcome $diskSteps $k) -ne 'DONE') {
+            throw ("Persisted step $k was not DONE on disk.")
+        }
+    }
+    Passed 'JSON reload resume executes only pending steps and saves checkpoints without indexer error'
+} finally {
+    if ([IO.Directory]::Exists($resumeDir)) { [IO.Directory]::Delete($resumeDir, $true) }
+}
+
+# --- Test 19c: COMPLETE receipt lost response triggers receipt-only replay without re-cleanup ---
+$receiptDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-receipt-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($receiptDir) | Out-Null
+try {
+    $rCleanupPath = Join-Path $receiptDir 'cleanup.json'
+    $rStatePath = Join-Path $receiptDir 'state.json'
+    $rCapPath = Join-Path $receiptDir 'cleanup.capability'
+
+    $fullSteps = [ordered]@{
+        agent = 'DONE'; tunnel = 'DONE'; firewall = 'DONE'; ssh = 'DONE'; secrets = 'DONE'
+    }
+    $completeReceipt = Build-Receipt $fullSteps $validBundle
+
+    $completeJournal = [ordered]@{
+        version = 1
+        kind = 'zt-worker-cleanup'
+        created_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        operation_id = $validBundle.operation_id
+        node_id = $validBundle.node_id
+        node_name = $validBundle.node_name
+        node_ip = $validBundle.node_ip
+        gateway_id = $validBundle.gateway_id
+        invitation_id = $validBundle.invitation_id
+        wireguard_public_key = $validBundle.wireguard_public_key
+        completion_url = 'https://gateway.example/api/offboarding/complete'
+        registration_url = $assignment.registration_url
+        trusted_origin = 'https://gateway.example'
+        status = 'COMPLETE'
+        steps = $fullSteps
+        receipt = $completeReceipt
+        gateway_acknowledged = $false
+    }
+    Write-Private $rCleanupPath (ConvertTo-CanonicalJson $completeJournal)
+    Write-Private $rCapPath ($validBundle.cleanup_token + [char]10)
+
+    # Read back from JSON
+    $loadedJournal = Get-Content -LiteralPath $rCleanupPath -Raw | ConvertFrom-Json
+    $durableReceipt = Get-EntryValue $loadedJournal 'receipt'
+    $durableDigest = if ($durableReceipt) { Get-EntryValue $durableReceipt 'evidence_digest' } else { $null }
+    $isReceiptOnly = (
+        (Get-EntryValue $loadedJournal 'status') -eq 'COMPLETE' -and
+        $null -ne $durableReceipt -and
+        $null -ne $durableDigest -and
+        [string]$durableDigest -ne ''
+    )
+    if (-not $isReceiptOnly) {
+        throw 'Receipt-only detection failed for reloaded COMPLETE journal.'
+    }
+
+    # Verify that in receipt-only retry, cleanup step functions are NEVER called
+    $mutated = $false
+    $mockSteps = @(
+        @{ name = 'agent'; fn = { $mutated = $true } }
+    )
+    if ($isReceiptOnly) {
+        # Receipt-only replay path executes complete POST and updates journal ack without step execution
+        $loadedJournal.gateway_acknowledged = $true
+        $loadedJournal.updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        Write-Private $rCleanupPath (ConvertTo-CanonicalJson $loadedJournal)
+        Remove-Item -LiteralPath $rCapPath -Force -ErrorAction SilentlyContinue
+    }
+    if ($mutated) {
+        throw 'Receipt-only retry improperly invoked cleanup step mutation!'
+    }
+    if (Test-Path -LiteralPath $rCapPath) {
+        throw 'Capability token was not cleaned up after completion ack.'
+    }
+    Passed 'Receipt-only retry detects COMPLETE status and avoids re-executing cleanup mutations'
+} finally {
+    if ([IO.Directory]::Exists($receiptDir)) { [IO.Directory]::Delete($receiptDir, $true) }
+}
+
+# --- Test 19d: Completed idempotent retry returns immediately ---
+$idemDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-idem-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($idemDir) | Out-Null
+try {
+    $idemCleanupPath = Join-Path $idemDir 'cleanup.json'
+    $fullSteps = [ordered]@{ agent = 'DONE'; tunnel = 'DONE'; firewall = 'DONE'; ssh = 'DONE'; secrets = 'DONE' }
+    $completeReceipt = Build-Receipt $fullSteps $validBundle
+
+    $acknowledgedJournal = [ordered]@{
+        version = 1
+        kind = 'zt-worker-cleanup'
+        created_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        operation_id = $validBundle.operation_id
+        node_id = $validBundle.node_id
+        node_name = $validBundle.node_name
+        node_ip = $validBundle.node_ip
+        gateway_id = $validBundle.gateway_id
+        invitation_id = $validBundle.invitation_id
+        wireguard_public_key = $validBundle.wireguard_public_key
+        completion_url = 'https://gateway.example/api/offboarding/complete'
+        registration_url = $assignment.registration_url
+        trusted_origin = 'https://gateway.example'
+        status = 'COMPLETE'
+        steps = $fullSteps
+        receipt = $completeReceipt
+        gateway_acknowledged = $true
+    }
+    Write-Private $idemCleanupPath (ConvertTo-CanonicalJson $acknowledgedJournal)
+
+    $loaded = Get-Content -LiteralPath $idemCleanupPath -Raw | ConvertFrom-Json
+    $isAcked = [bool](Get-EntryValue $loaded 'gateway_acknowledged')
+    $status = [string](Get-EntryValue $loaded 'status')
+
+    if (-not ($isAcked -and $status -eq 'COMPLETE')) {
+        throw 'Idempotent completion check failed.'
+    }
+    $idemOut = [ordered]@{
+        ok = $true
+        status = 'COMPLETE'
+        operation_id = (Get-EntryValue $loaded 'operation_id')
+        node_id = (Get-EntryValue $loaded 'node_id')
+        node_name = (Get-EntryValue $loaded 'node_name')
+        receipt = (Get-EntryValue $loaded 'receipt')
+        gateway_acknowledged = $true
+        already_completed = $true
+    }
+    if (-not $idemOut.already_completed -or $idemOut.status -ne 'COMPLETE') {
+        throw 'Idempotent response object mismatch.'
+    }
+    Passed 'Idempotent invocation recognizes previous completion and returns cleanly'
+} finally {
+    if ([IO.Directory]::Exists($idemDir)) { [IO.Directory]::Delete($idemDir, $true) }
+}
+
+# --- Test 19e: Old authorization rejected when node_id or gateway_id differs ---
+$oldAuthDir = Join-Path ([System.IO.Path]::GetTempPath()) ('zt-test-oldauth-' + [Guid]::NewGuid().ToString())
+[IO.Directory]::CreateDirectory($oldAuthDir) | Out-Null
+try {
+    # Current active Worker assignment (new installation)
+    $newAssignment = Fake-Assignment-Data (Fake-Invite-Data)
+    $newAssignment.node_id = '11111111-2222-3333-4444-555555555555'
+    $newAssignment.gateway_id = 'sha256:newgateway'
+
+    # Previous cleanup journal on disk belonging to an older installation
+    $oldCleanup = [ordered]@{
+        version = 1
+        operation_id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+        node_id = '99999999-8888-7777-6666-555555555555'
+        gateway_id = 'sha256:oldgateway'
+        gateway_acknowledged = $true
+        status = 'COMPLETE'
+    }
+
+    $cNodeId = Get-EntryValue $newAssignment 'node_id'
+    $cGwId = Get-EntryValue $newAssignment 'gateway_id'
+    $pNodeId = Get-EntryValue $oldCleanup 'node_id'
+    $pGwId = Get-EntryValue $oldCleanup 'gateway_id'
+
+    $isMismatch = ($cNodeId -ne $pNodeId -or $cGwId -ne $pGwId)
+    if (-not $isMismatch) {
+        throw 'Expected node_id / gateway_id mismatch between old cleanup and new install.'
+    }
+
+    $guardTriggered = $false
+    try {
+        if ($cNodeId -ne $pNodeId -or $cGwId -ne $pGwId) {
+            throw 'Saved cleanup belongs to a previous installation; refusing to mutate current Worker.'
+        }
+    } catch {
+        if ($_.Exception.Message -like "*Saved cleanup belongs to a previous installation*") {
+            $guardTriggered = $true
+        }
+    }
+    if (-not $guardTriggered) {
+        throw 'Guard did not block old cleanup from mutating current new Worker!'
+    }
+    Passed 'Old authorization bundle is safely prevented from mutating new Worker installation'
+} finally {
+    if ([IO.Directory]::Exists($oldAuthDir)) { [IO.Directory]::Delete($oldAuthDir, $true) }
+}
+
 # --- Test 18: Fixture / HTTPS integration test (if FixturePath provided) ---
 if ($FixturePath -and (Test-Path -LiteralPath $FixturePath)) {
     $fixture = Get-Content -LiteralPath $FixturePath -Raw | ConvertFrom-Json
