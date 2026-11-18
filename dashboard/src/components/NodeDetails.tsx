@@ -13,6 +13,7 @@ import {
   Radio,
   Terminal,
   ClipboardList,
+  Trash2,
 } from "lucide-react";
 import { MetricSnapshot, NodeItem, UserSession } from "../types/index.js";
 import {
@@ -31,6 +32,7 @@ interface NodeDetailsProps {
   currentUser?: UserSession | null;
   onOpenTerminal: (node: NodeItem) => void;
   onNavigateAudit?: (node: NodeItem) => void;
+  onOpenOffboard?: (node: NodeItem) => void;
   now: number;
   sourceStale: boolean;
   metricsHistory: MetricSnapshot[];
@@ -43,38 +45,59 @@ export const NodeDetails: React.FC<NodeDetailsProps> = ({
   currentUser,
   onOpenTerminal,
   onNavigateAudit,
+  onOpenOffboard,
   now,
   sourceStale,
   metricsHistory,
   historyError,
   historyLoading,
 }) => {
+  const isOffboardingOrRemoved =
+    (node.lifecycle_state && node.lifecycle_state !== "ACTIVE") ||
+    node.is_token_revoked === true;
+  const isRemoved = node.lifecycle_state === "REMOVED";
+  const isEnrolled = node.is_enrolled !== false;
+
   const metric = node.latest_metric;
   const sampleTimeKnown = Boolean(
     metric && Number.isFinite(Date.parse(metric.recorded_at)),
   );
   const sampleState = !metric
     ? "empty"
-    : sourceStale || node.status !== "HEALTHY"
+    : sourceStale || node.status !== "HEALTHY" || isOffboardingOrRemoved
       ? "stale"
       : sampleTimeKnown
         ? "current"
         : "unknown";
-  const sampleMessage = !metric
-    ? "Chưa có số liệu."
-    : sourceStale
-      ? "Dữ liệu chưa cập nhật từ Gateway."
-      : node.status !== "HEALTHY"
-        ? "Số liệu gần nhất; chưa nhận heartbeat mới."
-        : !sampleTimeKnown
-          ? "Không rõ thời điểm mẫu đo."
-          : "";
+  const sampleMessage = isRemoved
+    ? "Máy chủ đã gỡ khỏi cụm; số liệu lưu trữ."
+    : !metric
+      ? "Chưa có số liệu."
+      : sourceStale
+        ? "Dữ liệu chưa cập nhật từ Gateway."
+        : node.status !== "HEALTHY"
+          ? "Số liệu gần nhất; chưa nhận heartbeat mới."
+          : !sampleTimeKnown
+            ? "Không rõ thời điểm mẫu đo."
+            : "";
   const SourceIcon = sampleState === "stale" ? AlertTriangle : Radio;
   const metricScope = node.node_type === "DOCKER"
     ? "Host Docker"
     : node.node_type === "VM"
       ? "Hệ điều hành máy ảo"
       : "Hệ điều hành Worker";
+
+  const sshDisabled = node.status === "OFFLINE" || sourceStale || isOffboardingOrRemoved;
+  const sshTitle = isRemoved
+    ? "Máy chủ đã gỡ bỏ"
+    : isOffboardingOrRemoved
+      ? "Máy chủ đang trong quá trình gỡ bỏ (truy cập SSH đã bị thu hồi)"
+      : node.status === "OFFLINE"
+        ? "Máy chủ đang Offline"
+        : sourceStale
+          ? "Chưa đồng bộ được với Gateway"
+          : `Mở Web SSH ${node.name}`;
+
   return (
     <section
       id="worker-details"
@@ -82,13 +105,13 @@ export const NodeDetails: React.FC<NodeDetailsProps> = ({
       tabIndex={-1}
       className="detail-panel panel"
       aria-label={`Tài nguyên ${node.name}`}
-      data-stale={sourceStale || node.status !== "HEALTHY"}
+      data-stale={sourceStale || node.status !== "HEALTHY" || isOffboardingOrRemoved}
     >
       <header className="detail-heading">
         <div>
           <div className="detail-title">
             <h2>{node.name}</h2>
-            <StatusBadge status={node.status} />
+            <StatusBadge status={node.status} lifecycleState={node.lifecycle_state} />
           </div>
           <span className="detail-address">
             <Radio size={14} aria-hidden="true" />
@@ -97,31 +120,69 @@ export const NodeDetails: React.FC<NodeDetailsProps> = ({
             {nodeTypeLabel(node.node_type)}
           </span>
         </div>
-        {currentUser?.role === "ADMIN" ? (
-          <div className="node-context-actions">
-          {onNavigateAudit && <button type="button" className="button secondary node-audit-link"
-            onClick={() => onNavigateAudit(node)} aria-label={`Xem nhật ký ${node.name}`}>
-            <ClipboardList size={16} aria-hidden="true" />Nhật ký
-          </button>}
-          <button
-            type="button"
-            className="button primary"
-            onClick={() => onOpenTerminal(node)}
-            disabled={node.status === "OFFLINE" || sourceStale}
-            title={node.status === "OFFLINE" ? "Máy chủ đang Offline"
-              : sourceStale ? "Chưa đồng bộ được với Gateway" : `Mở Web SSH ${node.name}`}
-          >
-            <Terminal size={16} aria-hidden="true" />
-            Mở Web SSH
-            <ArrowUpRight size={14} aria-hidden="true" />
-          </button>
-          </div>
-        ) : (
-          <span className="read-only-label">
-            <LockKeyhole size={15} aria-hidden="true" />
-            Chỉ xem
-          </span>
-        )}
+        <div className="node-context-actions">
+          {onNavigateAudit && (
+            <button
+              type="button"
+              className="button secondary node-audit-link"
+              onClick={() => onNavigateAudit(node)}
+              aria-label={`Xem nhật ký ${node.name}`}
+            >
+              <ClipboardList size={16} aria-hidden="true" />Nhật ký
+            </button>
+          )}
+
+          {isOffboardingOrRemoved ? (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => onOpenOffboard?.(node)}
+              aria-label={`Xem tiến trình gỡ ${node.name}`}
+            >
+              <Clock3 size={16} aria-hidden="true" />
+              Tiến trình gỡ
+            </button>
+          ) : currentUser?.role === "ADMIN" ? (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => onOpenOffboard?.(node)}
+              disabled={!isEnrolled}
+              title={
+                !isEnrolled
+                  ? "Máy chủ legacy chưa đăng ký tự động qua Gateway, không thể gỡ tự động"
+                  : `Gỡ Worker ${node.name}`
+              }
+              aria-label={
+                !isEnrolled
+                  ? "Gỡ Worker không khả dụng cho máy chủ legacy"
+                  : `Gỡ Worker ${node.name}`
+              }
+            >
+              <Trash2 size={16} aria-hidden="true" />
+              Gỡ Worker
+            </button>
+          ) : null}
+
+          {currentUser?.role === "ADMIN" ? (
+            <button
+              type="button"
+              className="button primary"
+              onClick={() => onOpenTerminal(node)}
+              disabled={sshDisabled}
+              title={sshTitle}
+            >
+              <Terminal size={16} aria-hidden="true" />
+              Mở Web SSH
+              <ArrowUpRight size={14} aria-hidden="true" />
+            </button>
+          ) : (
+            <span className="read-only-label">
+              <LockKeyhole size={15} aria-hidden="true" />
+              Chỉ xem
+            </span>
+          )}
+        </div>
       </header>
       <div id="worker-metric-scope" className="worker-metric-scope">
         <span>CPU / RAM / uptime</span>

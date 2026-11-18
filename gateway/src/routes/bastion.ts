@@ -34,6 +34,31 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const { node_id } = parseResult.data;
       const user = req.user as AuthUserPayload;
 
+      // Kiểm tra node hợp lệ: ACTIVE và token chưa bị thu hồi
+      const isUuidTarget = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(node_id);
+      const targetNodeRes = await query(
+        isUuidTarget
+          ? `SELECT id, name, lifecycle_state, is_token_revoked FROM nodes
+             WHERE id::text = $1 LIMIT 1;`
+          : `SELECT id, name, lifecycle_state, is_token_revoked FROM nodes
+             WHERE name = $1 AND lifecycle_state = 'ACTIVE' AND is_token_revoked = FALSE LIMIT 1;`,
+        [node_id]
+      );
+      if (
+        targetNodeRes.rows.length === 0 ||
+        targetNodeRes.rows[0].lifecycle_state !== 'ACTIVE' ||
+        targetNodeRes.rows[0].is_token_revoked
+      ) {
+        return reply.status(403).send({
+          type: 'https://tools.ietf.org/html/rfc7807',
+          title: 'Máy chủ không khả dụng cho SSH',
+          status: 403,
+          code: 'NODE_UNAVAILABLE_OR_RETIRED',
+          detail: 'Máy chủ con không tồn tại, đã bị thu hồi hoặc đang trong quy trình offboarding',
+        });
+      }
+      const canonicalNodeId = targetNodeRes.rows[0].id;
+
       // Giới hạn thời hạn ticket theo thời hạn JWT còn lại (tối đa 30s)
       const now = Date.now();
       const authExpiresAt = user.authExpiresAt || (user.exp ? user.exp * 1000 : now + 30000);
@@ -50,7 +75,7 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       }
 
       const ttlSeconds = Math.min(30, remainingSeconds);
-      const ticket = createBastionTicket(node_id, user.id, user.session_version, ttlSeconds, authExpiresAt, user.jti);
+      const ticket = createBastionTicket(canonicalNodeId, user.id, user.session_version, ttlSeconds, authExpiresAt, user.jti);
 
       // Ghi nhận sự kiện cấp vé Bastion vào audit_logs - BẮT BUỘC THÀNH CÔNG (FAIL-CLOSED)
       const clientIp = normalizeClientIp(req.ip);
@@ -58,7 +83,7 @@ export const bastionRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         await query(
           `INSERT INTO audit_logs (user_id, action, target, details, ip_address)
            VALUES ($1, 'BASTION_TICKET_ISSUED', 'bastion', $2, $3::inet);`,
-          [user.id, JSON.stringify({ node_id }), clientIp]
+          [user.id, JSON.stringify({ node_id: canonicalNodeId }), clientIp]
         );
       } catch (auditErr: any) {
         req.log.error({ auditErr }, 'Lỗi ghi audit log khi cấp vé Bastion - Fail-Closed kích hoạt');

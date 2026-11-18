@@ -106,6 +106,58 @@ File invite cần ACL chỉ cho tài khoản cài/SYSTEM/Administrators. Có tù
 MSI cục bộ kèm SHA256 qua `-WireGuardInstallerPath/-WireGuardInstallerSHA256`.
 Không tự tải/chạy executable chưa kiểm. CA nội bộ dùng `-CaFile`.
 
+## Thu hồi và gỡ Worker (Offboarding)
+
+Quy trình thu hồi gồm hai giai đoạn: xác nhận trên Gateway và gỡ bỏ cục bộ trên máy Worker.
+
+### 1. Thu hồi quyền trên Gateway / Dashboard
+
+Quản trị viên (Admin) nhập chính xác tên node (`confirm_node_name`) trên giao diện hoặc API để bắt đầu. Hệ thống chuyển trạng thái sang `RETIRING` rồi `REVOKED`, hủy vé SSH và tạo yêu cầu gỡ peer WireGuard:
+- Tài khoản Viewer chỉ có quyền xem tiến độ và lịch sử, không thể bắt đầu thu hồi.
+- Tải tệp ủy quyền riêng tư (capability bundle JSON `offboarding-NODE_NAME.json`).
+- Worker không cần mật khẩu Dashboard hay Agent token.
+- **Bảo mật capability bundle:** Tệp chứa bí mật (cleanup token dùng một lần); tuyệt đối **không đưa vào Git hoặc đính kèm log**. Tải lại tệp sẽ tự động xoay vòng (rotate) và vô hiệu hóa token cũ. Chuyển tệp an toàn tới Worker và xóa bỏ sau khi hoàn tất.
+- Quyền tệp ủy quyền: đặt `0600` (root) trên Linux hoặc ACL `SYSTEM / Administrators` trên Windows.
+
+### 2. Gỡ bỏ cục bộ trên máy Worker
+
+Thực hiện tại console máy chủ vật lý hoặc console máy ảo (root trên Linux, Administrator trên Windows); **không chạy qua phiên SSH mạng bị gỡ**:
+
+Linux:
+```sh
+# Gỡ bỏ dịch vụ và cấu hình
+sudo python3 deploy/automation/worker.py uninstall \
+  --authorization /root/offboarding-node-linux-01.json \
+  --ca-file /path/ca.crt
+
+# Thử lại nếu gặp lỗi gián đoạn hoặc cần dọn tiếp
+sudo python3 deploy/automation/worker.py cleanup-retry \
+  --authorization /root/offboarding-node-linux-01.json \
+  --ca-file /path/ca.crt
+```
+
+Windows (PowerShell console Administrator):
+```powershell
+# Gỡ bỏ dịch vụ và cấu hình
+.\deploy\automation\worker.ps1 -Action uninstall `
+  -AuthorizationPath C:\staging\offboarding-node-windows-01.json `
+  -CaFile C:\staging\ca.crt
+
+# Thử lại nếu gặp lỗi gián đoạn hoặc cần dọn tiếp
+.\deploy\automation\worker.ps1 -Action cleanup-retry `
+  -AuthorizationPath C:\staging\offboarding-node-windows-01.json `
+  -CaFile C:\staging\ca.crt
+```
+
+### 3. Nguyên tắc vận hành và an toàn dữ liệu
+
+- **Trạng thái Worker offline:** Máy Worker tắt nguồn hoặc ngắt mạng vẫn duy trì trạng thái thu hồi trên Gateway (`PENDING_LOCAL_CLEANUP`) chờ dọn dẹp cục bộ khi bật lại.
+- **Giải phóng IP và tên máy:** Tên và IP chỉ được giải phóng cấp phát sau khi tiến trình WireGuard root ghi nhận ACK gỡ bỏ peer (`keys/enrollment/requests/UUID.remove`).
+- **Lưu trữ lịch sử:** Lịch sử node và audit log được giữ nguyên vĩnh viễn trong CSDL; token và khóa WireGuard cũ không bao giờ được tái sử dụng.
+- **Cài đặt lại:** Cần cấp tệp mời mới (`invite`), không tái sử dụng danh tính cũ.
+- **Bảo vệ tài nguyên host:** Bộ gỡ bảo toàn khóa SSH của OS, tài khoản người dùng, dữ liệu và ứng dụng chia sẻ khác; không thực hiện xóa diện rộng (`no broad delete`). Bản cài cũ không có journal automation sẽ từ chối tự gỡ và yêu cầu rà soát thủ công (`manual review`), không force-ack. Nếu tệp do bộ cài quản lý bị chỉnh sửa ngoài dự kiến, bước tương ứng chuyển sang `NEEDS_REVIEW`.
+- **Ranh giới bằng chứng:** Trạng thái `COMPLETED` / `REMOVED` chỉ thể hiện biên bản báo cáo (receipt claim) do Worker gửi về; máy chủ Gateway không thể tự kiểm chứng độc lập hệ thống tệp cục bộ trên Worker. Bằng chứng kiểm thử máy ảo (native VM) được xác minh và lưu trữ độc lập.
+
 ## Lưu ý vận hành
 
 Enrollment mặc định tắt; overlay `compose.enrollment.yml` chỉ bật cho bản cài

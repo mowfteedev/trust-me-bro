@@ -37,16 +37,22 @@ async function setupDemo() {
       }
     }
     const tokenHash = hashToken(input.node_token);
-    const existingNode = await client.query('SELECT token_hash, is_token_revoked, ip_address, host_key_fingerprint, node_type FROM nodes WHERE name = $1;', [input.node_name]);
-    if (existingNode.rows.length) {
+    const existingNode = await client.query(
+      `SELECT token_hash, is_token_revoked, ip_address, host_key_fingerprint, node_type, lifecycle_state
+         FROM nodes
+        WHERE name = $1
+        ORDER BY (lifecycle_state = 'ACTIVE') DESC, created_at DESC LIMIT 1;`,
+      [input.node_name],
+    );
+    if (existingNode.rows.length && ['ACTIVE', 'RETIRING'].includes(existingNode.rows[0].lifecycle_state)) {
       const node = existingNode.rows[0];
-      if (node.token_hash !== tokenHash || node.is_token_revoked || node.ip_address !== input.node_ip || node.host_key_fingerprint !== input.host_key_fingerprint || node.node_type !== input.node_type) {
+      if (node.token_hash !== tokenHash || node.is_token_revoked || node.ip_address !== input.node_ip || node.host_key_fingerprint !== input.host_key_fingerprint || node.node_type !== input.node_type || node.lifecycle_state !== 'ACTIVE') {
         throw new Error('Node đã tồn tại với token/IP/host key khác; giữ nguyên, không ghi đè.');
       }
     } else {
       await client.query(
-        `INSERT INTO nodes (name, ip_address, node_type, token_hash, token_prefix, host_key_fingerprint)
-         VALUES ($1, $2::inet, $3, $4, $5, $6);`,
+        `INSERT INTO nodes (name, ip_address, node_type, token_hash, token_prefix, host_key_fingerprint, lifecycle_state)
+         VALUES ($1, $2::inet, $3, $4, $5, $6, 'ACTIVE');`,
         [input.node_name, input.node_ip, input.node_type, tokenHash, input.node_token.slice(0, 8), input.host_key_fingerprint],
       );
     }

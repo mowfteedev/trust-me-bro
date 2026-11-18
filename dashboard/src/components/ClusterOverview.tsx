@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { AlertCircle, AlertTriangle, RefreshCw, Search } from "lucide-react";
-import { NodeItem, UserSession } from "../types/index.js";
+import { NodeItem, NodeLifecycleFilter, UserSession } from "../types/index.js";
 import { useClusterData } from "../hooks/useClusterData.js";
 import { useNodeHistory } from "../hooks/useNodeHistory.js";
 import { formatDateTime, formatTime } from "../utils/format.js";
@@ -8,6 +8,7 @@ import { FleetSort, filterAndSortNodes } from "../utils/fleet.js";
 import { ClusterSummary, getClusterCounts } from "./ClusterSummary.js";
 import { ServerTable } from "./ServerTable.js";
 import { NodeDetails } from "./NodeDetails.js";
+import { OffboardingModal } from "./OffboardingModal.js";
 
 interface ClusterOverviewProps {
   currentUser?: UserSession | null;
@@ -19,7 +20,9 @@ interface ClusterOverviewProps {
 }
 
 export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, onOpenTerminal, focusSection = "fleet", onNavigateFleet, initialNode, onNavigateAudit }) => {
-  const { nodes, selectedNode: preferredNode, setSelectedNode, isLoading, isRefreshing, errorMessage, lastUpdated, now, fetchClusterData } = useClusterData();
+  const [lifecycleFilter, setLifecycleFilter] = useState<NodeLifecycleFilter>("active");
+  const [offboardTarget, setOffboardTarget] = useState<NodeItem | null>(null);
+  const { nodes, activeNodes, selectedNode: preferredNode, setSelectedNode, isLoading, isRefreshing, errorMessage, lastUpdated, now, fetchClusterData } = useClusterData(lifecycleFilter);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [sort, setSort] = useState<FleetSort>("name");
@@ -34,7 +37,7 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
     : missingRequestedNode ? null
       : selectableNodes.find(node => node.id === preferredNode?.id) ?? selectableNodes[0] ?? null;
   const { metricsHistory, historyError, historyLoading } = useNodeHistory(selectedNode?.id);
-  const counts = getClusterCounts(nodes);
+  const counts = getClusterCounts(activeNodes.length > 0 ? activeNodes : nodes);
 
   useEffect(() => {
     if (!initialNode || contextHandled || isLoading || errorMessage) return;
@@ -70,7 +73,11 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
       onNavigateFleet();
     }
   };
-  const resetFilters = () => { setSearchQuery(""); setStatusFilter("ALL"); };
+  const resetFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("ALL");
+    setLifecycleFilter("active");
+  };
   const pageHeading = (
     <div className="page-heading">
       <h1>{isFleet ? "Máy chủ" : "Tổng quan"}</h1>
@@ -91,17 +98,45 @@ export const ClusterOverview: React.FC<ClusterOverviewProps> = ({ currentUser, o
       <span className="sync-state"><i />{errorMessage ? "Dữ liệu cũ ·" : "Cập nhật"} <time dateTime={lastUpdated ?? undefined} title={formatDateTime(lastUpdated)}>{formatTime(lastUpdated)}</time></span>
     </div>
     <ClusterSummary counts={counts} statusFilter={isFleet ? statusFilter : ""} onFilterChange={status => {setStatusFilter(status); setSearchQuery(""); onNavigateFleet();}} />
-    {!nodes.length ? <section className="state-panel"><h2>Chưa có máy chủ</h2><p>Đăng ký máy chủ tại Gateway để bắt đầu.</p></section> : isFleet ? <>
+    {isFleet ? <>
       <section id="server-fleet" className="panel workspace-fleet" aria-labelledby="fleet-title">
         <div className="workspace-panel-heading"><h2 id="fleet-title">Danh sách máy chủ <span className="count-badge">{filteredNodes.length} / {nodes.length}</span></h2></div>
         <div className="workspace-fleet-toolbar">
           <label className="fleet-search"><Search size={17} /><input aria-label="Tìm máy chủ" placeholder="Tìm theo tên hoặc IP…" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} /></label>
+          <label className="workspace-select"><span>Hạm đội</span><select aria-label="Lọc hạm đội máy chủ" value={lifecycleFilter} onChange={event => setLifecycleFilter(event.target.value as NodeLifecycleFilter)}><option value="active">Đang theo dõi</option><option value="removing">Đang gỡ</option><option value="removed">Đã gỡ</option></select></label>
           <label className="workspace-select"><span>Trạng thái</span><select aria-label="Lọc trạng thái" value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option value="ALL">Tất cả trạng thái</option><option value="HEALTHY">Online</option><option value="WARNING">Stale · Trễ heartbeat</option><option value="OFFLINE">Offline</option></select></label>
           <label className="workspace-select"><span>Sắp xếp</span><select aria-label="Sắp xếp máy chủ" value={sort} onChange={event => setSort(event.target.value as FleetSort)}><option value="name">Tên máy A–Z</option><option value="status">Cần chú ý trước</option><option value="cpu">CPU cao trước</option><option value="ram">RAM cao trước</option></select></label>
         </div>
         {filteredNodes.length ? <ServerTable nodes={filteredNodes} selectedNodeId={selectedNode?.id ?? null} currentUser={currentUser} now={now} sourceStale={!!errorMessage} onSelectNode={openNode} onOpenTerminal={onOpenTerminal} /> : <div className="search-empty"><Search size={25} /><strong>Không tìm thấy máy chủ</strong><span>Thử tên, địa chỉ IP hoặc trạng thái khác.</span><button onClick={resetFilters}>Xóa bộ lọc</button></div>}
       </section>
-      {selectedNode && <NodeDetails node={selectedNode} currentUser={currentUser} onOpenTerminal={onOpenTerminal} onNavigateAudit={onNavigateAudit} now={now} sourceStale={!!errorMessage} metricsHistory={metricsHistory} historyError={historyError} historyLoading={historyLoading} />}
-    </> : null}
+      {selectedNode && (
+        <NodeDetails
+          node={selectedNode}
+          currentUser={currentUser}
+          onOpenTerminal={onOpenTerminal}
+          onNavigateAudit={onNavigateAudit}
+          onOpenOffboard={setOffboardTarget}
+          now={now}
+          sourceStale={!!errorMessage}
+          metricsHistory={metricsHistory}
+          historyError={historyError}
+          historyLoading={historyLoading}
+        />
+      )}
+      {offboardTarget && (
+        <OffboardingModal
+          key={offboardTarget.id}
+          node={offboardTarget}
+          currentUser={currentUser}
+          isOpen={true}
+          onClose={() => setOffboardTarget(null)}
+          onStatusChange={(op) => {
+            if (op.state === "COMPLETED") {
+              void fetchClusterData(true);
+            }
+          }}
+        />
+      )}
+    </> : !nodes.length ? <section className="state-panel"><h2>Chưa có máy chủ</h2><p>Đăng ký máy chủ tại Gateway để bắt đầu.</p></section> : null}
   </div>;
 };

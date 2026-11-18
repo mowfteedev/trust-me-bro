@@ -30,8 +30,17 @@ export const NodeCard: React.FC<NodeCardProps> = ({
     latestMetric && latestMetric.memory_total_bytes > 0
       ? (latestMetric.memory_used_bytes / latestMetric.memory_total_bytes) * 100
       : undefined;
+  const isNonActiveOrRevoked = (node.lifecycle_state && node.lifecycle_state !== "ACTIVE") || node.is_token_revoked === true;
+  const sshDisabled = node.status === "OFFLINE" || isNonActiveOrRevoked;
+  const sshTitle = node.lifecycle_state === "REMOVED"
+    ? "Máy chủ đã gỡ bỏ"
+    : isNonActiveOrRevoked
+      ? "Máy chủ đang gỡ bỏ (truy cập SSH đã thu hồi)"
+      : node.status === "OFFLINE"
+        ? "Máy chủ đang Offline"
+        : "Mở Web SSH";
   return (
-    <article className={`node-card ${isSelected ? "selected" : ""}`} data-stale={sourceStale || node.status !== "HEALTHY"}>
+    <article className={`node-card ${isSelected ? "selected" : ""}`} data-stale={sourceStale || node.status !== "HEALTHY" || isNonActiveOrRevoked}>
       <button
         className="node-select"
         onClick={() => onSelectNode(node)}
@@ -42,7 +51,7 @@ export const NodeCard: React.FC<NodeCardProps> = ({
           <span className="node-icon">
             <Server size={19} />
           </span>
-          <StatusBadge status={node.status} />
+          <StatusBadge status={node.status} lifecycleState={node.lifecycle_state} />
         </div>
         <div className="node-name">
           <strong>{node.name}</strong>
@@ -83,10 +92,8 @@ export const NodeCard: React.FC<NodeCardProps> = ({
           <button
             className="node-ssh"
             onClick={() => onOpenTerminal(node)}
-            disabled={node.status === "OFFLINE"}
-            title={
-              node.status === "OFFLINE" ? "Máy chủ đang Offline" : "Mở Web SSH"
-            }
+            disabled={sshDisabled}
+            title={sshTitle}
           >
             <Terminal size={14} />
             Web SSH

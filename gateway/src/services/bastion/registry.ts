@@ -9,6 +9,7 @@ export interface ActiveSession {
   authSessionId?: string;
   nodeId: string;
   nodeName: string;
+  nodeResolved?: boolean;
   state: 'INIT' | 'PROBING' | 'CONNECTING' | 'READY' | 'CLOSING' | 'CLOSED';
   socket: WebSocket;
   sshClient: Client | null;
@@ -27,6 +28,11 @@ export const activeSessions = new Map<string, ActiveSession>();
 export const MAX_SESSIONS_PER_USER = 5;
 export const MAX_SESSIONS_PER_NODE = 10;
 export const MAX_GLOBAL_SESSIONS = 50;
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function isUuid(id: string): boolean {
+  return UUID_REGEX.test(id);
+}
 
 export const GATEWAY_INSTANCE_ID = process.env.GATEWAY_INSTANCE_ID || `gw_${process.pid}_${Date.now().toString(36)}`;
 
@@ -62,6 +68,21 @@ async function checkSessions(): Promise<void> {
     ) : { rows: [] };
     const revokedIds = new Set(revoked.rows.map((row: any) => row.jti));
 
+    const sessionsWithResolvedNode = Array.from(sessionSnapshot.values()).filter(
+      s => (s.nodeResolved || isUuid(s.nodeId)) && Boolean(s.nodeId)
+    );
+    const nodeIds = Array.from(new Set(
+      sessionsWithResolvedNode.map(s => s.nodeId).filter(isUuid)
+    ));
+    const nodeRes = nodeIds.length ? await query(
+      'SELECT id, lifecycle_state, is_token_revoked FROM nodes WHERE id = ANY($1::uuid[]);',
+      [nodeIds]
+    ) : { rows: [] };
+    const nodeMap = new Map<string, any>();
+    for (const row of nodeRes.rows) {
+      nodeMap.set(row.id, row);
+    }
+
     // A stopped/restarted owner must not apply a response from the previous run.
     if (generation !== maintenanceGeneration) return;
 
@@ -80,6 +101,16 @@ async function checkSessions(): Promise<void> {
       session.lastLeaseRenewNs = nowNs;
       aliveSessionIds.push(sessionId);
       const user = userMap.get(session.userId);
+
+      const isResolved = session.nodeResolved || isUuid(session.nodeId);
+      if (isResolved && isUuid(session.nodeId)) {
+        const node = nodeMap.get(session.nodeId);
+        if (!node || node.lifecycle_state !== 'ACTIVE' || node.is_token_revoked) {
+          console.warn(`🔒 [BASTION REVOCATION] Thu hồi phiên ${sessionId} của máy chủ ${session.nodeId} do vi phạm trạng thái node (${node?.lifecycle_state || 'MISSING'})`);
+          session.cleanupFn(4403, 'Node Revoked', 'Máy chủ con đã bị thu hồi hoặc đang trong quy trình offboarding');
+          continue;
+        }
+      }
 
       if (!user || !user.is_active || user.role !== 'ADMIN' || Number(user.session_version) !== Number(session.sessionVersion)
         || (session.authSessionId && revokedIds.has(session.authSessionId))) {
@@ -153,6 +184,18 @@ export function revokeAuthSessionSessions(authSessionId: string): void {
       session.cleanupFn(4403, 'Session Revoked', 'Phiên đăng nhập này đã đăng xuất');
     }
   }
+}
+
+export function terminateSessionsForNode(nodeId: string): number {
+  let count = 0;
+  for (const session of activeSessions.values()) {
+    if (session.nodeId === nodeId && session.state !== 'CLOSED') {
+      console.warn(`🔒 [BASTION REVOCATION] Thu hồi phiên ${session.sessionId} cho máy chủ ${nodeId} do offboarding`);
+      session.cleanupFn(4403, 'Node Retiring', 'Máy chủ con đang được thu hồi khỏi hệ thống');
+      count++;
+    }
+  }
+  return count;
 }
 
 export function shutdownAllBastionSessions(): void {

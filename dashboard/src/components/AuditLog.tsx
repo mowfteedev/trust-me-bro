@@ -86,8 +86,30 @@ const events = [
     icon: Trash2,
     tone: "warning",
   },
+  {
+    value: "WORKER_OFFBOARD_STARTED",
+    label: "Bắt đầu gỡ Worker",
+    icon: AlertTriangle,
+    tone: "warning",
+  },
+  {
+    value: "WORKER_PEER_REVOKED",
+    label: "Thu hồi truy cập Worker",
+    icon: Shield,
+    tone: "warning",
+  },
+  {
+    value: "WORKER_OFFBOARDED",
+    label: "Gỡ Worker hoàn tất",
+    icon: Check,
+    tone: "auth",
+  },
 ];
 const detailLabels: Record<string, string> = {
+  operation_id: 'ID quy trình gỡ',
+  wireguard_public_key: 'Khóa công khai WireGuard',
+  receipt_hash: 'Mã biên nhận băm',
+  reported_status: 'Trạng thái báo cáo',
   node_type: 'Loại máy',
   worker_os: 'Hệ điều hành',
   username: 'Tài khoản được cập nhật',

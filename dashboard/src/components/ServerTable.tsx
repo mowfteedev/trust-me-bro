@@ -55,12 +55,20 @@ export const ServerTable: React.FC<ServerTableProps> = ({
           {nodes.map((node) => {
             const selected = node.id === selectedNodeId;
             const metric = node.latest_metric;
-            const oldData = sourceStale || node.status !== "HEALTHY";
-            const sshDisabled = node.status === "OFFLINE" || sourceStale;
-            const sshHint = node.status === "OFFLINE" ? "Máy chủ đang Offline"
-              : sourceStale ? "Chưa đồng bộ được với Gateway" : `Mở Web SSH ${node.name}`;
+            const isNonActiveOrRevoked = (node.lifecycle_state && node.lifecycle_state !== "ACTIVE") || node.is_token_revoked === true;
+            const oldData = sourceStale || node.status !== "HEALTHY" || isNonActiveOrRevoked;
+            const sshDisabled = node.status === "OFFLINE" || sourceStale || isNonActiveOrRevoked;
+            const sshHint = node.lifecycle_state === "REMOVED"
+              ? "Máy chủ đã gỡ bỏ"
+              : isNonActiveOrRevoked
+                ? "Máy chủ đang gỡ bỏ (truy cập SSH đã thu hồi)"
+                : node.status === "OFFLINE"
+                  ? "Máy chủ đang Offline"
+                  : sourceStale
+                    ? "Chưa đồng bộ được với Gateway"
+                    : `Mở Web SSH ${node.name}`;
             return (
-              <tr key={node.id} data-selected={selected} data-stale={oldData}>
+              <tr key={node.id} data-selected={selected} data-stale={oldData} data-lifecycle={node.lifecycle_state}>
                 <th scope="row" className="fleet-table-name-cell">
                   <button
                     type="button"
@@ -78,13 +86,23 @@ export const ServerTable: React.FC<ServerTableProps> = ({
                 </th>
                 <td><span className="fleet-table-ip">{node.ip_address}</span></td>
                 <td><span className="fleet-table-type">{nodeTypeLabel(node.node_type)}</span></td>
-                <td><StatusBadge status={node.status} /></td>
+                <td><StatusBadge status={node.status} lifecycleState={node.lifecycle_state} /></td>
                 <td><ResourceValue value={getNodeCpuPercent(node)} kind="cpu" title={`Mẫu: ${formatDateTime(metric?.recorded_at)}`} /></td>
                 <td><ResourceValue value={getNodeRamPercent(node)} kind="ram" title={`${formatBytes(metric?.memory_used_bytes)} / ${formatBytes(metric?.memory_total_bytes)}`} /></td>
                 <td><ResourceValue value={getNodeDiskPercent(node)} kind="disk" title={`${formatBytes(metric?.disk_used_bytes)} / ${formatBytes(metric?.disk_total_bytes)}`} /></td>
                 <td className="fleet-table-heartbeat">
                   <span title={`Heartbeat: ${formatDateTime(node.last_seen)}`}>{formatAge(node.last_seen, now)}</span>
-                  {oldData && <span className="fleet-table-stale-label">{sourceStale ? "Chưa đồng bộ" : "Số liệu gần nhất"}</span>}
+                  {oldData && (
+                    <span className="fleet-table-stale-label">
+                      {node.lifecycle_state === "REMOVED"
+                        ? "Đã gỡ bỏ"
+                        : node.lifecycle_state === "RETIRING" || node.lifecycle_state === "REVOKED"
+                          ? "Đang gỡ"
+                          : sourceStale
+                            ? "Chưa đồng bộ"
+                            : "Số liệu gần nhất"}
+                    </span>
+                  )}
                 </td>
                 <td>
                   {currentUser?.role === "ADMIN" ? (

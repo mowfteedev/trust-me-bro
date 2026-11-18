@@ -49,7 +49,7 @@ export function createBastionTicket(
   return ticket;
 }
 
-export function verifyAndConsumeTicket(ticket: string, nodeId: string): { valid: boolean; ticketData?: BastionTicket } {
+export function verifyAndConsumeTicket(ticket: string, targetNodeId?: string): { valid: boolean; ticketData?: BastionTicket } {
   const ticketData = ticketStore.get(ticket);
   if (!ticketData) {
     return { valid: false };
@@ -62,9 +62,20 @@ export function verifyAndConsumeTicket(ticket: string, nodeId: string): { valid:
     return { valid: false };
   }
 
-  if (ticketData.nodeId !== nodeId) {
+  if (targetNodeId && ticketData.nodeId !== targetNodeId) {
     return { valid: false };
   }
 
   return { valid: true, ticketData };
+}
+
+export function invalidateTicketsForNode(nodeId: string): number {
+  let count = 0;
+  for (const [ticket, data] of ticketStore.entries()) {
+    if (data.nodeId === nodeId) {
+      ticketStore.delete(ticket);
+      count++;
+    }
+  }
+  return count;
 }

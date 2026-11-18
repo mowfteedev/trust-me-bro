@@ -44,6 +44,10 @@ beforeEach(async () => {
   vi.clearAllMocks();
   mock.sshClients.length = 0;
   vi.spyOn(process.hrtime, 'bigint').mockReturnValue(0n);
+  const originalRead = fs.readFileSync;
+  vi.spyOn(fs, 'readFileSync').mockImplementation(((file: any, options: any) =>
+    String(file) === '/isolated-lifecycle/key' ? Buffer.from('lifecycle-test-key')
+      : originalRead(file, options)) as typeof fs.readFileSync);
   mock.query.mockResolvedValue({ rows: [], rowCount: 1 });
   tickets = await import('../src/services/bastion/tickets.js');
   registry = await import('../src/services/bastion/registry.js');
@@ -95,7 +99,7 @@ it('keeps a pending checker exclusive across stop/restart and ignores its stale 
   let releaseCheck!: (value: unknown) => void;
   const auth = new Promise((resolve) => { releaseAuth = resolve; });
   const check = new Promise((resolve) => { releaseCheck = resolve; });
-  mock.query.mockImplementation((sql: string) => sql.includes('WHERE id = ANY') ? check
+  mock.query.mockImplementation((sql: string) => (sql.includes('FROM users') && sql.includes('WHERE id = ANY')) ? check
     : sql.includes('FROM users') ? auth : Promise.resolve({ rows: [], rowCount: 1 }));
   const socket = new TestSocket();
   const attaching = session.attachBastionSession(socket as unknown as WebSocket, 'worker-test',
@@ -105,13 +109,13 @@ it('keeps a pending checker exclusive across stop/restart and ignores its stale 
   registry.stopSessionMaintenance();
   registry.startSessionMaintenance();
   await vi.advanceTimersByTimeAsync(2000);
-  expect(mock.query.mock.calls.filter(([sql]) => sql.includes('WHERE id = ANY'))).toHaveLength(1);
+  expect(mock.query.mock.calls.filter(([sql]) => sql.includes('FROM users') && sql.includes('WHERE id = ANY'))).toHaveLength(1);
   releaseCheck({ rows: [], rowCount: 0 });
   await vi.advanceTimersByTimeAsync(0);
   expect(socket.close).not.toHaveBeenCalled();
   expect(mock.query.mock.calls.filter(([sql]) => sql.includes('SET lease_expires_at'))).toHaveLength(0);
   await vi.advanceTimersByTimeAsync(2000);
-  expect(mock.query.mock.calls.filter(([sql]) => sql.includes('WHERE id = ANY'))).toHaveLength(2);
+  expect(mock.query.mock.calls.filter(([sql]) => sql.includes('FROM users') && sql.includes('WHERE id = ANY'))).toHaveLength(2);
   expect(socket.close).toHaveBeenCalledWith(4403, 'Session Revoked');
   releaseAuth({ rows: [], rowCount: 0 });
   await attaching;
@@ -122,7 +126,7 @@ it('checks only the captured sessions when a new session arrives during a pendin
   let releaseCheck!: (value: unknown) => void;
   const auth = new Promise((resolve) => { releaseAuth = resolve; });
   const check = new Promise((resolve) => { releaseCheck = resolve; });
-  mock.query.mockImplementation((sql: string) => sql.includes('WHERE id = ANY') ? check
+  mock.query.mockImplementation((sql: string) => (sql.includes('FROM users') && sql.includes('WHERE id = ANY')) ? check
     : sql.includes('FROM users') ? auth : Promise.resolve({ rows: [], rowCount: 1 }));
   const first = new TestSocket();
   const firstAttaching = session.attachBastionSession(first as unknown as WebSocket, 'worker-test',
@@ -146,7 +150,7 @@ it('uses the monotonic watchdog even when wall time moves backwards and database
   let releaseCheck!: (value: unknown) => void;
   const auth = new Promise((resolve) => { releaseAuth = resolve; });
   const check = new Promise((resolve) => { releaseCheck = resolve; });
-  mock.query.mockImplementation((sql: string) => sql.includes('WHERE id = ANY') ? check
+  mock.query.mockImplementation((sql: string) => (sql.includes('FROM users') && sql.includes('WHERE id = ANY')) ? check
     : sql.includes('FROM users') ? auth : Promise.resolve({ rows: [], rowCount: 1 }));
   const socket = new TestSocket();
   const attaching = session.attachBastionSession(socket as unknown as WebSocket, 'worker-test',
@@ -171,10 +175,6 @@ const firstJti = '56c6be7c-35c7-4753-a1b3-2327fe7df764';
 const secondJti = 'a8205e21-431a-46b3-9741-bbe0481dfd23';
 function authFixture() {
   const revoked = new Set<string>();
-  const originalRead = fs.readFileSync;
-  vi.spyOn(fs, 'readFileSync').mockImplementation(((file: any, options: any) =>
-    String(file) === '/isolated-lifecycle/key' ? Buffer.from('lifecycle-test-key')
-      : originalRead(file, options)) as typeof fs.readFileSync);
   mock.query.mockImplementation(async (sql: string, params: any[] = []) => {
     if (sql.includes('INSERT INTO revoked_auth_sessions')) revoked.add(params[0]);
     if (sql.includes('FROM users')) return { rows: [{ ...account, session_revoked: revoked.has(params[1]) }], rowCount: 1 };
@@ -183,16 +183,17 @@ function authFixture() {
       return { rows: ids.filter(id => revoked.has(id)).map(jti => ({ jti })), rowCount: 1 };
     }
     if (sql.includes('FROM nodes')) return { rows: [{ id: 'node-fixture', name: 'worker-test',
-      ip_address: '10.100.0.2', host_key_fingerprint: 'trusted-fixture-pin' }], rowCount: 1 };
+      ip_address: '10.100.0.2', host_key_fingerprint: 'trusted-fixture-pin', lifecycle_state: 'ACTIVE', is_token_revoked: false }], rowCount: 1 };
     return { rows: [], rowCount: 1 };
   });
   return revoked;
 }
 async function readySession(authSessionId: string) {
   const socket = new TestSocket();
-  const ticket = tickets.createBastionTicket('worker-test', account.id, 1, 30, Date.now() + 60000, authSessionId);
+  const ticket = tickets.createBastionTicket('node-fixture', account.id, 1, 30, Date.now() + 60000, authSessionId);
   await session.attachBastionSession(socket as unknown as WebSocket, 'worker-test', ticket);
   mock.sshClients.at(-1).emit('ready');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
   expect(socket.send.mock.calls.map(([frame]) => JSON.parse(frame).type)).toContain('READY');
   return socket;
 }
@@ -229,10 +230,11 @@ it('rejects a ticket issued before its JWT logged out and burns it before any no
     const ticket = response.json().ticket;
     expect((await app.inject({ method: 'POST', url: '/api/auth/logout',
       headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode).toBe(200);
+    const attachQueryCount = mock.query.mock.calls.length;
     const socket = new TestSocket();
     await session.attachBastionSession(socket as unknown as WebSocket, 'worker-test', ticket);
     expect(socket.close).toHaveBeenCalledExactlyOnceWith(4401, 'Session Revoked');
-    expect(mock.query.mock.calls.some(([sql]) => sql.includes('FROM nodes'))).toBe(false);
+    expect(mock.query.mock.calls.slice(attachQueryCount).some(([sql]) => sql.includes('FROM nodes'))).toBe(false);
     expect(mock.sshClients).toHaveLength(0);
     expect(tickets.verifyAndConsumeTicket(ticket, 'worker-test').valid).toBe(false);
   } finally { await app.close(); }
@@ -264,4 +266,150 @@ it('fails closed before SSH when persistent ticket revocation lookup is unavaila
   expect(socket.close).toHaveBeenCalledExactlyOnceWith(4503, 'Database Unavailable');
   expect(mock.sshClients).toHaveLength(0);
   expect(registry.activeSessions.size).toBe(0);
+});
+
+const canonicalNodeA = '11111111-1111-4111-8111-111111111111';
+const canonicalNodeB = '22222222-2222-4222-8222-222222222222';
+
+it('periodic maintenance fails closed when resolved node becomes retiring or is deleted from database', async () => {
+  const nodeStates = new Map<string, { lifecycle_state: string; is_token_revoked: boolean }>();
+  nodeStates.set(canonicalNodeA, { lifecycle_state: 'ACTIVE', is_token_revoked: false });
+  nodeStates.set(canonicalNodeB, { lifecycle_state: 'ACTIVE', is_token_revoked: false });
+
+  mock.query.mockImplementation(async (sql: string, params: any[] = []) => {
+    if (sql.includes('FROM users')) return { rows: [account], rowCount: 1 };
+    if (sql.includes('FROM nodes WHERE id = ANY')) {
+      const ids: string[] = params[0] || [];
+      const rows = ids.filter(id => nodeStates.has(id)).map(id => ({
+        id,
+        lifecycle_state: nodeStates.get(id)!.lifecycle_state,
+        is_token_revoked: nodeStates.get(id)!.is_token_revoked,
+      }));
+      return { rows, rowCount: rows.length };
+    }
+    if (sql.includes('FROM nodes')) {
+      const id = params[0];
+      if (nodeStates.has(id)) {
+        return { rows: [{ id, name: `node-${id}`, ip_address: '10.100.0.2', host_key_fingerprint: 'pinned-fingerprint', ...nodeStates.get(id) }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+
+  const socketA = new TestSocket();
+  const ticketA = tickets.createBastionTicket(canonicalNodeA, account.id, 1, 30, Date.now() + 60000);
+  await session.attachBastionSession(socketA as unknown as WebSocket, canonicalNodeA, ticketA);
+  mock.sshClients.at(-1).emit('ready');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+
+  const socketB = new TestSocket();
+  const ticketB = tickets.createBastionTicket(canonicalNodeB, account.id, 1, 30, Date.now() + 60000);
+  await session.attachBastionSession(socketB as unknown as WebSocket, canonicalNodeB, ticketB);
+  mock.sshClients.at(-1).emit('ready');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+
+  // Node A becomes RETIRING; Node B is deleted from DB (missing)
+  nodeStates.set(canonicalNodeA, { lifecycle_state: 'RETIRING', is_token_revoked: false });
+  nodeStates.delete(canonicalNodeB);
+
+  registry.startSessionMaintenance();
+  await vi.advanceTimersByTimeAsync(2000);
+
+  expect(socketA.close).toHaveBeenCalledWith(4403, 'Node Revoked');
+  expect(socketB.close).toHaveBeenCalledWith(4403, 'Node Revoked');
+});
+
+it('canonical binding prevents name alias reuse from authorizing another node', async () => {
+  const oldNodeId = '33333333-3333-4333-8333-333333333333';
+  const newNodeId = '44444444-4444-4444-8444-444444444444';
+
+  mock.query.mockImplementation(async (sql: string, params: any[] = []) => {
+    if (sql.includes('FROM users')) return { rows: [account], rowCount: 1 };
+    if (sql.includes('FROM nodes')) {
+      // Alias 'reused-worker' resolves to newNodeId (which is ACTIVE)
+      return { rows: [{ id: newNodeId, name: 'reused-worker', ip_address: '10.100.0.3', host_key_fingerprint: 'pinned-fingerprint', lifecycle_state: 'ACTIVE', is_token_revoked: false }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+
+  // Ticket was issued for the old retired node ID, but client tries connecting to 'reused-worker'
+  const ticketOld = tickets.createBastionTicket(oldNodeId, account.id, 1, 30, Date.now() + 60000);
+  const socket = new TestSocket();
+  await session.attachBastionSession(socket as unknown as WebSocket, 'reused-worker', ticketOld);
+
+  // Must reject because resolved canonical UUID (newNodeId) does not match ticket's nodeId (oldNodeId)
+  expect(socket.close).toHaveBeenCalledWith(4401, 'Unauthorized Ticket');
+  expect(mock.sshClients).toHaveLength(0);
+});
+
+it('target-only session and ticket revocation affects only the designated canonical node', async () => {
+  mock.query.mockImplementation(async (sql: string, params: any[] = []) => {
+    if (sql.includes('FROM users')) return { rows: [account], rowCount: 1 };
+    if (sql.includes('FROM nodes')) {
+      const id = params[0];
+      return { rows: [{ id, name: `node-${id}`, ip_address: '10.100.0.2', host_key_fingerprint: 'pinned-fingerprint', lifecycle_state: 'ACTIVE', is_token_revoked: false }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+
+  const socketA = new TestSocket();
+  const ticketA = tickets.createBastionTicket(canonicalNodeA, account.id, 1, 30, Date.now() + 60000);
+  await session.attachBastionSession(socketA as unknown as WebSocket, canonicalNodeA, ticketA);
+  mock.sshClients.at(-1).emit('ready');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+
+  const socketB = new TestSocket();
+  const ticketB = tickets.createBastionTicket(canonicalNodeB, account.id, 1, 30, Date.now() + 60000);
+  await session.attachBastionSession(socketB as unknown as WebSocket, canonicalNodeB, ticketB);
+  mock.sshClients.at(-1).emit('ready');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+
+  const unusedTicketA = tickets.createBastionTicket(canonicalNodeA, account.id, 1, 30);
+  const unusedTicketB = tickets.createBastionTicket(canonicalNodeB, account.id, 1, 30);
+
+  // Terminate and invalidate only Node A
+  const terminatedCount = registry.terminateSessionsForNode(canonicalNodeA);
+  const invalidatedCount = tickets.invalidateTicketsForNode(canonicalNodeA);
+
+  expect(terminatedCount).toBe(1);
+  expect(invalidatedCount).toBe(1);
+  expect(socketA.close).toHaveBeenCalledWith(4403, 'Node Retiring');
+  expect(socketB.close).not.toHaveBeenCalled();
+
+  // Ticket for Node A is burned, Ticket for Node B remains valid
+  expect(tickets.verifyAndConsumeTicket(unusedTicketA).valid).toBe(false);
+  expect(tickets.verifyAndConsumeTicket(unusedTicketB).valid).toBe(true);
+});
+
+it('rejects ticket creation and connection for nodes in RETIRING state', async () => {
+  vi.useRealTimers();
+  const { buildServer } = await import('../src/app.js');
+  const app = await buildServer();
+  mock.query.mockImplementation(async (sql: string, params: any[] = []) => {
+    if (sql.includes('FROM users')) return { rows: [account], rowCount: 1 };
+    if (sql.includes('FROM nodes')) {
+      return { rows: [{ id: canonicalNodeA, name: 'worker-retiring', ip_address: '10.100.0.2', host_key_fingerprint: 'pinned-fingerprint', lifecycle_state: 'RETIRING', is_token_revoked: false }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  });
+
+  try {
+    const token = app.jwt.sign({ ...account, jti: firstJti }, { expiresIn: '1m' });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/bastion/ticket',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { node_id: canonicalNodeA },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().code).toBe('NODE_UNAVAILABLE_OR_RETIRED');
+
+    const socket = new TestSocket();
+    const fakeTicket = tickets.createBastionTicket(canonicalNodeA, account.id, 1, 30);
+    await session.attachBastionSession(socket as unknown as WebSocket, canonicalNodeA, fakeTicket);
+    expect(socket.close).toHaveBeenCalledWith(4403, 'Node Retired');
+  } finally {
+    await app.close();
+  }
 });

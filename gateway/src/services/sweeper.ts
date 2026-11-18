@@ -2,6 +2,7 @@ import { query, getClient } from './db.js';
 import { config } from '../config/env.js';
 import { enqueueAlertNotification } from './alert-delivery.js';
 import { formatTelegramAlert } from './telegram-message.js';
+import { reconcilePendingOffboardings } from './offboarding.js';
 
 /**
  * ==============================================================================
@@ -65,10 +66,10 @@ export async function runSweeperCycle(): Promise<{
       }
     }
 
-    // HEALTHY = Online, WARNING = Stale, OFFLINE = Offline. CPU alerts are separate.
+    // HEALTHY = Online, WARNING = Stale, OFFLINE = Offline. Chỉ quét các máy chủ đang ACTIVE
     await query(
       `UPDATE nodes SET status = 'WARNING', updated_at = now()
-       WHERE status = 'HEALTHY' AND last_seen < now() - make_interval(secs => $1)
+       WHERE status = 'HEALTHY' AND lifecycle_state = 'ACTIVE' AND last_seen < now() - make_interval(secs => $1)
          AND last_seen >= now() - make_interval(secs => $2);`,
       [config.NODE_STALE_THRESHOLD_SECONDS, config.NODE_OFFLINE_THRESHOLD_SECONDS]
     );
@@ -78,7 +79,8 @@ export async function runSweeperCycle(): Promise<{
       `SELECT id, name, ip_address, last_seen
        FROM nodes
        WHERE (last_seen IS NULL OR last_seen < now() - make_interval(secs => $1))
-         AND status != 'OFFLINE';`,
+         AND status != 'OFFLINE'
+         AND lifecycle_state = 'ACTIVE';`,
       [thresholdSec]
     );
 
@@ -92,7 +94,7 @@ export async function runSweeperCycle(): Promise<{
         // so equality against the JavaScript last_seen value is not a reliable guard.
         const updateRes = await client.query(
           `UPDATE nodes SET status = 'OFFLINE', updated_at = now()
-           WHERE id = $1 AND status != 'OFFLINE'
+           WHERE id = $1 AND status != 'OFFLINE' AND lifecycle_state = 'ACTIVE'
              AND (last_seen IS NULL OR last_seen < now() - make_interval(secs => $2));`,
           [node.id, thresholdSec]
         );
@@ -120,6 +122,28 @@ export async function runSweeperCycle(): Promise<{
       if (!markedOffline) continue;
       offlineNodesDetected.push(node.name);
       console.warn(`🚨 [LIVENESS ALERT] Đã chuyển máy chủ ${node.name} sang trạng thái OFFLINE.`);
+    }
+
+    // 3.5. Hủy bỏ các thông báo cảnh báo còn pending của các máy chủ không còn ACTIVE (NODE_RETIRED)
+    try {
+      await query(
+        `UPDATE alert_notifications n
+            SET status = 'DISABLED', last_error = 'NODE_RETIRED'
+           FROM alerts a
+           JOIN nodes nd ON nd.id = a.node_id
+          WHERE n.alert_id = a.id
+            AND n.status = 'PENDING'
+            AND nd.lifecycle_state != 'ACTIVE';`
+      );
+    } catch (clearErr: any) {
+      console.warn('⚠️ [SWEEPER] Lỗi thu hồi thông báo cảnh báo máy chủ đã offboard:', clearErr.message);
+    }
+
+    // 3.6. Tự động đối soát các yêu cầu thu hồi WireGuard peer đang chờ
+    try {
+      await reconcilePendingOffboardings();
+    } catch (reconErr: any) {
+      console.warn('⚠️ [SWEEPER] Lỗi đối soát WireGuard offboarding:', reconErr.message);
     }
 
     // 4. Đối soát và dọn dẹp các phiên audit mồ côi dựa trên Shared Lease Fencing & Heartbeat (R3-04 Remediation)

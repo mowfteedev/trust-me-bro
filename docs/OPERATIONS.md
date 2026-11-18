@@ -48,7 +48,8 @@ quyền file không thay thế mã hóa ổ đĩa; sao chép sang nơi bảo v�
 kiểm checksum sau chép. Không đưa vào Git/artifact CI/chia sẻ công khai.
 
 DB và cấu hình là hai lượt đọc, không phải snapshot nguyên tử chung: tránh
-đăng ký/đổi khóa hoặc cập nhật cấu hình trong lúc sao lưu. Không cam kết RPO
+đăng ký/đổi khóa, thu hồi Worker hoặc cập nhật cấu hình trong lúc sao lưu. Xem hướng
+dẫn thu hồi và gỡ máy an toàn tại [deploy/automation/README.md](file:///home/mowftee/Projects/trust-me-bro/deploy/automation/README.md). Không cam kết RPO
 nếu chưa có lịch sao lưu và kiểm bản sao ngoài máy.
 
 ## Diễn tập khôi phục, không ghi vào DB đang chạy

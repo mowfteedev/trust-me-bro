@@ -100,6 +100,9 @@
 .danger {
   --status: var(--danger);
 }
+.neutral {
+  --status: var(--muted);
+}
 .summary-top {
   display: flex;
   align-items: center;
@@ -730,6 +733,9 @@
 }
 .notice.danger {
   --status: var(--danger);
+}
+.neutral {
+  --status: var(--muted);
 }
 .notice.success {
   --status: #10b981;

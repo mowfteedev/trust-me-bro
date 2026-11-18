@@ -2,10 +2,11 @@
 <# Explicit dedicated Windows Worker installer. No secret command-line arguments. #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('check','install','status')][string]$Action,
+    [Parameter(Mandatory=$true)][ValidateSet('check','install','status','uninstall','cleanup-retry')][string]$Action,
     [string]$InvitationPath,
     [string]$AgentBinaryPath,
     [ValidatePattern('^[a-fA-F0-9]{64}$')][string]$AgentSHA256,
+    [string]$AuthorizationPath,
     [string]$CaFile,
     [string[]]$TransportInterfaceAlias,
     [switch]$DedicatedWorker,
@@ -257,6 +258,29 @@ try{
         [ordered]@{ok=$false;scope='local_checks_only';phase=$state.phase;checks=$checks;note='Use install with the original invitation for current authenticated Gateway verification.'} | ConvertTo-Json -Depth 8
         exit 2
     }
+    if($Action -in @('uninstall','cleanup-retry')){
+        . (Join-Path $PSScriptRoot 'worker-uninstall.ps1')
+        if($Action -eq 'uninstall'){
+            Invoke-WorkerUninstall -AuthorizationPath $AuthorizationPath -CaFile $CaFile
+        }else{
+            Invoke-WorkerCleanupRetry -AuthorizationPath $AuthorizationPath -CaFile $CaFile
+        }
+        exit 0
+    }
+    if($state -and $state.phase -eq 'uninstalled'){
+        $archiveDir = Join-Path $managedRoot 'archive'
+        if(-not(Test-Path -LiteralPath $archiveDir)){New-Item -Path $archiveDir -ItemType Directory | Out-Null;Private-Acl $archiveDir}
+        $archivedState = Join-Path $archiveDir ('state.uninstalled-' + (Get-Date -Format 'yyyyMMddHHmmss') + '.json')
+        Copy-Item -LiteralPath $statePath -Destination $archivedState -Force
+        $cleanupPath = Join-Path $managedRoot 'cleanup.json'
+        if(Test-Path -LiteralPath $cleanupPath){
+            $archivedCleanup = Join-Path $archiveDir ('cleanup.uninstalled-' + (Get-Date -Format 'yyyyMMddHHmmss') + '.json')
+            Move-Item -LiteralPath $cleanupPath -Destination $archivedCleanup -Force
+        }
+        $capPath = Join-Path $managedRoot 'cleanup.capability'
+        if(Test-Path -LiteralPath $capPath){Remove-Item -LiteralPath $capPath -Force -ErrorAction SilentlyContinue}
+        $state = $null
+    }
     if(-not$InvitationPath -or -not$AgentBinaryPath -or -not$AgentSHA256){Stop-Worker 'Provide InvitationPath, AgentBinaryPath and its trusted AgentSHA256.'}
     Assert-PrivateInput $InvitationPath
     $invite=Get-Content -LiteralPath $InvitationPath -Raw | ConvertFrom-Json
@@ -322,6 +346,10 @@ try{
     if(-not(Test-Path -LiteralPath $privatePath)){$private=(& $wg genkey 2>$null | Out-String).Trim();if($LASTEXITCODE -ne 0){Stop-Worker 'WireGuard key generation failed.'};Write-Private $privatePath ($private+"`n")}
     $private=(Get-Content -LiteralPath $privatePath -Raw).Trim()
     $public=($private | & $wg pubkey 2>$null | Out-String).Trim();if($LASTEXITCODE -ne 0){Stop-Worker 'WireGuard public key derivation failed.'}
+    $state.worker_wireguard_public_key=$public
+    $state.registration_url=$invite.registration_url
+    $regUri=[Uri]$invite.registration_url
+    $state.trusted_origin="$($regUri.Scheme)://$($regUri.Authority)"
     if(-not(Test-Path -LiteralPath $tokenPath)){$rng=[Security.Cryptography.RandomNumberGenerator]::Create();try{$random=New-Object byte[] 48;$rng.GetBytes($random);$token=[Convert]::ToBase64String($random).TrimEnd('=').Replace('+','-').Replace('/','_')}finally{$rng.Dispose()};Write-Private $tokenPath ($token+"`n")}
     $nodeToken=(Get-Content -LiteralPath $tokenPath -Raw).Trim()
     if($state.identity_fingerprint -and -not(Test-Path -LiteralPath $hostKey)){Stop-Worker 'Saved SSH host identity is missing; restore it instead of generating replacements.'}
@@ -354,16 +382,45 @@ try{
             [void](Invoke-TrustedScript (Join-Path $repo 'deploy\windows\restore-worker.ps1') @())
         }
         # Persist ownership before setup so a partially installed tunnel can be restored.
+        $state.managed = [ordered]@{
+            (Join-Path $env:ProgramData 'ssh\sshd_config') = [ordered]@{
+                backup = Join-Path $env:ProgramData 'ZT-ServerOps\worker\sshd_config.before-zt'
+                before_hash = if (Test-Path -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config')) { (Get-FileHash -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config') -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
+            }
+            (Join-Path $env:ProgramData 'ZT-ServerOps\agent\zt-agent.exe') = [ordered]@{
+                expected_hash = $AgentSHA256.ToLowerInvariant()
+            }
+            (Join-Path $env:ProgramData 'ZT-ServerOps\agent\config.json') = [ordered]@{}
+            (Join-Path $env:ProgramData 'ZT-ServerOps\worker\zt-worker.conf') = [ordered]@{}
+            (Join-Path $env:ProgramData 'ZT-ServerOps\worker\authorized_keys') = [ordered]@{}
+            (Join-Path $env:ProgramData 'ZT-ServerOps\worker\ssh_host_ed25519_key.pub') = [ordered]@{}
+        }
+        $agentExePath = Join-Path $env:ProgramData 'ZT-ServerOps\agent\zt-agent.exe'
+        $agentCfgPath = Join-Path $env:ProgramData 'ZT-ServerOps\agent\config.json'
+        $expectedAgentCmd = '"' + $agentExePath + '" --service --config "' + $agentCfgPath + '"'
+        $state.owned_services = [ordered]@{
+            agent = [ordered]@{
+                name = 'ZTServerOpsAgent'
+                command = $expectedAgentCmd
+            }
+            tunnel = [ordered]@{
+                name = 'WireGuardTunnel$zt-worker'
+                config = Join-Path $env:ProgramData 'ZT-ServerOps\worker\zt-worker.conf'
+            }
+        }
+        $state.owned_rules = @('ZT-ServerOps-SSH-VPN', 'ZT-ServerOps-SSH-Transport-Block')
         $state.phase='network_in_progress';Save-State $state;$networkStarted=$true
         # Invoke in the same scope so a real adapter array reaches the existing script.
         & (Join-Path $repo 'deploy\windows\setup-worker.ps1') -TunnelConfigPath $tunnelPath -GatewaySshPublicKeyPath $bastionPath -TransportInterfaceAlias $TransportInterfaceAlias -VpnAddress $assignment.node_ip -GatewayVpnAddress $invite.gateway_vpn_ip -SshUser $invite.ssh_username -DedicatedVm *> $null
         $state.configured_hash=(Get-FileHash -LiteralPath (Join-Path $env:ProgramData 'ssh\sshd_config') -Algorithm SHA256).Hash
+        $state.managed[(Join-Path $env:ProgramData 'ssh\sshd_config')].after_hash = $state.configured_hash
         $state.phase='network_active';Save-State $state
         $configPath=Join-Path $managedRoot 'agent-config.json'
         $config=[ordered]@{GATEWAY_URL='http://10.100.0.1:3000';NODE_ID=$invite.node_name;NODE_TOKEN=$nodeToken;NETWORK_INTERFACE='zt-worker';DISK_MOUNT_POINT='C:\';BEACON_INTERVAL_SECONDS='3.0';MAX_BACKOFF_SECONDS='30.0';HTTP_TIMEOUT_SECONDS='3.0';JITTER_RATIO='0.0'}
         Write-Private $configPath ($config | ConvertTo-Json)
         [void](Invoke-TrustedScript (Join-Path $repo 'agent\install-windows.ps1') @('-BinaryPath',$stagedBinary,'-ConfigPath',$configPath,'-ValidateOnly'))
         [void](Invoke-TrustedScript (Join-Path $repo 'agent\install-windows.ps1') @('-BinaryPath',$stagedBinary,'-ConfigPath',$configPath))
+        $state.managed[$agentCfgPath].after_hash = (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $state.phase='agent_active';Save-State $state
         $localReport=Invoke-TrustedScript (Join-Path $repo 'deploy\windows\check-worker.ps1') @()
         $verified=Wait-Claim $invite $payload $true

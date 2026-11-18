@@ -3,11 +3,14 @@ import { AlertTriangle, CheckCircle2, Layers, XCircle } from "lucide-react";
 import { NodeItem } from "../types/index.js";
 
 export function getClusterCounts(nodes: NodeItem[]) {
+  const activeNodes = nodes.filter(
+    (n) => !n.lifecycle_state || n.lifecycle_state === "ACTIVE"
+  );
   return [
     {
       label: "Tổng máy chủ",
       status: "ALL",
-      value: nodes.length,
+      value: activeNodes.length,
       hint: "Máy chủ trong cụm",
       icon: Layers,
       color: "neutral",
@@ -15,7 +18,7 @@ export function getClusterCounts(nodes: NodeItem[]) {
     {
       label: "Online",
       status: "HEALTHY",
-      value: nodes.filter((n) => n.status === "HEALTHY").length,
+      value: activeNodes.filter((n) => n.status === "HEALTHY").length,
       hint: "Đang nhận heartbeat",
       icon: CheckCircle2,
       color: "success",
@@ -23,7 +26,7 @@ export function getClusterCounts(nodes: NodeItem[]) {
     {
       label: "Stale",
       status: "WARNING",
-      value: nodes.filter((n) => n.status === "WARNING").length,
+      value: activeNodes.filter((n) => n.status === "WARNING").length,
       hint: "Heartbeat bị trễ",
       icon: AlertTriangle,
       color: "warning",
@@ -31,7 +34,7 @@ export function getClusterCounts(nodes: NodeItem[]) {
     {
       label: "Offline",
       status: "OFFLINE",
-      value: nodes.filter((n) => n.status === "OFFLINE").length,
+      value: activeNodes.filter((n) => n.status === "OFFLINE").length,
       hint: "Mất tín hiệu",
       icon: XCircle,
       color: "danger",

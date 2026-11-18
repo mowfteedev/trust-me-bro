@@ -32,13 +32,15 @@ export async function issueEnrollment(client: Client, input: unknown, metadata: 
     await client.query(`UPDATE public.worker_enrollments SET revoked_at = clock_timestamp()
       WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at <= clock_timestamp()`);
     const names = await client.query(`SELECT 1 FROM public.nodes WHERE name = $1
+        AND lifecycle_state IN ('ACTIVE', 'RETIRING')
       UNION ALL SELECT 1 FROM public.worker_enrollments WHERE node_name = $1
         AND consumed_at IS NULL AND revoked_at IS NULL`, [value.node_name]);
     if (names.rowCount) throw new EnrollmentError(409, 'NODE_REGISTRATION_CONFLICT');
     const available = await client.query<{ ip: string }>(`SELECT host(('10.100.0.0'::inet + candidate)::inet) AS ip
       FROM generate_series(3,254) AS candidate
       WHERE ($1::inet IS NULL OR '10.100.0.0'::inet + candidate = $1::inet)
-        AND NOT EXISTS (SELECT 1 FROM public.nodes n WHERE n.ip_address = '10.100.0.0'::inet + candidate)
+        AND NOT EXISTS (SELECT 1 FROM public.nodes n WHERE n.ip_address = '10.100.0.0'::inet + candidate
+          AND n.lifecycle_state IN ('ACTIVE', 'RETIRING'))
         AND NOT EXISTS (SELECT 1 FROM public.worker_enrollments e
           WHERE e.node_ip = '10.100.0.0'::inet + candidate AND e.consumed_at IS NULL AND e.revoked_at IS NULL)
       ORDER BY candidate LIMIT 1`, [value.node_ip ?? null]);
@@ -78,7 +80,8 @@ export async function enrollmentStatus(client: Client, input: unknown) {
     result.invitation = r.rows[0] ?? null;
   }
   if (value.data.node_name) {
-    const r = await client.query('SELECT name,status,last_seen,ssh_username FROM public.nodes WHERE name=$1', [value.data.node_name]);
+    const r = await client.query(`SELECT name,status,last_seen,ssh_username FROM public.nodes
+      WHERE name=$1 ORDER BY (lifecycle_state = 'ACTIVE') DESC, created_at DESC LIMIT 1`, [value.data.node_name]);
     result.node = r.rows[0] ?? null;
   }
   return result;

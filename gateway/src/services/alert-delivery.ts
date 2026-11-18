@@ -30,7 +30,10 @@ export async function runAlertDeliveryCycle(): Promise<void> {
         `UPDATE alert_notifications n SET status = 'PROCESSING', attempts = n.attempts + 1,
            last_attempt_at = now(), next_attempt_at = now() + make_interval(secs => $1)
          FROM (SELECT pending.id FROM alert_notifications pending
+           JOIN alerts a ON a.id = pending.alert_id
+           JOIN nodes nd ON nd.id = a.node_id
            WHERE pending.status IN ('PENDING', 'PROCESSING') AND pending.attempts < 3 AND pending.next_attempt_at <= now()
+             AND nd.lifecycle_state = 'ACTIVE'
              AND (pending.phase = 'OPEN' OR NOT EXISTS (
                SELECT 1 FROM alert_notifications opening
                WHERE opening.alert_id = pending.alert_id AND opening.phase = 'OPEN'

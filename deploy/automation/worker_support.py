@@ -67,7 +67,7 @@ def write_private(path: Path, value: bytes | str | dict) -> None:
             os.unlink(temporary)
 
 
-def wireguard_key(value: object) -> str:
+def wireguard_key(value: object, *, allow_zero: bool = True) -> str:
     if not isinstance(value, str):
         raise InstallError('WireGuard public key is invalid.')
     try:
@@ -76,6 +76,8 @@ def wireguard_key(value: object) -> str:
         raise InstallError('WireGuard public key is invalid.') from None
     if len(decoded) != 32 or base64.b64encode(decoded).decode() != value:
         raise InstallError('WireGuard public key is invalid.')
+    if not allow_zero and decoded == b'\x00' * 32:
+        raise InstallError('WireGuard public key cannot be all zeros.')
     return value
 
 
@@ -209,3 +211,200 @@ def claim(invite: dict, payload: dict, ca_file: Path | None = None) -> dict:
     except (UnicodeError, json.JSONDecodeError):
         raise InstallError('Gateway returned invalid enrollment JSON.') from None
     return validate_assignment(data, invite)
+
+
+def read_private_auth_bundle(path: Path) -> dict:
+    assert_no_symlinks(path)
+    if not path.is_file():
+        raise InstallError('Authorization bundle does not exist or is not a regular file.')
+    info = path.stat()
+    if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+        raise InstallError('Authorization bundle must be a regular private file (0600).')
+    if os.geteuid() == 0 and info.st_uid != 0:
+        raise InstallError('Authorization bundle must be owned by root.')
+    if info.st_size > 65536:
+        raise InstallError('Authorization bundle exceeds 64 KiB.')
+    try:
+        data = json.loads(path.read_bytes().decode('utf-8-sig'))
+    except (UnicodeError, json.JSONDecodeError):
+        raise InstallError('Authorization bundle contains invalid JSON.') from None
+    if not isinstance(data, dict):
+        raise InstallError('Authorization bundle must contain a JSON object.')
+    return data
+
+
+def canonical_json(value: dict) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+
+
+def validate_offboarding_bundle(value: dict, assignment: dict, worker_wg_public_key: str) -> dict:
+    required = {
+        'version', 'gateway_id', 'operation_id', 'node_id', 'node_name',
+        'invitation_id', 'wireguard_public_key', 'node_ip', 'completion_url', 'cleanup_token'
+    }
+    if not isinstance(value, dict) or set(value) != required:
+        raise InstallError('Authorization bundle must contain exactly the required keys.')
+    if value['version'] != 1 or isinstance(value['version'], bool):
+        raise InstallError('Unsupported authorization bundle version.')
+    if any(not isinstance(value[key], str) for key in required - {'version'}):
+        raise InstallError('Authorization bundle fields must be strings.')
+
+    bundle = dict(value)
+
+    for key in ('operation_id', 'node_id', 'invitation_id'):
+        try:
+            parsed = uuid.UUID(bundle[key])
+            if str(parsed) != bundle[key].lower():
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise InstallError(f'Authorization bundle {key} is invalid.') from None
+
+    wireguard_key(bundle['wireguard_public_key'], allow_zero=False)
+
+    try:
+        ip = ipaddress.IPv4Address(bundle['node_ip'])
+        if str(ip) != bundle['node_ip']:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise InstallError('Authorization bundle node_ip is invalid.') from None
+
+    if not re.fullmatch(r'[a-zA-Z0-9_-]{3,64}', bundle['node_name']):
+        raise InstallError('Authorization bundle node_name is invalid.')
+
+    if not re.fullmatch(r'[0-9a-f]{64}', bundle['cleanup_token']):
+        raise InstallError('Authorization bundle cleanup_token is invalid.')
+
+    if bundle['gateway_id'] != assignment['gateway_id']:
+        raise InstallError('Authorization bundle gateway_id does not match installed Worker.')
+    if bundle['node_id'] != assignment['node_id']:
+        raise InstallError('Authorization bundle node_id does not match installed Worker.')
+    if bundle['node_name'] != assignment['node_name']:
+        raise InstallError('Authorization bundle node_name does not match installed Worker.')
+    if bundle['invitation_id'] != assignment['invitation_id']:
+        raise InstallError('Authorization bundle invitation_id does not match installed Worker.')
+    if bundle['node_ip'] != assignment['node_ip']:
+        raise InstallError('Authorization bundle node_ip does not match installed Worker.')
+
+    if not worker_wg_public_key or not isinstance(worker_wg_public_key, str):
+        raise InstallError('Local Worker WireGuard public key is required for authorization validation.')
+    if bundle['wireguard_public_key'] != worker_wg_public_key:
+        raise InstallError('Authorization bundle wireguard_public_key does not match local Worker identity.')
+
+    reg = urllib.parse.urlsplit(assignment['registration_url'])
+    trusted_origin = f'{reg.scheme}://{reg.netloc}'
+    expected_completion = f'{trusted_origin}/api/offboarding/complete'
+
+    url = urllib.parse.urlsplit(bundle['completion_url'])
+    if (url.scheme != 'https' or not url.hostname or url.username or url.password or
+            url.query or url.fragment or bundle['completion_url'] != expected_completion):
+        raise InstallError('completion_url must match trusted Gateway HTTPS offboarding endpoint.')
+
+    return bundle
+
+
+def verify_offboarding(bundle: dict, trusted_origin: str, ca_file: Path | None = None) -> dict:
+    context = ssl.create_default_context(cafile=str(ca_file) if ca_file else None)
+    opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=context),
+                                         urllib.request.ProxyHandler({}))
+    payload = {
+        'version': 1,
+        'operation_id': bundle['operation_id'],
+        'gateway_id': bundle['gateway_id'],
+        'node_id': bundle['node_id'],
+        'invitation_id': bundle['invitation_id'],
+        'wireguard_public_key': bundle['wireguard_public_key'],
+        'node_ip': bundle['node_ip'],
+    }
+    verify_url = f'{trusted_origin}/api/offboarding/verify'
+    request = urllib.request.Request(
+        verify_url,
+        method='POST',
+        headers={
+            'Content-Type': 'application/json',
+            'X-Cleanup-Token': bundle['cleanup_token'],
+        },
+        data=canonical_json(payload),
+    )
+    try:
+        with opener.open(request, timeout=15) as response:
+            if response.status != 200:
+                raise InstallError('Gateway offboarding verification did not return success.')
+            raw = response.read(65537)
+    except urllib.error.HTTPError as error:
+        status = error.code
+        error.close()
+        messages = {
+            400: 'Gateway rejected offboarding verification payload.',
+            401: 'Offboarding cleanup token is invalid or expired.',
+            409: 'Offboarding identity mismatch on Gateway.',
+            503: 'Gateway offboarding service is temporarily unavailable; retry later.',
+        }
+        raise InstallError(messages.get(status, 'Gateway offboarding verification failed.')) from None
+    except (urllib.error.URLError, TimeoutError, ssl.SSLError):
+        raise InstallError('Cannot reach Gateway offboarding verification endpoint.') from None
+
+    if len(raw) > 65536:
+        raise InstallError('Gateway verification response exceeds 64 KiB.')
+    try:
+        data = json.loads(raw.decode('utf-8'))
+    except (UnicodeError, json.JSONDecodeError):
+        raise InstallError('Gateway returned invalid verification JSON.') from None
+
+    if not isinstance(data, dict) or not data.get('success'):
+        raise InstallError('Gateway offboarding verification was unsuccessful.')
+
+    for key in ('operation_id', 'gateway_id', 'node_id', 'node_name', 'node_ip', 'invitation_id', 'wireguard_public_key'):
+        if data.get(key) != bundle[key]:
+            raise InstallError(f'Gateway returned mismatched {key} during offboarding verification.')
+
+    lifecycle = data.get('lifecycle_state')
+    if lifecycle == 'RETIRING':
+        raise InstallError('Offboarding is still RETIRING on Gateway; cannot mutate local system until REVOKED or PENDING_LOCAL_CLEANUP.')
+    if lifecycle not in ('REVOKED', 'PENDING_LOCAL_CLEANUP'):
+        raise InstallError(f'Unexpected Gateway lifecycle state: {lifecycle}.')
+
+    return data
+
+
+def post_offboarding_complete(completion_url: str, cleanup_token: str, payload: dict, ca_file: Path | None = None) -> dict:
+    context = ssl.create_default_context(cafile=str(ca_file) if ca_file else None)
+    opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=context),
+                                         urllib.request.ProxyHandler({}))
+    request = urllib.request.Request(
+        completion_url,
+        method='POST',
+        headers={
+            'Content-Type': 'application/json',
+            'X-Cleanup-Token': cleanup_token,
+        },
+        data=canonical_json(payload),
+    )
+    try:
+        with opener.open(request, timeout=15) as response:
+            if response.status != 200:
+                raise InstallError('Gateway offboarding completion did not return success.')
+            raw = response.read(65537)
+    except urllib.error.HTTPError as error:
+        status = error.code
+        error.close()
+        messages = {
+            400: 'Gateway rejected offboarding completion receipt.',
+            401: 'Offboarding cleanup token is invalid or expired.',
+            409: 'Offboarding receipt conflict or already completed on Gateway.',
+            503: 'Gateway offboarding service is temporarily unavailable; retry later.',
+        }
+        raise InstallError(messages.get(status, 'Gateway offboarding completion failed.')) from None
+    except (urllib.error.URLError, TimeoutError, ssl.SSLError):
+        raise InstallError('Cannot reach Gateway offboarding completion endpoint; capability and receipt are preserved for retry.') from None
+
+    if len(raw) > 65536:
+        raise InstallError('Gateway completion response exceeds 64 KiB.')
+    try:
+        data = json.loads(raw.decode('utf-8'))
+    except (UnicodeError, json.JSONDecodeError):
+        raise InstallError('Gateway returned invalid completion JSON.') from None
+
+    if not isinstance(data, dict) or not data.get('success'):
+        raise InstallError('Gateway offboarding completion was unsuccessful.')
+
+    return data

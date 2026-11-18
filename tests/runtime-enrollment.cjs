@@ -78,13 +78,15 @@ async function main(){
  const ack=(invite,body,ip)=>fs.writeFileSync(path.join(process.env.ENROLLMENT_ACK_DIR,invite.invitation_id+'.ready'),
   body.wireguard_public_key+'\n'+ip+'\n',{mode:0o644});
 
- assert.equal((await db.query('SELECT count(*)::int n FROM schema_migrations')).rows[0].n,15);
+ const migrationsDir = [path.resolve(process.cwd(), 'migrations'), path.resolve(process.cwd(), 'gateway/migrations')].find(d => fs.existsSync(d));
+ const expectedMigrationCount = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).length;
+ assert.equal((await db.query('SELECT count(*)::int n FROM schema_migrations')).rows[0].n, expectedMigrationCount);
  assert.equal((await app.query('SELECT current_user')).rows[0].current_user,'zt_app');
  await assert.rejects(app.query('SELECT * FROM worker_enrollments'),/permission denied/);
  await assert.rejects(app.query("INSERT INTO worker_enrollments(gateway_id,token_hash,node_name,node_ip,node_type,worker_os,ssh_username,expires_at)VALUES('x','x','bad','10.100.0.3','VM','linux','ztuser',now())"),/permission denied/);
  assert.equal((await db.query("SELECT has_function_privilege('zt_maintenance','claim_worker_enrollment(uuid,text,text,text,text,text,text,text)','execute') AS allowed")).rows[0].allowed,false);
  assert.equal((await db.query("SELECT NOT EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner)))a WHERE p.oid='public.claim_worker_enrollment(uuid,text,text,text,text,text,text,text)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE') AS denied")).rows[0].denied,true);
- check('15 migrations, app authenticated, invitation table private and capability not public');
+ check(expectedMigrationCount + ' migrations, app authenticated, invitation table private and capability not public');
 
  const a=issue(),body=makeClaim(a.invitation_id);
  assert.deepEqual(Object.keys(a).sort(),['version','gateway_id','registration_url','wireguard_endpoint',

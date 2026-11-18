@@ -89,15 +89,16 @@ def main():
         print(name + ': ' + item['status'], flush=True)
     if args.runtime_labs:
         gateway_built = any(item['check'] in ('gateway-build', 'gateway-runtime-build') and item['status'] == 'PASS' for item in results)
-        labs = [('accounts-runtime', ['node', 'tests/runtime-accounts.cjs']),
-                ('exports-runtime', ['node', 'tests/runtime-exports.cjs']),
-                ('enrollment-runtime', ['node', 'tests/runtime-enrollment.cjs']),
-                ('recovery-runtime', [sys.executable, 'tests/runtime-recovery.py', '--output', str(output / 'recovery-lab')]),
-                ('alerts-runtime', [sys.executable, 'tests/runtime-alerts-lab.py', '--output', str(output / 'alerts-lab')])]
+        labs = [('accounts-runtime', ['node', 'tests/runtime-accounts.cjs'], 'isolated_postgresql_runtime'),
+                ('exports-runtime', ['node', 'tests/runtime-exports.cjs'], 'isolated_postgresql_runtime'),
+                ('enrollment-runtime', ['node', 'tests/runtime-enrollment.cjs'], 'isolated_postgresql_runtime'),
+                ('offboarding-runtime', ['node', 'tests/runtime-offboarding.cjs'], 'real_postgres_and_fastify_inject'),
+                ('recovery-runtime', [sys.executable, 'tests/runtime-recovery.py', '--output', str(output / 'recovery-lab')], 'isolated_postgresql_runtime'),
+                ('alerts-runtime', [sys.executable, 'tests/runtime-alerts-lab.py', '--output', str(output / 'alerts-lab')], 'isolated_postgresql_runtime')]
         environment = {**os.environ, 'ZT_ACCOUNT_EVIDENCE_PATH': str(output / 'accounts-evidence.json')}
-        for name, command in labs:
+        for name, command, evidence in labs:
             ready = gateway_built or name == 'recovery-runtime'
-            item = run_check(name, command if ready else None, 'isolated_postgresql_runtime', output,
+            item = run_check(name, command if ready else None, evidence, output,
                              environment=environment, skip_reason='Gateway build failed; do not run a stale compiled runtime.')
             results.append(item)
             print(name + ': ' + item['status'], flush=True)

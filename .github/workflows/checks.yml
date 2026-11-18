@@ -76,5 +76,6 @@ jobs:
       - run: node tests/runtime-accounts.cjs
       - run: node tests/runtime-exports.cjs
       - run: node tests/runtime-enrollment.cjs
+      - run: node tests/runtime-offboarding.cjs
       - run: python3 tests/runtime-recovery.py --output /tmp/zt-recovery-ci
       - run: python3 tests/runtime-alerts-lab.py --output /tmp/zt-alerts-ci

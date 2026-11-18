@@ -113,13 +113,13 @@ def preflight(invite: dict, binary: Path, digest: str, *, install: bool = False,
     if missing and (not allow_packages or not shutil.which('apt-get')):
         errors.append('Required WireGuard/OpenSSH/nftables tools are missing.')
     previous = state()
-    if previous and previous.get('invite_fingerprint') != invite_fingerprint(invite):
+    if previous and previous.get('phase') != 'uninstalled' and previous.get('invite_fingerprint') != invite_fingerprint(invite):
         errors.append('Worker already belongs to another invitation; its identity is preserved.')
-    if previous and previous.get('agent_sha256') != digest.lower():
+    if previous and previous.get('phase') != 'uninstalled' and previous.get('agent_sha256') != digest.lower():
         errors.append('Agent differs from the saved install; use the established upgrade procedure.')
-    for managed in (STATE, TUNNEL, SSH_CONFIG, HOST_KEY, SSH_PUBLIC, SSH_UNIT, FIREWALL, FIREWALL_UNIT, AGENT_ENV, AGENT_DIR, AGENT_UNIT):
+    for managed in (STATE, TUNNEL, SSH_CONFIG, HOST_KEY, SSH_PUBLIC, SSH_UNIT, FIREWALL, FIREWALL_UNIT, AGENT_ENV, AGENT_DIR, AGENT_DIR / 'zt-agent', AGENT_UNIT):
         assert_no_symlinks(managed)
-    if not previous:
+    if not previous or previous.get('phase') == 'uninstalled':
         if any(path.exists() for path in (TUNNEL, SSH_PUBLIC, SSH_UNIT, FIREWALL, FIREWALL_UNIT, AGENT_ENV, AGENT_DIR, AGENT_UNIT)):
             errors.append('Existing Worker configuration has no automation ownership state; preserve it and review manually.')
         if shutil.which('ip') and run(['ip', 'link', 'show', 'zt-worker'], check=False):
@@ -142,8 +142,30 @@ def preflight(invite: dict, binary: Path, digest: str, *, install: bool = False,
             'existing_install': bool(previous), 'notes': notes}
 
 
+def archive_terminal_state() -> None:
+    previous = state()
+    if previous and previous.get('phase') == 'uninstalled':
+        archive_dir = STATE / 'archive'
+        archive_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        ts = int(time.time())
+        if JOURNAL.exists():
+            try:
+                JOURNAL.rename(archive_dir / f'state-{ts}.json')
+            except OSError:
+                pass
+        cleanup_file = STATE / 'cleanup.json'
+        if cleanup_file.exists():
+            try:
+                cleanup_file.rename(archive_dir / f'cleanup-{ts}.json')
+            except OSError:
+                pass
+
+
 def prepare(invite: dict, binary: Path, digest: str) -> dict:
     previous = state()
+    if previous and previous.get('phase') == 'uninstalled':
+        archive_terminal_state()
+        previous = None
     if previous:
         staged = STATE / 'zt-agent'
         if not staged.exists() or hashlib.sha256(staged.read_bytes()).hexdigest() != digest:
@@ -201,6 +223,7 @@ def identity(invite: dict, value: dict, read_only: bool = False) -> dict:
         raise InstallError('Saved Worker keys changed; refusing to consume another identity.')
     if not read_only:
         value['identity_fingerprint'] = fingerprint
+        value['worker_wireguard_public_key'] = public
         if value['phase'] in ('preparing', 'prepared', 'rolled_back'):
             value['phase'] = 'prepared'
         save(value)
@@ -243,6 +266,9 @@ def managed_write(path: Path, content: str, value: dict, mode: int = 0o600) -> N
         save(value)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path == SSH_PUBLIC:
+        path.parent.chmod(0o755)
+    elif path == AGENT_ENV:
+        Path('/opt/zt-serverops').chmod(0o755)
         path.parent.chmod(0o755)
     # Atomic replace also handles a public SSH key, whose directory contains no secrets.
     if path.exists() and path.stat().st_mode & 0o077:
@@ -359,9 +385,28 @@ WantedBy=multi-user.target
     save(value)
 
 
+def record_managed_file(path: Path, expected_after_hash: str, value: dict, mode: int = 0o600) -> None:
+    assert_no_symlinks(path)
+    key = str(path)
+    if key in value['managed']:
+        return
+    previous = path.read_bytes() if path.exists() else None
+    backup = STATE / 'backup' / hashlib.sha256(key.encode()).hexdigest()
+    if previous is not None:
+        write_private(backup, previous)
+    value['managed'][key] = {
+        'before_hash': hashlib.sha256(previous).hexdigest() if previous is not None else None,
+        'after_hash': expected_after_hash,
+        'backup': str(backup),
+        'before_mode': (path.stat().st_mode & 0o777) if previous is not None else None,
+    }
+    save(value)
+
+
 def install_agent(invite: dict, value: dict) -> None:
+    token = (STATE / 'node.token').read_text().strip()
     environment = dict(os.environ)
-    environment.update({'NODE_TOKEN': (STATE / 'node.token').read_text().strip(),
+    environment.update({'NODE_TOKEN': token,
                         'NODE_ID': invite['node_name'], 'NETWORK_INTERFACE': 'zt-worker',
                         'DISK_MOUNT_POINT': '/', 'GATEWAY_URL': 'http://10.100.0.1:3000',
                         'ZT_AGENT_BINARY': str(STATE / 'zt-agent')})
@@ -370,6 +415,54 @@ def install_agent(invite: dict, value: dict) -> None:
         for key in ('NODE_TOKEN', 'NODE_ID', 'NETWORK_INTERFACE', 'DISK_MOUNT_POINT', 'GATEWAY_URL'):
             if old.get(key) != environment[key]:
                 raise InstallError('Existing Agent identity differs from the saved enrollment; no changes were made.')
+
+    Path('/opt/zt-serverops').mkdir(parents=True, mode=0o755, exist_ok=True)
+    Path('/opt/zt-serverops').chmod(0o755)
+    AGENT_DIR.mkdir(parents=True, mode=0o755, exist_ok=True)
+    AGENT_DIR.chmod(0o755)
+
+    agent_bin = AGENT_DIR / 'zt-agent'
+    record_managed_file(agent_bin, value['agent_sha256'], value, 0o755)
+
+    agent_env_content = f'''GATEWAY_URL=http://10.100.0.1:3000
+NODE_ID={invite['node_name']}
+NODE_TOKEN={token}
+NETWORK_INTERFACE=zt-worker
+DISK_MOUNT_POINT=/
+BEACON_INTERVAL_SECONDS=3.0
+MAX_BACKOFF_SECONDS=30.0
+JITTER_RATIO=0.1
+HTTP_TIMEOUT_SECONDS=3.0
+GOMAXPROCS=1
+'''
+    managed_write(AGENT_ENV, agent_env_content, value, 0o600)
+
+    agent_unit_content = f'''[Unit]
+Description=ZT-ServerOps Linux Mini-Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zt-agent
+Group=zt-agent
+WorkingDirectory={AGENT_DIR}
+Environment=GOMAXPROCS=1
+EnvironmentFile={AGENT_ENV}
+ExecStart={agent_bin}
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+'''
+    managed_write(AGENT_UNIT, agent_unit_content, value, 0o644)
+
     run(['bash', str(ROOT / 'agent/install.sh')], env=environment, timeout=90, label='Agent installation')
     value['phase'] = 'agent_active'
     save(value)
@@ -461,6 +554,9 @@ def install(args) -> dict:
     if os.geteuid() != 0:
         raise InstallError('Install requires root at the dedicated Worker console.')
     previous = state()
+    if previous and previous.get('phase') == 'uninstalled':
+        archive_terminal_state()
+        previous = None
     invite = validate_invite(read_private_json(args.invite), 'linux', allow_expired=bool(previous))
     plan = preflight(invite, args.agent_binary, args.agent_sha256, install=True,
                      dedicated=args.dedicated_worker, allow_packages=not args.no_install_prerequisites)
@@ -550,24 +646,73 @@ def status(args) -> dict:
             'state_file': str(JOURNAL)}
 
 
+def uninstall(args) -> dict:
+    if os.geteuid() != 0:
+        raise InstallError('Uninstall requires root at the dedicated Worker console.')
+    if os.environ.get('SSH_CONNECTION'):
+        raise InstallError('Network changes require the local/VM console; do not run uninstall through SSH.')
+    if not STATE.exists():
+        raise InstallError('No managed Worker installation found.')
+    assert_no_symlinks(STATE)
+    if STATE.stat().st_uid != 0 or STATE.stat().st_mode & 0o077:
+        raise InstallError('Worker state directory must be root-owned and private.')
+    lock = STATE / '.lock'
+    assert_no_symlinks(lock)
+    with lock.open('a+b') as stream:
+        os.chmod(lock, 0o600)
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise InstallError('Another Worker operation is already running.') from None
+        import worker_uninstall
+        return worker_uninstall.execute_uninstall(args.authorization, args.ca_file)
+
+
+def cleanup_retry(args) -> dict:
+    if os.geteuid() != 0:
+        raise InstallError('Cleanup retry requires root at the dedicated Worker console.')
+    if os.environ.get('SSH_CONNECTION'):
+        raise InstallError('Network changes require the local/VM console; do not run cleanup retry through SSH.')
+    if not STATE.exists():
+        raise InstallError('No managed Worker installation found.')
+    assert_no_symlinks(STATE)
+    if STATE.stat().st_uid != 0 or STATE.stat().st_mode & 0o077:
+        raise InstallError('Worker state directory must be root-owned and private.')
+    lock = STATE / '.lock'
+    assert_no_symlinks(lock)
+    with lock.open('a+b') as stream:
+        os.chmod(lock, 0o600)
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise InstallError('Another Worker operation is already running.') from None
+        import worker_uninstall
+        return worker_uninstall.execute_cleanup_retry(args.authorization, args.ca_file)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('check', 'install', 'status'))
+    parser.add_argument('action', choices=('check', 'install', 'status', 'uninstall', 'cleanup-retry'))
     parser.add_argument('--invite', type=Path, help='Private invitation JSON from the chosen Gateway.')
     parser.add_argument('--agent-binary', type=Path)
     parser.add_argument('--agent-sha256')
     parser.add_argument('--ca-file', type=Path, help='Trusted Gateway CA when using a private HTTPS certificate.')
+    parser.add_argument('--authorization', type=Path, help='Private offboarding authorization JSON bundle from the Gateway.')
     parser.add_argument('--dedicated-worker', action='store_true')
     parser.add_argument('--transport-interface')
     parser.add_argument('--no-install-prerequisites', action='store_true')
     parser.add_argument('--wait-seconds', type=int, default=120)
     args = parser.parse_args()
-    if args.action != 'status' and (not args.invite or not args.agent_binary or not args.agent_sha256):
+    if args.action in ('check', 'install') and (not args.invite or not args.agent_binary or not args.agent_sha256):
         parser.error('check/install require --invite, --agent-binary and --agent-sha256.')
+    if args.action == 'uninstall' and not args.authorization:
+        parser.error('uninstall requires --authorization FILE.')
     if not 15 <= args.wait_seconds <= 600:
-        parser.error('--wait-seconds must be between15 and600.')
+        parser.error('--wait-seconds must be between 15 and 600.')
     if args.ca_file:
         assert_no_symlinks(args.ca_file)
+    if args.authorization:
+        assert_no_symlinks(args.authorization)
     os.umask(0o077)
     try:
         if args.action == 'check':
@@ -577,8 +722,14 @@ def main() -> int:
             code = 0 if result['can_install'] else 2
         elif args.action == 'install':
             result, code = install(args), 0
-        else:
+        elif args.action == 'status':
             result = status(args)
+            code = 0 if result['ok'] else 2
+        elif args.action == 'uninstall':
+            result = uninstall(args)
+            code = 0 if result['ok'] else 2
+        else:
+            result = cleanup_retry(args)
             code = 0 if result['ok'] else 2
         print(json.dumps(result, ensure_ascii=False))
         return code

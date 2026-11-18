@@ -51,6 +51,37 @@ export interface NodeItem {
   last_seen: string | null;
   created_at: string;
   latest_metric?: MetricSnapshot;
+  lifecycle_state?: 'ACTIVE' | 'RETIRING' | 'REVOKED' | 'REMOVED';
+  is_token_revoked?: boolean;
+  is_enrolled?: boolean;
+}
+
+export type NodeLifecycleFilter = 'active' | 'removing' | 'removed' | 'all';
+export type NodeLifecycleState = 'ACTIVE' | 'RETIRING' | 'REVOKED' | 'REMOVED';
+export type OffboardingState = 'PENDING_PEER_REMOVAL' | 'PENDING_LOCAL_CLEANUP' | 'NEEDS_REVIEW' | 'COMPLETED';
+
+export interface OffboardingOperation {
+  operation_id: string;
+  node_id: string;
+  node_name: string;
+  node_ip: string;
+  node_type?: NodeType;
+  worker_os?: string;
+  wireguard_public_key?: string;
+  state: OffboardingState;
+  lifecycle_state?: NodeLifecycleState;
+  created_at: string;
+  peer_removed_at?: string | null;
+  completed_at?: string | null;
+  last_error?: string | null;
+  has_cleanup_token?: boolean;
+}
+
+export interface OffboardingStatusResponse {
+  success: boolean;
+  status?: string;
+  offboarding?: OffboardingOperation | null;
+  operation?: OffboardingOperation | null;
 }
 
 export interface MetricSnapshot {

@@ -47,7 +47,7 @@ class TestStream extends EventEmitter {
 }
 
 const user = { id: 'test-admin', role: 'ADMIN', is_active: true, session_version: 1 };
-const node = { id: 'test-node', name: 'worker-test', ip_address: '10.100.0.2', host_key_fingerprint: 'pinned-fingerprint' };
+const node = { id: 'test-node', name: 'worker-test', ip_address: '10.100.0.2', host_key_fingerprint: 'pinned-fingerprint', lifecycle_state: 'ACTIVE', is_token_revoked: false };
 const attach = (socket: TestSocket, userId = user.id) => attachBastionSession(
   socket as unknown as WebSocket, node.id, createBastionTicket(node.id, userId, 1), '198.51.100.7'
 );
@@ -131,6 +131,7 @@ async function readySession() {
   const clientIndex = mock.clients.length;
   await attach(socket);
   mock.clients[clientIndex].emit('ready');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
   expect(socket.send).toHaveBeenCalledWith(expect.stringContaining('"type":"READY"'));
   return { socket, stream: mock.stream as TestStream, client: mock.clients[clientIndex] };
 }

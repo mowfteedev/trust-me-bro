@@ -30,7 +30,7 @@ import { TelegramService } from '../src/services/telegram.js';
 
 const node = { id: '98a10aee-6336-4bb0-9f90-1083e2ec3064', name: 'worker-test',
   token_hash: hashToken('unit-test-token'), status: 'HEALTHY', ip_address: '10.100.0.2',
-  last_seen: new Date('2026-10-16T00:00:00Z') };
+  last_seen: new Date('2026-10-16T00:00:00Z'), lifecycle_state: 'ACTIVE', is_token_revoked: false };
 const payload = (cpu: number) => ({
   node_id: node.name, timestamp: Date.now(),
   metrics: { cpu: { percent: cpu }, memory: { total_bytes: 100, used_bytes: 40, percent: 40 },

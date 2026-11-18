@@ -90,6 +90,11 @@ if($FixturePath){
         Expect-Failure {Invoke-Claim $fixture.expired $payload} 'Actual HTTPS rejects expired certificate'
     }
 }
+$uninstallTest = Join-Path $PSScriptRoot 'windows-worker-uninstall-functions.ps1'
+if (Test-Path -LiteralPath $uninstallTest) {
+    & $uninstallTest | Out-Null
+    Passed 'Windows Worker uninstaller functions and tests passed'
+}
 $result=[ordered]@{ok=$true;scope='PowerShell parser/pure validation and optional real local HTTPS; NOT Windows installation/service/firewall runtime';checks=$checks.ToArray();check_count=$checks.Count}
 $json=$result | ConvertTo-Json -Depth 4
 if($ResultPath){[IO.File]::WriteAllText($ResultPath,$json,(New-Object Text.UTF8Encoding($false)))}

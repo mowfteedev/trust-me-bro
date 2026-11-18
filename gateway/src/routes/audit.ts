@@ -10,6 +10,7 @@ export const AUDIT_ACTIONS = [
   'BASTION_SESSION_START', 'BASTION_SESSION_END', 'CPU_HIGH', 'NODE_OFFLINE',
   'TELEGRAM_TEST', 'AUDIT_PURGED',
   'CPU_RECOVERED', 'USER_CREATED', 'USER_UPDATED', 'USER_PASSWORD_RESET', 'PASSWORD_CHANGED', 'WORKER_ENROLLED',
+  'WORKER_OFFBOARD_STARTED', 'WORKER_PEER_REVOKED', 'WORKER_OFFBOARDED',
 ] as const;
 
 const PAGE_SIZE = 25;
@@ -40,6 +41,10 @@ export interface AuditLogDetails {
   scope?: 'current' | 'all';
   node_type?: 'VM' | 'BARE_METAL';
   worker_os?: 'linux' | 'windows';
+  operation_id?: string;
+  wireguard_public_key?: string;
+  receipt_hash?: string;
+  reported_status?: string;
 }
 
 export interface AuditLogItem {
@@ -71,6 +76,20 @@ function safeDetails(raw: unknown, action: string): AuditLogDetails {
   if (action === 'WORKER_ENROLLED') {
     if (values.node_type === 'VM' || values.node_type === 'BARE_METAL') result.node_type = values.node_type;
     if (values.worker_os === 'linux' || values.worker_os === 'windows') result.worker_os = values.worker_os;
+  }
+  if (['WORKER_OFFBOARD_STARTED', 'WORKER_PEER_REVOKED', 'WORKER_OFFBOARDED'].includes(action)) {
+    if (typeof values.operation_id === 'string' && /^[0-9a-f-]{36}$/i.test(values.operation_id)) {
+      result.operation_id = values.operation_id;
+    }
+    if (typeof values.wireguard_public_key === 'string' && values.wireguard_public_key.length <= 64) {
+      result.wireguard_public_key = values.wireguard_public_key;
+    }
+    if (typeof values.receipt_hash === 'string' && /^[0-9a-f]{64}$/.test(values.receipt_hash)) {
+      result.receipt_hash = values.receipt_hash;
+    }
+    if (typeof values.reported_status === 'string') {
+      result.reported_status = values.reported_status.slice(0, 32);
+    }
   }
   if (action === 'LOGIN_FAILED' && typeof values.attempted_username === 'string') {
     result.attempted_username = values.attempted_username.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 50);
@@ -152,6 +171,8 @@ async function readAuditRows(action: typeof AUDIT_ACTIONS[number] | undefined, q
             'username', a.details->'username', 'is_active', a.details->'is_active',
             'scope', a.details->'scope',
             'node_type', a.details->'node_type', 'worker_os', a.details->'worker_os',
+            'operation_id', a.details->'operation_id', 'wireguard_public_key', a.details->'wireguard_public_key',
+            'receipt_hash', a.details->'receipt_hash', 'reported_status', a.details->'reported_status',
             'deleted_count', a.details->'deleted_count',
             'cutoff_time', a.details->'cutoff_time',
             'retention', a.details->'retention'

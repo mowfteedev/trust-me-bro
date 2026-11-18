@@ -191,6 +191,15 @@ svg {
   border-color: var(--border-strong);
   color: var(--text);
 }
+.button.danger {
+  border-color: color-mix(in oklch, var(--danger) 30%, transparent);
+  background: var(--danger);
+  color: #fff;
+}
+.button.danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 3px 18px color-mix(in oklch, var(--danger) 25%, transparent);
+}
 .brand {
   display: flex;
   min-width: 0;

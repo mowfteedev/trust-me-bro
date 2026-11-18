@@ -64,6 +64,7 @@ fi
 if ! id -u zt-agent >/dev/null 2>&1; then
     useradd --system --user-group --no-create-home --shell /usr/sbin/nologin zt-agent
 fi
+install -d -m 0755 -o root -g root "/opt/zt-serverops"
 install -d -m 0755 -o root -g root "${INSTALL_DIR}"
 if [[ ! -f "${ENV_TARGET}" ]]; then
     umask 077

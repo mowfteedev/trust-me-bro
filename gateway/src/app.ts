@@ -15,13 +15,20 @@ import { telegramRoutes } from './routes/telegram.js';
 import { usersRoutes } from './routes/users.js';
 import { incidentsRoutes } from './routes/incidents.js';
 import { enrollmentRoutes } from './routes/enrollment.js';
+import { offboardingRoutes } from './routes/offboarding.js';
 
 export async function buildServer(): Promise<FastifyInstance> {
   const fastify = Fastify({
     logger: process.env.NODE_ENV === 'test' ? false : {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
       redact: {
-        paths: ['req.headers.authorization', 'req.headers.cookie', 'req.headers["x-enrollment-token"]', 'res.headers["set-cookie"]'],
+        paths: [
+          'req.headers.authorization',
+          'req.headers.cookie',
+          'req.headers["x-enrollment-token"]',
+          'req.headers["x-cleanup-token"]',
+          'res.headers["set-cookie"]',
+        ],
         censor: '[REDACTED]',
       },
     },
@@ -126,6 +133,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(usersRoutes, { prefix: '/api/users' });
   await fastify.register(incidentsRoutes, { prefix: '/api/incidents' });
   await fastify.register(enrollmentRoutes, { prefix: '/api/enrollment' });
+  await fastify.register(offboardingRoutes, { prefix: '/api' });
 
   return fastify;
 }

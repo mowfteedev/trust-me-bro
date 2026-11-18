@@ -111,7 +111,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
     try {
       // 3. Tra cứu điểm qua chỉ mục B-Tree UNIQUE trên token_hash.
       const nodeRes = await query(
-        'SELECT id, name, ip_address, token_hash, status, is_token_revoked FROM nodes WHERE token_hash = $1 LIMIT 1;',
+        'SELECT id, name, ip_address, token_hash, status, is_token_revoked, lifecycle_state FROM nodes WHERE token_hash = $1 LIMIT 1;',
         [inputHash]
       );
 
@@ -127,7 +127,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
 
       const node = nodeRes.rows[0];
 
-      if (node.is_token_revoked || node.token_hash?.startsWith('REVOKED_') || node.status === 'REVOKED') {
+      if (node.is_token_revoked || node.token_hash?.startsWith('REVOKED_') || node.status === 'REVOKED' || node.lifecycle_state !== 'ACTIVE') {
         return reply.status(401).send({
           type: 'https://tools.ietf.org/html/rfc7807',
           title: 'Mã xác thực đã bị thu hồi',
@@ -185,7 +185,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
         // Serialize beacons of one node so threshold alerts are emitted once per incident.
         const lockedNode = await client.query(
           `SELECT id, EXTRACT(EPOCH FROM (now() - last_seen)) AS heartbeat_gap_seconds
-           FROM nodes WHERE id = $1 AND token_hash = $2 AND is_token_revoked = FALSE FOR UPDATE;`,
+           FROM nodes WHERE id = $1 AND token_hash = $2 AND is_token_revoked = FALSE AND lifecycle_state = 'ACTIVE' FOR UPDATE;`,
           [node.id, inputHash]
         );
         if (!lockedNode.rowCount) {
@@ -320,8 +320,24 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
    * Lấy danh sách tất cả các Endpoint Hosts kèm số liệu tài nguyên mới nhất (Realtime Lateral Join)
    */
   fastify.get('/nodes', { preHandler: [authenticate] }, async (req, reply) => {
+    const rawLifecycle = (req.query as Record<string, unknown> | undefined)?.lifecycle;
+    const filter = typeof rawLifecycle === 'string' && ['active', 'removing', 'removed', 'all'].includes(rawLifecycle)
+      ? rawLifecycle
+      : 'active';
+
+    let lifecycleClause = `WHERE n.lifecycle_state = 'ACTIVE'`;
+    if (filter === 'removing') {
+      lifecycleClause = `WHERE n.lifecycle_state IN ('RETIRING', 'REVOKED')`;
+    } else if (filter === 'removed') {
+      lifecycleClause = `WHERE n.lifecycle_state = 'REMOVED'`;
+    } else if (filter === 'all') {
+      lifecycleClause = '';
+    }
+
     const nodesRes = await query(
       `SELECT n.id, n.name, n.ip_address, n.node_type, n.status, n.last_seen, n.created_at,
+              n.lifecycle_state, n.is_token_revoked,
+              public.is_node_enrolled(n.id) AS is_enrolled,
               m.cpu_percent,
               m.ram_used_bytes, m.ram_total_bytes, m.ram_percent,
               m.ram_used_bytes AS memory_used_bytes, m.ram_total_bytes AS memory_total_bytes,
@@ -339,6 +355,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
          ORDER BY mh.recorded_at DESC
          LIMIT 1
        ) m ON true
+       ${lifecycleClause}
        ORDER BY n.name ASC;`
     );
 
@@ -349,6 +366,9 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
       ip_address: row.ip_address,
       node_type: row.node_type,
       status: row.status,
+      lifecycle_state: row.lifecycle_state,
+      is_token_revoked: row.is_token_revoked,
+      is_enrolled: Boolean(row.is_enrolled),
       last_seen: row.last_seen,
       created_at: row.created_at,
       latest_metric: row.cpu_percent !== null ? {
@@ -378,6 +398,8 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
    */
   fastify.get('/nodes/:node_id/history', { preHandler: [authenticate] }, async (req, reply) => {
     const { node_id } = req.params as { node_id: string };
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(node_id);
+    const whereClause = isUuid ? 'n.id = $1::uuid' : "n.name = $1 AND n.lifecycle_state = 'ACTIVE'";
 
     const metricsRes = await query(
       `SELECT m.node_id, m.cpu_percent,
@@ -389,7 +411,7 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
               m.network_rx_bytes, m.network_tx_bytes, m.uptime_seconds, m.recorded_at
        FROM metrics_history m
        JOIN nodes n ON m.node_id = n.id
-       WHERE (n.id::text = $1 OR n.name = $1) AND m.recorded_at <= NOW()
+       WHERE (${whereClause}) AND m.recorded_at <= NOW()
        ORDER BY m.recorded_at DESC
        LIMIT 100;`,
       [node_id]

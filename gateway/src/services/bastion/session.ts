@@ -161,7 +161,7 @@ export async function attachBastionSession(
     return;
   }
 
-  const authResult = verifyAndConsumeTicket(initialTicket, nodeIdentifier);
+  const authResult = verifyAndConsumeTicket(initialTicket);
   if (!authResult.valid || !authResult.ticketData) {
     runCleanup(4401, 'Unauthorized Ticket', 'Mã vé truy cập Web SSH không hợp lệ hoặc đã hết hạn');
     return;
@@ -191,6 +191,7 @@ export async function attachBastionSession(
     authSessionId,
     nodeId: nodeIdentifier,
     nodeName: nodeIdentifier,
+    nodeResolved: false,
     state: 'INIT',
     socket,
     sshClient: null,
@@ -254,14 +255,22 @@ export async function attachBastionSession(
   let expectedFingerprint = '';
   let sshUsername = config.BASTION_DEFAULT_USER;
 
+  const isUuidIdentifier = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(nodeIdentifier);
   try {
     const nodeRes = await query(
-      'SELECT id, name, ip_address, host_key_fingerprint, ssh_username FROM nodes WHERE (id::text = $1 OR name = $1) LIMIT 1;',
+      isUuidIdentifier
+        ? 'SELECT id, name, ip_address, host_key_fingerprint, ssh_username, lifecycle_state, is_token_revoked FROM nodes WHERE id::text = $1 LIMIT 1;'
+        : 'SELECT id, name, ip_address, host_key_fingerprint, ssh_username, lifecycle_state, is_token_revoked FROM nodes WHERE (name = $1 OR id::text = $1) AND lifecycle_state = \'ACTIVE\' AND is_token_revoked = FALSE LIMIT 1;',
       [nodeIdentifier]
     );
 
     if (nodeRes.rows.length === 0) {
       runCleanup(4404, 'Node Not Found', 'Không tìm thấy thông tin máy chủ con');
+      return;
+    }
+
+    if ((nodeRes.rows[0].lifecycle_state && nodeRes.rows[0].lifecycle_state !== 'ACTIVE') || nodeRes.rows[0].is_token_revoked) {
+      runCleanup(4403, 'Node Retired', 'Máy chủ con đã bị thu hồi hoặc đang trong quy trình offboarding');
       return;
     }
 
@@ -273,6 +282,12 @@ export async function attachBastionSession(
 
     sessionRecord.nodeId = targetNodeId;
     sessionRecord.nodeName = nodeName;
+    sessionRecord.nodeResolved = true;
+
+    if (authResult.ticketData.nodeId !== targetNodeId) {
+      runCleanup(4401, 'Unauthorized Ticket', 'Vé truy cập không khớp với định danh máy chủ');
+      return;
+    }
   } catch (nodeDbErr: any) {
     console.error('❌ [BASTION NODE DB ERROR]:', nodeDbErr.message);
     runCleanup(4500, 'Database Error', 'Lỗi truy vấn thông tin máy chủ con');
@@ -285,7 +300,7 @@ export async function attachBastionSession(
   }
 
   const nodeOpenSessions = Array.from(activeSessions.values()).filter(
-    s => s.nodeId === targetNodeId || s.nodeId === nodeIdentifier
+    s => s.nodeId === targetNodeId
   ).length;
 
   if (nodeOpenSessions > MAX_SESSIONS_PER_NODE) {
@@ -359,9 +374,29 @@ export async function attachBastionSession(
     runCleanup(4502, 'SSH Connection Interrupted', 'Mất kết nối SSH với máy chủ đích (Xác thực hoặc giao thức SSH thất bại)');
   });
 
-  sshClient.on('ready', () => {
+  sshClient.on('ready', async () => {
     // A resource arriving after cleanup must never reopen the session.
-    if (sessionState === 'CLOSED' || isCancelled || !sshClient) {
+    if (isCancelled || !sshClient) {
+      if (sshClient) { try { sshClient.end(); } catch {} sshClient = null; }
+      return;
+    }
+
+    // Tái kiểm tra trạng thái node trước khi cấp PTY shell
+    try {
+      const recheck = await query(
+        'SELECT id, lifecycle_state, is_token_revoked FROM nodes WHERE id = $1 LIMIT 1;',
+        [targetNodeId]
+      );
+      if (recheck.rows.length === 0 || recheck.rows[0].lifecycle_state !== 'ACTIVE' || recheck.rows[0].is_token_revoked) {
+        runCleanup(4403, 'Node Retired', 'Máy chủ con đã bị thu hồi hoặc đang offboarding trước khi PTY sẵn sàng');
+        return;
+      }
+    } catch {
+      runCleanup(4500, 'Database Error', 'Lỗi kiểm tra trạng thái máy chủ');
+      return;
+    }
+
+    if (isCancelled || !sshClient) {
       if (sshClient) { try { sshClient.end(); } catch {} sshClient = null; }
       return;
     }
