@@ -1,14 +1,16 @@
 # Cài Gateway và ghép Worker
 
 Một Gateway, PostgreSQL hiện có và nhiều Worker. Không có database tổng.
-Bộ cài dành cho máy mới/máy lab riêng; không tự tiếp quản bản cài cũ chưa có
+Bộ cài dành cho máy mới/máy lab riêng (native OS hoặc VM); không tự tiếp quản bản cài cũ chưa có
 journal automation. Không chạy bộ cài mới lên EC2/TV đang phục vụ để cập nhật.
+Không dùng bộ cài native này để chạy trực tiếp bên trong container Docker Worker thông thường
+(vốn không có systemd init và không trực tiếp quản lý kernel network/firewall của host).
 
 ## Chuẩn bị
 
 Gateway: Linux amd64/arm64, quyền root, Python3, Docker Compose v2,
-OpenSSL, ssh-keygen và kernel WireGuard. RAM vật lý tối thiểu512MiB là điều
-kiện kiểm đầu vào, không phải cam kết chạy ổn trên máy512MiB.
+OpenSSL, ssh-keygen và kernel WireGuard. RAM vật lý tối thiểu 512MiB là điều
+kiện kiểm đầu vào, không phải cam kết chạy ổn trên máy 512MiB.
 
 Build trên máy phát triển, chuyển source và image sang Gateway nếu cần:
 
@@ -40,14 +42,15 @@ sudo python3 deploy/automation/gateway.py check
 Mật khẩu Admin được nhập ẩn; mặc định chỉ lưu scrypt+salt trong PostgreSQL,
 không tạo `demo-login.env` hay file mật khẩu Admin rõ. Automation qua pipe
 có thể dùng `--password-stdin`, JSON chỉ chứa `password`; không truyền qua argv.
-Database password/secret dịch vụ vẫn cần file riêng `keys/automation.env`0600.
+Database password/secret dịch vụ vẫn cần file riêng `keys/automation.env` 0600.
 
 Journal giữ tiến độ; chạy lại cùng lệnh giữ khóa, DB và mật khẩu đã đổi.
-Sau lỗi HTTPS, sửa đường truy cập/chứng chỉ rồi chạy lại, không xóa keys/volume.
+Sau lỗi HTTPS, sửa đường truy cập/chứng chỉ rồi chạy lại; khắc phục lỗi theo journal,
+tuyệt đối không xóa keys/DB/volume để né lỗi.
 `check` đối chiếu public Gateway ID qua HTTPS, core và collector; chưa chứng
 minh Worker hoặc Internet firewall khi chưa có Worker tham gia.
 
-Cấp file ghép riêng cho mỗi máy, mặc định15phút:
+Cấp file ghép riêng cho mỗi máy, mặc định 15 phút:
 
 ```sh
 sudo install -d -m 700 /root/worker-invites
@@ -69,9 +72,11 @@ sudo python3 deploy/automation/gateway.py revoke --invitation-id INVITATION_UUID
 > 1. `ENROLLMENT_PUBLIC_URL` trong `keys/ec2.env` phải là origin HTTPS công khai đã được xác minh (ví dụ: `https://zt-dashboard.mowftee.workers.dev`), không trỏ về loopback nếu Worker kết nối từ Internet.
 > 2. Do `wireguard_gateway` chia sẻ namespace mạng (`network_mode: service:gateway`), khi container `gateway` được recreate, cần chạy `docker compose -p zt_ec2 --env-file keys/ec2.env up -d wireguard_gateway` để gắn lại namespace mạng.
 
-File0600 chứa public identity/endpoint và mã ghép một lần; chuyển riêng đúng
-máy. PostgreSQL chỉ lưu hash mã. Thu hồi mã ngăn claim/retry, không tự thu hồi
-token hay gỡ VPN của Worker đã hoạt động. Không gửi file ghép lên Git/chat.
+**Quy chế bảo mật và cơ chế cấp IP:**
+- Clone repo **chưa tạo lời mời và chưa đăng ký bất kỳ Worker nào**.
+- Lệnh `gateway.py invite` chỉ tạo file lời mời kèm mã token một lần ngắn hạn; **IP WireGuard chưa được cấp tại thời điểm tạo lời mời**, mà chỉ được Gateway cấp phát tự động trong quá trình Worker claim/đăng ký thành công.
+- File lời mời đặt quyền `0600` (chỉ root/Admin đọc), chứa public identity/endpoint và mã ghép một lần. Quản trị viên chuyển file sang máy Worker qua kênh truyền bảo mật riêng (ví dụ: SCP, USB nội bộ); **tuyệt đối KHÔNG sao chép AWS private key (`.pem`/`.key`) hoặc secret của EC2 sang Worker**.
+- PostgreSQL chỉ lưu hash mã mời. Thu hồi mã ngăn claim/retry, không tự thu hồi token hay gỡ VPN của Worker đã hoạt động. Không gửi file ghép lên Git/chat.
 
 ## Worker Linux
 
@@ -167,7 +172,7 @@ Windows (PowerShell console Administrator):
 - **Giải phóng IP và tên máy:** Tên và IP chỉ được giải phóng cấp phát sau khi tiến trình WireGuard root ghi nhận ACK gỡ bỏ peer (`keys/enrollment/requests/UUID.remove`).
 - **Lưu trữ lịch sử:** Lịch sử node và audit log được giữ nguyên vĩnh viễn trong CSDL; token và khóa WireGuard cũ không bao giờ được tái sử dụng.
 - **Cài đặt lại:** Cần cấp tệp mời mới (`invite`), không tái sử dụng danh tính cũ.
-- **Bảo vệ tài nguyên host:** Bộ gỡ bảo toàn khóa SSH của OS, tài khoản người dùng, dữ liệu và ứng dụng chia sẻ khác; không thực hiện xóa diện rộng (`no broad delete`). Bản cài cũ không có journal automation sẽ từ chối tự gỡ và yêu cầu rà soát thủ công (`manual review`), không force-ack. Nếu tệp do bộ cài quản lý bị chỉnh sửa ngoài dự kiến, bước tương ứng chuyển sang `NEEDS_REVIEW`.
+- **Bảo vệ tài nguyên host:** Bộ gỡ bảo toàn khóa SSH của OS, tài khoản người dùng, dữ liệu và ứng dụng chia sẻ khác; không thực hiện xóa diện rộng (`no broad delete`). Bản cài cũ không có journal automation sẽ từ chối tự gỡ và yêu cầu rà soát thủ công (`manual review`), không force-ack. Nếu tệp hoặc cấu hình do bộ cài quản lý bị chỉnh sửa ngoài dự kiến, hoặc thiếu quyền sở hữu (ownership), bước tương ứng sẽ dừng lại và chuyển sang trạng thái `REVIEW` / `NEEDS_REVIEW` để quản trị viên can thiệp thủ công; bộ gỡ không tự ý xóa đè và không khẳng định khôi phục nguyên vẹn 100% mọi cấu hình máy chủ trong mọi ca.
 - **Ranh giới bằng chứng:** Trạng thái `COMPLETED` / `REMOVED` chỉ thể hiện biên bản báo cáo (receipt claim) do Worker gửi về; máy chủ Gateway không thể tự kiểm chứng độc lập hệ thống tệp cục bộ trên Worker. Bằng chứng kiểm thử máy ảo (native VM) được xác minh và lưu trữ độc lập.
 
 ## Lưu ý vận hành
