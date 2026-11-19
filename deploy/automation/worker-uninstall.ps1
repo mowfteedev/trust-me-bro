@@ -946,7 +946,18 @@ function Cleanup-TunnelStep($Preflight) {
             Remove-Item -LiteralPath $stagedConf -Force -ErrorAction SilentlyContinue
         }
 
-        $remainingSvc = Get-Service -Name $tunnelServiceName -ErrorAction SilentlyContinue
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        do {
+            $remainingSvc = Get-Service -Name $tunnelServiceName -ErrorAction SilentlyContinue
+            if (-not $remainingSvc) { break }
+            Start-Sleep -Milliseconds 250
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if ($remainingSvc) {
+            Stop-Service -Name $tunnelServiceName -Force -ErrorAction SilentlyContinue
+            & "$env:WINDIR\System32\sc.exe" delete $tunnelServiceName *> $null
+            Start-Sleep -Milliseconds 500
+            $remainingSvc = Get-Service -Name $tunnelServiceName -ErrorAction SilentlyContinue
+        }
         if ($remainingSvc) { return 'REVIEW' }
         if (Test-Path -LiteralPath $workerConf) { return 'REVIEW' }
         if (-not $okConf) { return 'REVIEW' }
