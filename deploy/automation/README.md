@@ -57,6 +57,18 @@ sudo python3 deploy/automation/gateway.py invite \
 sudo python3 deploy/automation/gateway.py revoke --invitation-id INVITATION_UUID
 ```
 
+> [!NOTE] Thao tác trên Gateway EC2 hiện hữu (Cụm đang vận hành)
+> Khi tạo lời mời hoặc kiểm tra trên cụm EC2 hiện có (`zt_ec2`), bắt buộc truyền cờ project và env-file cụ thể:
+> ```sh
+> python3 deploy/automation/gateway.py invite \
+>   --project zt_ec2 --env-file keys/ec2.env \
+>   --node-name node-linux-01 --worker-os linux --node-type VM \
+>   --output keys/invitations/node-linux-01.json
+> ```
+> Lưu ý:
+> 1. `ENROLLMENT_PUBLIC_URL` trong `keys/ec2.env` phải là origin HTTPS công khai đã được xác minh (ví dụ: `https://zt-dashboard.mowftee.workers.dev`), không trỏ về loopback nếu Worker kết nối từ Internet.
+> 2. Do `wireguard_gateway` chia sẻ namespace mạng (`network_mode: service:gateway`), khi container `gateway` được recreate, cần chạy `docker compose -p zt_ec2 --env-file keys/ec2.env up -d wireguard_gateway` để gắn lại namespace mạng.
+
 File0600 chứa public identity/endpoint và mã ghép một lần; chuyển riêng đúng
 máy. PostgreSQL chỉ lưu hash mã. Thu hồi mã ngăn claim/retry, không tự thu hồi
 token hay gỡ VPN của Worker đã hoạt động. Không gửi file ghép lên Git/chat.
