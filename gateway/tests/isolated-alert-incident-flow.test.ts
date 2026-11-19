@@ -11,6 +11,8 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ==============================================================================
@@ -875,12 +877,13 @@ describe('Offline -> Online Alerting Verification in Isolated Environment', () =
         },
       };
 
-      // Write evidence file to /home/mowftee/.cache/evidence-alerts.json with mode 0600
-      const cacheDir = '/home/mowftee/.cache';
+      // Write evidence file to ~/.cache/evidence-alerts.json with mode 0600
+      const homedir = os.homedir();
+      const cacheDir = path.join(homedir, '.cache');
       if (!fs.existsSync(cacheDir)) {
         fs.mkdirSync(cacheDir, { recursive: true });
       }
-      const evidencePath = '/home/mowftee/.cache/evidence-alerts.json';
+      const evidencePath = path.join(cacheDir, 'evidence-alerts.json');
       fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2), { mode: 0o600 });
       fs.chmodSync(evidencePath, 0o600);
 
