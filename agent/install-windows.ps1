@@ -93,7 +93,7 @@ if (-not (Test-Path -LiteralPath $sourceConfig -PathType Leaf)) { throw 'A JSON 
 $effectiveConfig = if ((Test-Path -LiteralPath $targetConfig) -and -not $UpdateConfig) { $targetConfig } else { $sourceConfig }
 Assert-NoReparsePoint $effectiveConfig
 # Native exit status is required; PowerShell ErrorActionPreference alone does not check it.
-& $sourceBinary --validate-config --config $effectiveConfig
+& cmd.exe /c "`"$sourceBinary`" --validate-config --config `"$effectiveConfig`" >nul 2>nul"
 if ($LASTEXITCODE -ne 0) { throw 'Agent/config validation failed; installation has not changed.' }
 if ($ValidateOnly) {
     Write-Host 'Binary/config validation passed; no service, network or installation changes.'
@@ -126,7 +126,7 @@ if (-not (Test-Path -LiteralPath $targetConfig) -or $UpdateConfig) {
     }
 }
 Set-PrivateFile $targetConfig
-& $sourceBinary --validate-config --config $targetConfig
+& cmd.exe /c "`"$sourceBinary`" --validate-config --config `"$targetConfig`" >nul 2>nul"
 if ($LASTEXITCODE -ne 0) { throw 'Preserved service configuration is invalid; fix config and rerun installer.' }
 
 if ([IO.Path]::GetFullPath($sourceBinary) -ne [IO.Path]::GetFullPath($targetBinary)) {

@@ -270,9 +270,18 @@ function Wait-Claim($Invite,$Payload,[bool]$Full) {
     }while($true)
 }
 function Invoke-TrustedScript([string]$Path,[string[]]$Arguments) {
-    $text=& "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Path @Arguments 2>&1
-    if($LASTEXITCODE -ne 0){Stop-Worker 'A Worker setup/check step failed; protected state and backups were retained.'}
-    return ($text -join "`n")
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $text=& "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Path @Arguments 2>&1
+        if($LASTEXITCODE -ne 0){
+            $detail = ($text -join "`n")
+            Stop-Worker ("A Worker setup/check step failed ($Path):`n" + $detail)
+        }
+        return ($text -join "`n")
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
 }
 function Check-Local($Assignment) {
     $services=[ordered]@{}
@@ -304,11 +313,13 @@ try{
         exit 2
     }
     if($Action -in @('uninstall','cleanup-retry')){
-        . (Join-Path $PSScriptRoot 'worker-uninstall.ps1')
+        $auth = $AuthorizationPath
+        $ca = $CaFile
+        . (Join-Path $PSScriptRoot 'worker-uninstall.ps1') -ExportFunctionsOnly
         if($Action -eq 'uninstall'){
-            Invoke-WorkerUninstall -AuthorizationPath $AuthorizationPath -CaFile $CaFile
+            Invoke-WorkerUninstall -AuthorizationPath $auth -CaFile $ca
         }else{
-            Invoke-WorkerCleanupRetry -AuthorizationPath $AuthorizationPath -CaFile $CaFile
+            Invoke-WorkerCleanupRetry -AuthorizationPath $auth -CaFile $ca
         }
         exit 0
     }
@@ -477,7 +488,7 @@ try{
         $agentExePath = Join-Path $env:ProgramData 'ZT-ServerOps\agent\zt-agent.exe'
         $agentCfgPath = Join-Path $env:ProgramData 'ZT-ServerOps\agent\config.json'
         $expectedAgentCmd = '"' + $agentExePath + '" --service --config "' + $agentCfgPath + '"'
-        Set-EntryValue $state 'owned_services' [ordered]@{
+        $ownedServicesObj = [ordered]@{
             agent = [ordered]@{
                 name = 'ZTServerOpsAgent'
                 command = $expectedAgentCmd
@@ -487,6 +498,7 @@ try{
                 config = Join-Path $env:ProgramData 'ZT-ServerOps\worker\zt-worker.conf'
             }
         }
+        Set-EntryValue $state 'owned_services' $ownedServicesObj
         Set-EntryValue $state 'owned_rules' @('ZT-ServerOps-SSH-VPN', 'ZT-ServerOps-SSH-Transport-Block')
         Set-EntryValue $state 'phase' 'network_in_progress'
         Save-State $state
